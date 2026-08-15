@@ -1,0 +1,53 @@
+# patchbay — recipes
+# Run commands: just <recipe-name>
+
+# List recipes by default
+default:
+    @just --list
+
+# Stage the browser remote for embedding: dx web build of patchbay-web →
+# app/web-dist/, which `--features embed-web` compiles into the binary
+# via include_dir!. web-dist/ is gitignored.
+web-stage:
+    cd app/web && dx build --platform web --release
+    rm -rf app/web-dist
+    cp -r target/dx/patchbay-web/release/web/public app/web-dist
+
+# Install on this machine: release binary (web bundle EMBEDDED) in
+# ~/.local/lib/fts, `patchbay` on PATH, launcher entry + icon.
+install: web-stage
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --release -p fts-patchbay --features embed-web
+    install -d ~/.local/lib/fts
+    install -m 755 target/release/fts-patchbay ~/.local/lib/fts/patchbay.new
+    mv -T ~/.local/lib/fts/patchbay.new ~/.local/lib/fts/patchbay
+    install -d ~/.local/bin
+    ln -sf ~/.local/lib/fts/patchbay ~/.local/bin/patchbay
+    install -d ~/.local/share/icons/hicolor/scalable/apps
+    install -m 644 app/assets/icon.svg \
+        ~/.local/share/icons/hicolor/scalable/apps/patchbay.svg
+    install -d ~/.local/share/applications
+    sed "s|@BIN@|$HOME/.local/lib/fts/patchbay|" \
+        app/assets/patchbay.desktop \
+        > ~/.local/share/applications/patchbay.desktop
+    update-desktop-database ~/.local/share/applications 2>/dev/null || true
+    gtk-update-icon-cache ~/.local/share/icons/hicolor 2>/dev/null || true
+    # KDE keeps its own per-environment menu cache; rebuild it in the
+    # session's env (a dev-shell kbuildsycoca updates the wrong cache).
+    systemd-run --user --collect kbuildsycoca6 2>/dev/null || kbuildsycoca6 2>/dev/null || true
+    echo "installed: Patchbay (run 'patchbay' or launch from the app menu)"
+
+# Run the app from source
+run:
+    cargo run -p fts-patchbay
+
+check:
+    cargo check --workspace --all-targets
+
+test:
+    cargo test --workspace
+
+lint:
+    cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets -- -D warnings

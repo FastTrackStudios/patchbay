@@ -7,3 +7,4 @@ result
 result-*
 *.profraw
 .DS_Store
+/web-dist
