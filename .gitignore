@@ -1,0 +1,9 @@
+/target
+**/target
+/dist
+**/dist
+.direnv/
+result
+result-*
+*.profraw
+.DS_Store

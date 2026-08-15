@@ -1,0 +1,13 @@
+# Template — `just patchbay-install` substitutes the binary path and
+# copies this to ~/.local/share/applications/.
+[Desktop Entry]
+Type=Application
+Name=Patchbay
+GenericName=Studio Routing
+Comment=PipeWire graph, Dante routing grid, rig health, and latency control
+Exec=@BIN@
+Icon=patchbay
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=pipewire;routing;dante;patchbay;latency;quantum;inferno;
+StartupWMClass=fts-patchbay

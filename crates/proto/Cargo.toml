@@ -1,0 +1,22 @@
+[package]
+name = "patchbay-proto"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["vox"]
+vox = []
+
+[dependencies]
+vox.workspace = true
+vox-types.workspace = true
+architect = { workspace = true, features = ["vox"] }
+facet.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true

@@ -1,0 +1,7 @@
+# dx config for the patchbay browser remote (web build only; the desktop
+# shell is apps/patchbay).
+[application]
+
+[bundle]
+identifier = "app.fasttrackstudio.patchbay"
+publisher = "FastTrackStudio"

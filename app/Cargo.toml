@@ -1,0 +1,40 @@
+[package]
+name = "fts-patchbay"
+version = "0.1.0"
+edition = "2024"
+default-run = "fts-patchbay"
+
+[[bin]]
+name = "fts-patchbay"
+path = "src/main.rs"
+
+[[bin]]
+name = "patchbay-cli"
+path = "src/cli.rs"
+
+[dependencies]
+patchbay.workspace = true
+patchbay-proto.workspace = true
+patchbay-ui.workspace = true
+architect = { workspace = true, features = ["vox", "local", "host", "server-axum"] }
+vox.workspace = true
+clap = { workspace = true, features = ["env"] }
+dioxus = { workspace = true, default-features = true, features = ["desktop", "launch"] }
+eyre.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+vox-core.workspace = true
+vox-websocket.workspace = true
+
+include_dir = { workspace = true, optional = true }
+
+[features]
+default = []
+# Embed the staged web bundle (`web-dist/`, copied from the dx web build
+# by `just patchbay-web-stage`) so the ONE binary serves the browser
+# remote at http://<host>:4046/.
+embed-web = ["dep:include_dir"]
+
+[lints]
+workspace = true

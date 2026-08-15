@@ -1,0 +1,36 @@
+[package]
+name = "patchbay"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+
+[dependencies]
+patchbay-proto.workspace = true
+architect = { workspace = true, features = ["vox"] }
+vox.workspace = true
+eyre.workspace = true
+parking_lot.workspace = true
+facet.workspace = true
+facet-styx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+dirs = "6"
+inferno-net.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = "0.10"
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+vox-websocket.workspace = true
+vox-core.workspace = true
