@@ -25,7 +25,8 @@ jobs:
             libasound2-dev \
             libudev-dev \
             pkg-config \
-            libpipewire-0.3-dev
+            libpipewire-0.3-dev \
+            libxdo-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
