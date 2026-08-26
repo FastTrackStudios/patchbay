@@ -2,6 +2,7 @@
 name = "fts-patchbay"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 default-run = "fts-patchbay"
 
 [[bin]]
@@ -17,6 +18,9 @@ patchbay.workspace = true
 patchbay-proto.workspace = true
 patchbay-ui.workspace = true
 architect = { workspace = true, features = ["vox", "local", "host", "server-axum"] }
+# Console logs plus OTLP export of traces/logs/metrics when
+# OTEL_EXPORTER_OTLP_ENDPOINT is set — every FTS process exports (W10).
+architect-telemetry = { workspace = true, features = ["otel"] }
 vox.workspace = true
 clap = { workspace = true, features = ["env"] }
 dioxus = { workspace = true, default-features = true, features = ["desktop", "launch"] }

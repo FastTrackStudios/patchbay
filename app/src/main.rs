@@ -12,7 +12,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use architect::host::{self, EngineHost, WebBundle};
+use architect::host::{EngineHost, WebBundle};
 use dioxus::prelude::*;
 use patchbay::PatchbayBackend;
 use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
@@ -135,7 +135,17 @@ fn main() {
         }
     }
 
-    host::init_tracing("info");
+    // Console logs (RUST_LOG-filtered fmt, same as host::init_tracing) plus
+    // OTLP export of traces/logs/metrics when OTEL_EXPORTER_OTLP_ENDPOINT is
+    // set (http/protobuf → the local collector on :4318). Guards are leaked —
+    // main hands control to the dioxus event loop, which never returns.
+    let (sentry_guard, otel_guard) = architect_telemetry::init_tracing_full("fts-patchbay", "info");
+    if let Some(g) = sentry_guard {
+        std::mem::forget(g);
+    }
+    if let Some(g) = otel_guard {
+        std::mem::forget(g);
+    }
 
     if let Err(e) = bootstrap_blocking() {
         eprintln!("patchbay engine failed to start: {e:?}");

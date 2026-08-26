@@ -22,7 +22,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.87"
 authors = ["FastTrack Studio"]
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/FastTrackStudios/patchbay"
 
 [workspace.dependencies]
@@ -33,6 +33,7 @@ patchbay-ui = { path = "crates/ui" }
 
 # ── architect (RPC / services / transports) ───────────────────────────
 architect = { git = "https://github.com/FastTrackStudios/architect", tag = "v0.2.0" }
+architect-telemetry = { git = "https://github.com/FastTrackStudios/architect", tag = "v0.2.0" }
 
 # ── music-convention (instrument catalog → port colours) ──────────────
 music-catalog = { git = "https://github.com/FastTrackStudios/music-convention", tag = "v0.1.0" }
