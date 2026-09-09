@@ -6,11 +6,21 @@
 //! actually want in the Audio Input Capture list is a device called
 //! "Stems Bus".
 //!
-//! `module-virtual-source` provides exactly that — a real source node
-//! fed from the sink's monitor, carrying its own description. This is a
-//! `pulse` module rather than a `PipeWire` factory object, so it goes
-//! through `pactl`, the same "express intent, shell out, best-effort"
-//! contract as the clock and Dante helpers.
+//! `module-virtual-source` provides exactly that. It is named like a
+//! `PulseAudio` module and is loaded through `pactl`, but `PipeWire`
+//! implements it itself and it produces real `PipeWire` nodes:
+//!
+//! ```text
+//! output.<bus>-src   Audio/Source          ← what OBS lists
+//! input.<bus>-src    Stream/Input/Audio    ← the tap on the bus monitor
+//! ```
+//!
+//! That `output.` prefix is why [`plan`] checks for both the prefixed
+//! and the bare name when deciding whether a source already exists.
+//!
+//! It is reached through `pactl` rather than a factory call, so it
+//! follows the same "express intent, shell out, best-effort" contract as
+//! the clock and Dante helpers.
 //!
 //! Parsing and planning are pure and tested; only [`ensure`] and
 //! [`remove`] run a process.

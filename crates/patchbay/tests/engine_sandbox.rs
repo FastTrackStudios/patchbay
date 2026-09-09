@@ -161,6 +161,38 @@ async fn engine_drives_a_real_graph() {
         })
     });
 
+    // ── OBS capture source for a capturable bus ─────────────────────
+    //
+    // The pactl-backed half. Skipped when this host has no pulse tools;
+    // the unit tests still cover the parsing and planning.
+    if sandbox.await_pulse() {
+        let obs_bus = "Sandbox OBS Bus";
+        backend
+            .add_virtual_sink(VirtualSink {
+                name: obs_bus.to_owned(),
+                channels: 2,
+                capturable: true,
+            })
+            .await
+            .expect("add capturable sink");
+
+        let want = patchbay_proto::capture_source_name(&sink_node_name(obs_bus));
+        eventually("the OBS capture source to be created", SETTLE, || {
+            pactl_sources().iter().any(|s| s.contains(&want))
+        });
+
+        // Idempotent: ensure() runs on every settle, and a second pass
+        // must not stack a duplicate module.
+        let before = pactl_sources().iter().filter(|s| s.contains(&want)).count();
+        backend.apply_routes().await.expect("apply_routes");
+        std::thread::sleep(Duration::from_secs(2));
+        let after = pactl_sources().iter().filter(|s| s.contains(&want)).count();
+        assert_eq!(
+            before, after,
+            "a second settle must not create a duplicate capture source"
+        );
+    }
+
     // Re-applying must not duplicate — routes run on every settle.
     let before = backend.graph().await.expect("graph").links.len();
     backend.apply_routes().await.expect("apply_routes");
@@ -169,6 +201,23 @@ async fn engine_drives_a_real_graph() {
         before, after,
         "applying an already-satisfied route must create nothing"
     );
+}
+
+/// Source names `pactl` currently reports, or empty when it can't run.
+fn pactl_sources() -> Vec<String> {
+    std::process::Command::new("pactl")
+        .args(["list", "short", "sources"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter_map(|l| l.split('\t').nth(1))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Wait until `node_name` exists AND carries the ports that make it

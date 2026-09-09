@@ -8,10 +8,27 @@
 //! session and nothing in the host session is visible to the test.
 //!
 //! The daemon config is deliberately narrow — no ALSA, no v4l2, no jack
-//! tunnel, no pulse — just the factories patchbay actually drives. A
-//! session manager (`wireplumber`) runs alongside because without one
-//! nothing applies a port config, and a null sink with no ports can't be
-//! linked to anything.
+//! tunnel — just the factories patchbay actually drives. A session
+//! manager (`wireplumber`) runs alongside because without one nothing
+//! applies a port config, and a null sink with no ports can't be linked
+//! to anything.
+//!
+//! # One daemon, two protocols
+//!
+//! There is no `PulseAudio` server here. The single `pipewire` process
+//! loads `libpipewire-module-protocol-pulse`, which makes it *speak* the
+//! `PulseAudio` wire protocol on a second socket:
+//!
+//! ```text
+//! pipewire (one process)
+//! ├── <runtime>/pipewire-0            native  → pw-*, patchbay's engine
+//! └── <runtime>/pulse/native-pipewire-0  pulse → pactl, parec
+//! ```
+//!
+//! Both doors open onto the SAME graph: a sink created through `pactl`
+//! is a real `PipeWire` node built by the same `support.null-audio-sink`
+//! factory patchbay drives natively. `pulseaudio` is only needed for its
+//! client tools, never as a server.
 
 #![allow(clippy::arithmetic_side_effects, dead_code)]
 
@@ -46,6 +63,9 @@ context.modules = [
     { name = libpipewire-module-client-node }
     { name = libpipewire-module-adapter }
     { name = libpipewire-module-link-factory }
+    # pipewire-pulse, so the pactl-backed features (capture sources,
+    # app-stream routing) have an endpoint that is not the host's.
+    { name = libpipewire-module-protocol-pulse }
 ]
 ";
 
@@ -78,7 +98,7 @@ impl Sandbox {
         // and the usual per-test temp dirs blow straight through it.
         let dir = std::env::temp_dir().join(format!("pb-sbx-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("create sandbox dir");
+        std::fs::create_dir_all(dir.join("pulse")).expect("create sandbox dir");
         let config = dir.join("sandbox.conf");
         std::fs::write(&config, CONFIG).expect("write sandbox config");
 
@@ -86,6 +106,7 @@ impl Sandbox {
             .arg("-c")
             .arg(&config)
             .env("PIPEWIRE_RUNTIME_DIR", &dir)
+            .env("PULSE_RUNTIME_PATH", dir.join("pulse"))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -116,6 +137,47 @@ impl Sandbox {
         &self.dir
     }
 
+    /// Value for `PULSE_SERVER`: the socket where this sandbox's
+    /// `pipewire` daemon speaks the `PulseAudio` protocol.
+    ///
+    /// Named for the environment variable, not for a separate server —
+    /// there isn't one (see the module docs). The name is
+    /// `native-pipewire-0` rather than the plain `native` that
+    /// `PULSE_RUNTIME_PATH` alone would make `pactl` look for, because
+    /// `pipewire-pulse` appends the core name.
+    pub fn pulse_server(&self) -> String {
+        format!(
+            "unix:{}",
+            self.dir.join("pulse/native-pipewire-0").display()
+        )
+    }
+
+    /// Block until `pactl` can talk to the sandbox, or give up.
+    ///
+    /// Returns false when this host has no `pactl` — the pulse-backed
+    /// features are best-effort by design, and their unit tests still
+    /// cover the parsing.
+    pub fn await_pulse(&self) -> bool {
+        if which("pactl").is_none() {
+            return false;
+        }
+        let deadline = Instant::now() + READY_TIMEOUT;
+        while Instant::now() < deadline {
+            let ok = Command::new("pactl")
+                .arg("info")
+                .env("PULSE_SERVER", self.pulse_server())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            if ok {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        false
+    }
+
     /// Point THIS PROCESS at the sandbox.
     ///
     /// libpipewire reads `PIPEWIRE_RUNTIME_DIR` when a client connects,
@@ -129,6 +191,10 @@ impl Sandbox {
     pub unsafe fn redirect_this_process(&self) {
         unsafe {
             std::env::set_var("PIPEWIRE_RUNTIME_DIR", &self.dir);
+            // pactl/parec look for `<PULSE_RUNTIME_PATH>/native`, but
+            // pipewire-pulse names its socket after the core, so point
+            // at the real path rather than the conventional one.
+            std::env::set_var("PULSE_SERVER", self.pulse_server());
             // Keep the test's own config out of the user's real one.
             std::env::set_var("PATCHBAY_CONFIG", self.dir.join("patchbay.styx"));
         }
