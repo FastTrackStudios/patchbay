@@ -1,7 +1,3 @@
-// Lint debt: workspace flipped dead_code/unused to warn (task cleanup);
-// this crate predates that — burn down separately.
-#![allow(dead_code, unused)]
-
 //! patchbay-cli — the scriptable / AI-friendly surface of the patchbay.
 //!
 //! Talks to a RUNNING Patchbay app over ws (default
@@ -16,8 +12,8 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use patchbay_proto::{
-    GraphSnapshot, LatencyRule, NamedRoute, PatchbayError, PatchbayService, PatchbayServiceClient,
-    PortDirection, PwNode, RouteEndpoint, ServiceAction,
+    GraphSnapshot, LatencyRule, NamedRoute, PatchbayServiceClient, PortDirection, PwNode,
+    RouteEndpoint, ServiceAction,
 };
 
 #[derive(Parser)]
@@ -26,10 +22,16 @@ use patchbay_proto::{
     about = "PipeWire studio-routing control (FTS Patchbay)"
 )]
 struct Cli {
-    /// ws endpoint of a running Patchbay app; falls back to an
-    /// in-process engine when unreachable.
+    /// ws endpoint of a running Patchbay app.
     #[arg(long, env = "PATCHBAY_ADDR", default_value = "ws://127.0.0.1:4046/vox")]
     url: String,
+
+    /// Don't try `--url`; run a private in-process engine instead.
+    /// Without this, failing to reach a running app is an ERROR — a
+    /// silent fallback would quietly open a second `PipeWire` connection
+    /// and edit the graph from a different process than you expected.
+    #[arg(long, global = true)]
+    local: bool,
 
     /// Machine-readable output.
     #[arg(long, global = true)]
@@ -80,12 +82,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: RouteCmd,
     },
-    /// Alias a node's ports from a REAPER ChanMap file (channel names
+    /// Alias a node's ports from a REAPER `ChanMap` file (channel names
     /// → port aliases). Empty path = the host's default chanmap.
     Chanmap {
         /// Node to name (name, label, or alias).
         node: String,
-        /// ChanMap path; empty = `~/.fasttrackstudio/Reaper/ChanMaps/<host>.ReaperChanMap`.
+        /// `ChanMap` path; empty = `~/.fasttrackstudio/Reaper/ChanMaps/<host>.ReaperChanMap`.
         #[arg(long, default_value = "")]
         path: String,
     },
@@ -241,14 +243,26 @@ enum LatencyCmd {
 
 // ─── Client plumbing ────────────────────────────────────────────────────
 
-/// Ws to the running app, else a local engine (~1.5s settle).
-async fn client(url: &str) -> eyre::Result<PatchbayServiceClient> {
-    if let Ok(link) = vox_websocket::WsLink::connect(url).await {
-        if let Ok(c) = vox_core::initiator_on(link).establish().await {
-            return Ok(c);
+/// Ws to the running app, or — with `--local` — a private in-process
+/// engine (~1.5s settle).
+async fn client(url: &str, local: bool) -> eyre::Result<PatchbayServiceClient> {
+    if !local {
+        match vox_websocket::WsLink::connect(url).await {
+            Ok(link) => {
+                return vox_core::initiator_on(link)
+                    .establish()
+                    .await
+                    .map_err(|e| eyre::eyre!("handshake with {url} failed: {e:?}"));
+            }
+            Err(e) => {
+                eyre::bail!(
+                    "no Patchbay app at {url} ({e}).\n\
+                     Start the app, or pass --local to run a private in-process engine."
+                );
+            }
         }
     }
-    eprintln!("(no running app at {url} — using an in-process engine)");
+    eprintln!("(--local: running a private in-process engine)");
     let backend = patchbay::PatchbayBackend::new();
     let scope = architect::Scope::new();
     let server = architect::LocalServer::serve(backend.router(), Arc::clone(&scope));
@@ -282,10 +296,13 @@ fn find_node<'a>(
                 || aliases.get(&n.name).is_some_and(|a| a.to_lowercase() == q)
         })
         .collect();
-    match matches.len() {
-        1 => Ok(matches[0]),
-        0 => eyre::bail!("no node matches '{query}' (try `patchbay-cli nodes`)"),
-        n => eyre::bail!("'{query}' is ambiguous ({n} nodes match) — use the exact node.name"),
+    match matches.as_slice() {
+        [only] => Ok(*only),
+        [] => eyre::bail!("no node matches '{query}' (try `patchbay-cli nodes`)"),
+        many => eyre::bail!(
+            "'{query}' is ambiguous ({} nodes match) — use the exact node.name",
+            many.len()
+        ),
     }
 }
 
@@ -313,14 +330,14 @@ fn find_port(
         })
         .map(|p| p.id)
         .collect();
-    match matches.len() {
-        1 => Ok(matches[0]),
-        0 => eyre::bail!(
+    match matches.as_slice() {
+        [only] => Ok(*only),
+        [] => eyre::bail!(
             "no {direction:?} port '{port_q}' on '{}' (try `patchbay-cli ports '{}'`)",
             node.name,
             node.name
         ),
-        n => eyre::bail!("'{spec}' is ambiguous ({n} ports match)"),
+        many => eyre::bail!("'{spec}' is ambiguous ({} ports match)", many.len()),
     }
 }
 
@@ -332,10 +349,14 @@ fn ok_or_msg<T, E: std::fmt::Display>(r: Result<T, E>) -> eyre::Result<T> {
     r.map_err(|e| eyre::eyre!("{e}"))
 }
 
+// One arm per subcommand: a flat dispatch table is the clearest shape
+// for a CLI, and splitting it into 30 one-call helpers would only move
+// the length around.
+#[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
-    let c = client(&cli.url).await?;
+    let c = client(&cli.url, cli.local).await?;
 
     match cli.cmd {
         Cmd::Status => {
@@ -409,7 +430,11 @@ async fn main() -> eyre::Result<()> {
             let aliases = alias_map(ok_or_msg(c.aliases().await)?);
             let n = find_node(&g, &aliases, &node)?;
             let mut ports: Vec<_> = g.ports.iter().filter(|p| p.node_id == n.id).collect();
-            ports.sort_by(|a, b| (a.direction as u8, &a.name).cmp(&(b.direction as u8, &b.name)));
+            // Inputs before outputs, then by name.
+            let dir_rank = |d: PortDirection| u8::from(d == PortDirection::Output);
+            ports.sort_by(|a, b| {
+                (dir_rank(a.direction), &a.name).cmp(&(dir_rank(b.direction), &b.name))
+            });
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&ports)?);
                 return Ok(());
@@ -439,15 +464,13 @@ async fn main() -> eyre::Result<()> {
                 g.nodes
                     .iter()
                     .find(|n| n.id == id)
-                    .map(|n| n.name.as_str())
-                    .unwrap_or("?")
+                    .map_or("?", |n| n.name.as_str())
             };
             let port = |id: u32| {
                 g.ports
                     .iter()
                     .find(|p| p.id == id)
-                    .map(|p| p.name.as_str())
-                    .unwrap_or("?")
+                    .map_or("?", |p| p.name.as_str())
             };
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&g.links)?);
@@ -733,8 +756,7 @@ async fn main() -> eyre::Result<()> {
                         let rx_name =
                             d.rx.iter()
                                 .find(|ch| ch.number == s.rx_channel)
-                                .map(|ch| ch.name.as_str())
-                                .unwrap_or("?");
+                                .map_or("?", |ch| ch.name.as_str());
                         println!(
                             "   rx {:>3} {:<26} <- {}@{}  status={}",
                             s.rx_channel, rx_name, s.tx_channel, s.tx_device, s.status
@@ -791,8 +813,7 @@ async fn main() -> eyre::Result<()> {
                         let rx_name =
                             d.rx.iter()
                                 .find(|ch| ch.number == s.rx_channel)
-                                .map(|ch| ch.name.as_str())
-                                .unwrap_or("?");
+                                .map_or("?", |ch| ch.name.as_str());
                         println!(
                             "   rx {:>3} {:<26} <- {}@{}",
                             s.rx_channel, rx_name, s.tx_channel, s.tx_device

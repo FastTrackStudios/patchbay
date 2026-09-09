@@ -1,3 +1,14 @@
+// Smoke binary: this is a hand-run probe against a live PipeWire graph,
+// so panicking loudly on a failed step IS the intended behaviour — the
+// same carve-out `clippy.toml` gives tests.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::as_conversions,
+    clippy::items_after_statements
+)]
+
 //! 1:1 bulk-connect smoke on two scratch null sinks (creates them via
 //! pw-cli, links A's monitors to B's inputs, verifies, tears down).
 //!

@@ -35,8 +35,8 @@ fn toggle_expanded(axis: &str, dev: &str, now: bool) {
     GRID_EXPANDED.write().insert(format!("{axis}/{dev}"), !now);
 }
 
-/// Subscription of `rx_dev`'s channel `rx_ch` if any: (tx_device,
-/// tx_channel_name, healthy). Healthy ARC statuses: 1 (inferno-aoip's
+/// Subscription of `rx_dev`'s channel `rx_ch` if any: (`tx_device`,
+/// `tx_channel_name`, healthy). Healthy ARC statuses: 1 (inferno-aoip's
 /// "connected"), 9 (Dante dynamic/unicast), 14 (Dante static/multicast).
 fn sub_of(rx_dev: &DanteDevice, rx_ch: u32) -> Option<(&str, &str, bool)> {
     rx_dev
@@ -94,7 +94,7 @@ pub fn DanteGrid() -> Element {
     // so the cell flips instantly; a delayed re-scan verifies against
     // the network (ARC round-trips are seconds).
     let click_cell = {
-        let handle = handle.clone();
+        let handle = handle;
         // `ops` = (rx_channel, tx_channel_name) pairs — one for a plain
         // click, two for a shift-click stereo pair.
         move |rx_device: String, ops: Vec<(u32, String)>, tx_device: String, is_sub: bool| {
@@ -179,7 +179,7 @@ pub fn DanteGrid() -> Element {
                         .into_iter()
                         .enumerate()
                         .map(|(i, name)| patchbay_proto::DanteChannel {
-                            number: i as u32 + 1,
+                            number: u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1),
                             name,
                         })
                         .collect(),

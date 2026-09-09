@@ -64,7 +64,7 @@ pub fn StatusBar() -> Element {
     let dante = DANTE.read().clone();
     let handle = state::use_patchbay();
     let ms = if clock.rate > 0 {
-        clock.quantum as f64 / clock.rate as f64 * 1000.0
+        f64::from(clock.quantum) / f64::from(clock.rate) * 1000.0
     } else {
         0.0
     };
@@ -244,6 +244,8 @@ fn VirtualSinksPanel() -> Element {
     drop(graph);
     let mut new_name = use_signal(String::new);
     let mut channels = use_signal(|| 2u32);
+    // Expose the bus to OBS as a named capture device, not just a monitor.
+    let mut capturable = use_signal(|| false);
 
     let add = {
         let handle = handle.clone();
@@ -255,6 +257,7 @@ fn VirtualSinksPanel() -> Element {
             let sink = patchbay_proto::VirtualSink {
                 name,
                 channels: *channels.peek(),
+                capturable: *capturable.peek(),
             };
             let handle = handle.clone();
             spawn(async move {
@@ -283,6 +286,15 @@ fn VirtualSinksPanel() -> Element {
                     option { value: "2", selected: *channels.read() == 2, "stereo" }
                     option { value: "4", selected: *channels.read() == 4, "4ch" }
                     option { value: "8", selected: *channels.read() == 8, "8ch" }
+                }
+                button {
+                    class: if *capturable.read() { "chip on" } else { "chip" },
+                    title: "also expose this bus to OBS as a named capture source",
+                    onclick: move |_| {
+                        let cur = *capturable.peek();
+                        capturable.set(!cur);
+                    },
+                    "OBS"
                 }
                 button { class: "chip", onclick: add, "add" }
             }
@@ -332,7 +344,7 @@ fn VirtualSinksPanel() -> Element {
 /// graph runs at the lowest request among RUNNING apps, so REAPER at 64
 /// only costs you 64 while REAPER is open — everything idles back to
 /// the 1024 default after. Rules apply when a node is created: restart
-/// the app, or hit apply (WirePlumber restart, brief blip).
+/// the app, or hit apply (`WirePlumber` restart, brief blip).
 #[component]
 fn LatencyPanel() -> Element {
     let handle = state::use_patchbay();
@@ -388,7 +400,7 @@ fn LatencyPanel() -> Element {
                         "{rule.quantum}"
                         if rule.force { span { class: "forced-tag", " pin" } }
                     }
-                    button { class: "chip danger", onclick: remove(rule.pattern.clone()), "✕" }
+                    button { class: "chip danger", onclick: remove(rule.pattern), "✕" }
                 }
             }
             button {
@@ -405,7 +417,7 @@ fn LatencyPanel() -> Element {
 
 /// Runtime clock defaults — the patchbay-owned override of the flake's
 /// 50-quantum.conf (idle/default quantum + the min/max clamp). Applies
-/// on PipeWire restart.
+/// on `PipeWire` restart.
 #[component]
 fn ClockDefaultsEditor() -> Element {
     let handle = state::use_patchbay();
@@ -420,7 +432,7 @@ fn ClockDefaultsEditor() -> Element {
     }));
 
     let save = {
-        let handle = handle.clone();
+        let handle = handle;
         move |_| {
             let handle = handle.clone();
             let defaults = patchbay_proto::ClockDefaults {
@@ -468,9 +480,9 @@ fn ClockDefaultsEditor() -> Element {
     }
 }
 
-/// Rig health: the managed systemd units (PipeWire, WirePlumber, PTP
+/// Rig health: the managed systemd units (`PipeWire`, `WirePlumber`, PTP
 /// clock, Inferno nodes, routing links…) with restart controls. When
-/// PipeWire itself is down the engine reconnects on its own once it's
+/// `PipeWire` itself is down the engine reconnects on its own once it's
 /// restarted from here.
 #[component]
 fn ServicesPanel() -> Element {
@@ -578,12 +590,12 @@ fn preset_diff(preset: &patchbay_proto::RoutingPreset) -> String {
                     .iter()
                     .any(|x| x.output_port == op && x.input_port == ip)
                 {
-                    existing += 1;
+                    existing = existing.saturating_add(1);
                 } else {
-                    create += 1;
+                    create = create.saturating_add(1);
                 }
             }
-            _ => missing += 1,
+            _ => missing = missing.saturating_add(1),
         }
     }
     // Exclusive mode would ALSO remove live links absent from the preset.
@@ -630,7 +642,7 @@ fn PresetsPanel() -> Element {
                 button {
                     class: "chip",
                     onclick: {
-                        let handle = handle.clone();
+                        let handle = handle;
                         move |_| {
                             let name = new_name.peek().trim().to_string();
                             if name.is_empty() {
@@ -735,25 +747,19 @@ fn Inspector() -> Element {
         .cloned()
         .collect();
     drop(graph);
-    ports.sort_by_key(|p| {
-        let digits = p
-            .name
-            .chars()
-            .rev()
-            .take_while(|c| c.is_ascii_digit())
-            .count();
-        if digits == 0 || digits == p.name.len() {
-            (p.name.clone(), 0u64)
-        } else {
-            let (prefix, num) = p.name.split_at(p.name.len() - digits);
-            (prefix.to_string(), num.parse().unwrap_or(0))
-        }
+    // Numeric-aware, and `cached` because the key allocates.
+    ports.sort_by_cached_key(|p| {
+        patchbay_proto::split_port_number(&p.name).map_or_else(
+            || (p.name.clone(), 0u64),
+            |(prefix, n)| (prefix.to_owned(), n),
+        )
     });
 
     let aliases = ALIASES.read();
     let colors = state::COLORS.read();
     let node_alias = aliases.get(&node.name).cloned().unwrap_or_default();
     let node_color = colors.get(&node.name).cloned().unwrap_or_default();
+    #[allow(clippy::needless_collect)]
     let port_aliases: Vec<(String, String, String)> = ports
         .iter()
         .map(|p| {
@@ -763,6 +769,8 @@ fn Inspector() -> Element {
             (p.name.clone(), alias, color)
         })
         .collect();
+    // The collect above is load-bearing: it ends the ALIASES/COLORS
+    // borrows here, so rendering below can write those signals again.
     drop(aliases);
     drop(colors);
 
@@ -851,8 +859,8 @@ fn ColorSwatches(target: String, current: String) -> Element {
                 class: if current.is_empty() { "swatch none on" } else { "swatch none" },
                 title: "no color (media-kind default)",
                 onclick: {
-                    let handle = handle.clone();
-                    let target = target.clone();
+                    let handle = handle;
+                    let target = target;
                     move |_| set_color(handle.clone(), target.clone(), String::new())
                 },
                 "×"
@@ -877,11 +885,14 @@ fn ColorCycle(target: String, current: String) -> Element {
             style: "{style}",
             title: "channel color (click to cycle)",
             onclick: move |_| {
-                let next = match state::PALETTE.iter().position(|c| *c == current) {
-                    None => state::PALETTE[0].to_string(),
-                    Some(i) if i + 1 < state::PALETTE.len() => state::PALETTE[i + 1].to_string(),
-                    Some(_) => String::new(),
-                };
+                // Cycle: unset → first → … → last → unset.
+                let next = state::PALETTE
+                    .iter()
+                    .position(|c| *c == current)
+                    .map_or(0, |i| i.saturating_add(1));
+                let next = state::PALETTE
+                    .get(next)
+                    .map_or_else(String::new, |c| (*c).to_owned());
                 set_color(handle.clone(), target.clone(), next);
             },
         }
@@ -902,7 +913,7 @@ fn BulkNames(node_name: String) -> Element {
         let node_name = node_name.clone();
         move |_| {
             let names: Vec<String> = text.peek().lines().map(|l| l.trim().to_string()).collect();
-            if names.iter().all(|l| l.is_empty()) {
+            if names.iter().all(std::string::String::is_empty) {
                 result.set("paste channel names first (one per line)".into());
                 return;
             }
@@ -917,16 +928,7 @@ fn BulkNames(node_name: String) -> Element {
                 .filter(|p| p.node_id == node.id && p.direction == direction)
                 .filter(|p| !crate::layout::is_monitor(&p.name))
                 .filter_map(|p| {
-                    let digits = p
-                        .name
-                        .chars()
-                        .rev()
-                        .take_while(|c| c.is_ascii_digit())
-                        .count();
-                    if digits == 0 || digits == p.name.len() {
-                        return None;
-                    }
-                    let n: u64 = p.name[p.name.len() - digits..].parse().ok()?;
+                    let (_, n) = patchbay_proto::split_port_number(&p.name)?;
                     Some((n, p.name.clone()))
                 })
                 .collect();
@@ -944,14 +946,23 @@ fn BulkNames(node_name: String) -> Element {
             }
             let handle = handle.clone();
             spawn(async move {
-                let n = pairs.len();
-                for (target, alias) in pairs {
-                    if let Err(e) = handle.0.set_alias(target, alias).await {
-                        tracing::warn!("bulk set_alias failed: {e:?}");
+                // ONE call, ONE config write — this used to be a
+                // `set_alias` round-trip per channel (128 of them on a
+                // full bank, each rewriting the whole config file).
+                let entries: Vec<patchbay_proto::AliasEntry> = pairs
+                    .into_iter()
+                    .map(|(target, alias)| patchbay_proto::AliasEntry { target, alias })
+                    .collect();
+                match handle.0.set_aliases(entries).await {
+                    Ok(n) => {
+                        state::refresh_meta(&handle).await;
+                        result.set(format!("named {n} channels"));
+                    }
+                    Err(e) => {
+                        tracing::warn!("bulk set_aliases failed: {e:?}");
+                        result.set(format!("naming failed: {e}"));
                     }
                 }
-                state::refresh_meta(&handle).await;
-                result.set(format!("named {n} channels"));
             });
         }
     };
@@ -988,7 +999,7 @@ fn AliasEditor(target: String, placeholder: String, current: String) -> Element 
     use_effect(use_reactive!(|current| draft.set(current)));
 
     let commit = {
-        let target = target.clone();
+        let target = target;
         move || {
             let value = draft.peek().trim().to_string();
             if value == current {
@@ -1109,8 +1120,8 @@ fn LatencyRuleEditor(node_name: String) -> Element {
         .iter()
         .find(|r| r.pattern == node_name)
         .cloned();
-    let current = rule.as_ref().map(|r| r.quantum).unwrap_or(0);
-    let force = rule.as_ref().map(|r| r.force).unwrap_or(true);
+    let current = rule.as_ref().map_or(0, |r| r.quantum);
+    let force = rule.as_ref().map_or(true, |r| r.force);
 
     let set = |quantum: u32, force: bool| {
         let handle = handle.clone();
@@ -1165,7 +1176,7 @@ fn LatencyRuleEditor(node_name: String) -> Element {
     }
 }
 
-/// Import/export this node's channel names from/to the REAPER ChanMap
+/// Import/export this node's channel names from/to the REAPER `ChanMap`
 /// (empty path = the host's default chanmap).
 #[component]
 fn ChanmapSync(node_name: String) -> Element {
@@ -1201,6 +1212,9 @@ fn ChanmapSync(node_name: String) -> Element {
     };
 
     let mut dante_dev = use_signal(String::new);
+    // Load-bearing: materializing here ends the DANTE_DEVICES borrow
+    // before the rsx! below reads other signals.
+    #[allow(clippy::needless_collect)]
     let dante_names: Vec<String> = state::DANTE_DEVICES
         .read()
         .iter()

@@ -1,6 +1,6 @@
-//! The PipeWire main-loop thread.
+//! The `PipeWire` main-loop thread.
 //!
-//! Helvum's engine design, headless: one OS thread owns the PipeWire
+//! Helvum's engine design, headless: one OS thread owns the `PipeWire`
 //! `MainLoop`; a registry listener mirrors nodes/ports/links into the
 //! shared [`GraphStore`] and emits [`GraphEvent`]s; inbound commands
 //! (create/destroy link) arrive over `pipewire::channel`, which is the
@@ -18,7 +18,12 @@ use patchbay_proto::GraphEvent;
 
 use crate::store::GraphStore;
 
-/// Commands the service sends into the PipeWire thread.
+/// Commands the service sends into the `PipeWire` thread.
+///
+/// This is also the output type of the [`crate::plan`] layer, so it
+/// derives equality: a planner test asserts on the exact commands a
+/// graph would produce, without an engine anywhere in sight.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
     /// All four ids resolved by the service from the store (the link
     /// factory wants node AND port ids on both ends).
@@ -65,12 +70,13 @@ impl EngineHandle {
         #[cfg(target_os = "linux")]
         {
             let slot = self.cmd_slot.lock();
-            match slot.as_ref() {
-                Some(tx) => tx
-                    .send(cmd)
-                    .map_err(|_| "pipewire engine thread is gone".to_string()),
-                None => Err("pipewire is down (engine reconnecting)".to_string()),
-            }
+            slot.as_ref().map_or_else(
+                || Err("pipewire is down (engine reconnecting)".to_owned()),
+                |tx| {
+                    tx.send(cmd)
+                        .map_err(|_| "pipewire engine thread is gone".to_owned())
+                },
+            )
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -80,16 +86,16 @@ impl EngineHandle {
     }
 }
 
-/// Spawn the engine thread. It (re)connects forever: when PipeWire
+/// Spawn the engine thread. It (re)connects forever: when `PipeWire`
 /// dies the graph mirror is cleared (`GraphEvent::Reset`) and the
-/// thread retries every few seconds — restart PipeWire from the
+/// thread retries every few seconds — restart `PipeWire` from the
 /// services panel and the graph re-mirrors by itself.
 pub(crate) fn spawn(store: Arc<RwLock<GraphStore>>, events: Sender<GraphEvent>) -> EngineHandle {
     #[cfg(target_os = "linux")]
     {
         let cmd_slot: CmdSlot = Arc::new(parking_lot::Mutex::new(None));
         let slot = cmd_slot.clone();
-        std::thread::Builder::new()
+        let spawned = std::thread::Builder::new()
             .name("patchbay-pw".into())
             .spawn(move || {
                 loop {
@@ -112,8 +118,14 @@ pub(crate) fn spawn(store: Arc<RwLock<GraphStore>>, events: Sender<GraphEvent>) 
                     *slot.lock() = None;
                     std::thread::sleep(std::time::Duration::from_secs(3));
                 }
-            })
-            .expect("spawn patchbay-pw thread");
+            });
+        if let Err(e) = spawned {
+            // No engine thread means no graph at all — but panicking
+            // here would take down whatever host embedded us, so the
+            // handle simply stays permanently disconnected and every
+            // command returns EngineUnavailable.
+            tracing::error!("could not spawn patchbay-pw thread: {e}");
+        }
         EngineHandle { cmd_slot }
     }
     #[cfg(not(target_os = "linux"))]
@@ -153,6 +165,11 @@ mod linux {
     /// One connection lifetime: connect, mirror, serve commands until
     /// the daemon goes away (core error quits the loop). Ok(()) =
     /// connection dropped after being up; Err = couldn't connect.
+    // The whole function is one connection's lifetime: every listener
+    // closure captures Rc handles that must outlive the loop, so
+    // splitting it would mean threading those through helper
+    // signatures for no gain in clarity.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn run_connection(
         store: &Arc<RwLock<GraphStore>>,
         events: &Sender<GraphEvent>,
@@ -208,7 +225,7 @@ mod linux {
 
         // ── Inbound commands ────────────────────────────────────────
         let _cmd_receiver = {
-            let core = core.clone();
+            let core = core;
             let registry = registry.clone();
             let mainloop_quit = mainloop.clone();
             let store_cmd = store.clone();
@@ -237,13 +254,12 @@ mod linux {
                     }
                 }
                 Command::DestroyLink { id } | Command::DestroyNode { id } => {
-                    registry
-                        .destroy_global(id)
-                        .into_result()
-                        .map(|_| ())
-                        .unwrap_or_else(|e| {
+                    registry.destroy_global(id).into_result().map_or_else(
+                        |e| {
                             tracing::warn!(id, "destroy_global failed: {e}");
-                        });
+                        },
+                        |_| (),
+                    );
                 }
                 Command::CreateVirtualSink {
                     node_name,
@@ -290,10 +306,10 @@ mod linux {
             let events_add = events.clone();
             let registry_bind = registry.clone();
             let proxies_add = link_proxies.clone();
-            let store_rm = store.clone();
-            let events_rm = events.clone();
-            let proxies_rm = link_proxies.clone();
-            let pending_rm = pending_sinks.clone();
+            let store_rm = store;
+            let events_rm = events;
+            let proxies_rm = link_proxies;
+            let pending_rm = pending_sinks;
             registry
                 .add_listener_local()
                 .global(move |global| match global.type_ {
@@ -353,7 +369,7 @@ mod linux {
         }
     }
 
-    /// PwNode from a props dict — used for both the registry global's
+    /// `PwNode` from a props dict — used for both the registry global's
     /// prop subset (immediate) and the bound node's full info (refines
     /// with node.group / application.* moments later).
     fn build_node(id: u32, props: &pipewire::spa::utils::dict::DictRef) -> PwNode {
@@ -427,8 +443,7 @@ mod linux {
             .read()
             .nodes
             .get(&node_id)
-            .map(|n| n.media_kind)
-            .unwrap_or(MediaKind::Other);
+            .map_or(MediaKind::Other, |n| n.media_kind);
         let kind = match props.get("format.dsp") {
             Some(f) if f.contains("midi") => MediaKind::Midi,
             Some(f) if f.contains("audio") => MediaKind::Audio,

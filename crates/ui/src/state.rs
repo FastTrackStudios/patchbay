@@ -108,7 +108,7 @@ pub static DRAG: GlobalSignal<Option<Drag>> = Signal::global(|| None);
 
 // ─── Undo (link operations) ─────────────────────────────────────────────
 
-/// One undoable gesture: the (output_port, input_port, created) set it
+/// One undoable gesture: the (`output_port`, `input_port`, created) set it
 /// performed. Undo re-applies each entry inverted.
 pub type LinkOp = Vec<(u32, u32, bool)>;
 
@@ -134,41 +134,59 @@ pub fn apply_graph_event(ev: &GraphEvent) {
     let mut g = GRAPH.write();
     match ev {
         GraphEvent::Reset => *g = GraphSnapshot::default(),
-        GraphEvent::NodeAdded(n) => {
-            g.nodes.retain(|x| x.id != n.id);
-            g.nodes.push(n.clone());
-            g.nodes.sort_by_key(|x| x.id);
-        }
-        GraphEvent::NodeRemoved { id } => g.nodes.retain(|x| x.id != *id),
+        GraphEvent::NodeAdded(n) => upsert_by_id(&mut g.nodes, |x| x.id, n.id, n),
+        GraphEvent::NodeRemoved { id } => remove_by_id(&mut g.nodes, |x| x.id, *id),
         GraphEvent::NodeStateChanged { id, state } => {
-            if let Some(n) = g.nodes.iter_mut().find(|x| x.id == *id) {
+            if let Ok(i) = g.nodes.binary_search_by_key(id, |x| x.id)
+                && let Some(n) = g.nodes.get_mut(i)
+            {
                 n.state = *state;
             }
         }
-        GraphEvent::PortAdded(p) => {
-            g.ports.retain(|x| x.id != p.id);
-            g.ports.push(p.clone());
-            g.ports.sort_by_key(|x| x.id);
-        }
-        GraphEvent::PortRemoved { id, .. } => g.ports.retain(|x| x.id != *id),
-        GraphEvent::LinkAdded(l) => {
-            g.links.retain(|x| x.id != l.id);
-            g.links.push(l.clone());
-            g.links.sort_by_key(|x| x.id);
-        }
+        GraphEvent::PortAdded(p) => upsert_by_id(&mut g.ports, |x| x.id, p.id, p),
+        GraphEvent::PortRemoved { id, .. } => remove_by_id(&mut g.ports, |x| x.id, *id),
+        GraphEvent::LinkAdded(l) => upsert_by_id(&mut g.links, |x| x.id, l.id, l),
         GraphEvent::LinkStateChanged { id, active } => {
-            if let Some(l) = g.links.iter_mut().find(|x| x.id == *id) {
+            if let Ok(i) = g.links.binary_search_by_key(id, |x| x.id)
+                && let Some(l) = g.links.get_mut(i)
+            {
                 l.active = *active;
             }
         }
-        GraphEvent::LinkRemoved { id } => g.links.retain(|x| x.id != *id),
+        GraphEvent::LinkRemoved { id } => remove_by_id(&mut g.links, |x| x.id, *id),
     }
 }
 
-/// Replace the graph mirror wholesale (periodic reconcile — the event
-/// stream can drop under burst; the snapshot is always authoritative).
-/// Skips the signal write when nothing changed so it never causes
-/// re-renders on a quiet graph.
+/// Insert-or-replace `item` in an id-sorted vec, keeping it sorted.
+///
+/// The lists are always sorted by id (the engine's snapshot is, and
+/// this keeps it that way), so a binary search is enough. The previous
+/// `retain` + `push` + full `sort_by_key` was O(n log n) PER EVENT,
+/// which made a ~2000-port `PipeWire` reconnect quadratic on the client
+/// — the real cause of the "UI loses nodes under burst" symptom.
+fn upsert_by_id<T: Clone, F: Fn(&T) -> u32>(list: &mut Vec<T>, id_of: F, id: u32, item: &T) {
+    match list.binary_search_by_key(&id, &id_of) {
+        Ok(i) => {
+            if let Some(slot) = list.get_mut(i) {
+                *slot = item.clone();
+            }
+        }
+        Err(i) => list.insert(i, item.clone()),
+    }
+}
+
+/// Remove the element with `id` from an id-sorted vec.
+fn remove_by_id<T, F: Fn(&T) -> u32>(list: &mut Vec<T>, id_of: F, id: u32) {
+    if let Ok(i) = list.binary_search_by_key(&id, &id_of) {
+        list.remove(i);
+    }
+}
+
+/// Replace the graph mirror wholesale (periodic reconcile).
+///
+/// The event stream can drop under burst; the snapshot is always
+/// authoritative. Skips the signal write when nothing changed, so a
+/// quiet graph never causes a re-render.
 pub fn replace_graph(snap: GraphSnapshot) {
     if *GRAPH.peek() != snap {
         *GRAPH.write() = snap;
@@ -185,35 +203,51 @@ pub async fn refresh_all(handle: &PatchbayHandle) {
 }
 
 /// The cheap non-graph state (aliases, presets, clock, dante).
+///
+/// The ten fetches go out concurrently; sequentially they cost ten
+/// round-trips, which is very visible over a ws remote.
 pub async fn refresh_meta(handle: &PatchbayHandle) {
-    if let Ok(aliases) = handle.0.aliases().await {
+    let c = &handle.0;
+    let (aliases, colors, presets, clock, dante, services, rules, sinks, views, defaults) = futures_util::join!(
+        c.aliases(),
+        c.colors(),
+        c.list_presets(),
+        c.clock(),
+        c.dante_status(),
+        c.services(),
+        c.latency_rules(),
+        c.virtual_sinks(),
+        c.views(),
+        c.clock_defaults(),
+    );
+    if let Ok(aliases) = aliases {
         *ALIASES.write() = aliases.into_iter().map(|a| (a.target, a.alias)).collect();
     }
-    if let Ok(colors) = handle.0.colors().await {
+    if let Ok(colors) = colors {
         *COLORS.write() = colors.into_iter().map(|c| (c.target, c.color)).collect();
     }
-    if let Ok(presets) = handle.0.list_presets().await {
+    if let Ok(presets) = presets {
         *PRESETS.write() = presets;
     }
-    if let Ok(clock) = handle.0.clock().await {
+    if let Ok(clock) = clock {
         *CLOCK.write() = clock;
     }
-    if let Ok(dante) = handle.0.dante_status().await {
+    if let Ok(dante) = dante {
         *DANTE.write() = dante;
     }
-    if let Ok(services) = handle.0.services().await {
+    if let Ok(services) = services {
         *SERVICES.write() = services;
     }
-    if let Ok(rules) = handle.0.latency_rules().await {
+    if let Ok(rules) = rules {
         *LATENCY_RULES.write() = rules;
     }
-    if let Ok(sinks) = handle.0.virtual_sinks().await {
+    if let Ok(sinks) = sinks {
         *VIRTUAL_SINKS.write() = sinks;
     }
-    if let Ok(views) = handle.0.views().await {
+    if let Ok(views) = views {
         *VIEWS.write() = views;
     }
-    if let Ok(defaults) = handle.0.clock_defaults().await {
+    if let Ok(defaults) = defaults {
         *CLOCK_DEFAULTS.write() = defaults;
     }
 }
@@ -249,43 +283,48 @@ pub fn apply_link_toggles(handle: PatchbayHandle, pairs: Vec<(u32, u32)>) {
             work.push((existing, out, inp));
         }
     }
-    record_op(op);
     spawn(async move {
-        for (existing, out, inp) in work {
+        // Record only what actually landed: a failed toggle used to go
+        // on the undo stack anyway, so Ctrl+Z "undid" something that
+        // never happened.
+        let mut done: LinkOp = Vec::new();
+        for ((existing, out, inp), entry) in work.into_iter().zip(op) {
             let res = match existing {
                 Some(id) => handle.0.destroy_link(id).await,
                 None => handle.0.create_link(out, inp).await,
             };
-            if let Err(e) = res {
-                tracing::warn!("link toggle failed: {e:?}");
+            match res {
+                Ok(()) => done.push(entry),
+                Err(e) => tracing::warn!("link toggle failed: {e:?}"),
             }
         }
+        record_op(done);
     });
 }
 
-/// Single-pair convenience over [`apply_link_toggles`].
-pub fn toggle_link(handle: PatchbayHandle, output_port: u32, input_port: u32) {
-    apply_link_toggles(handle, vec![(output_port, input_port)]);
-}
-
 /// Destroy the given links (a clicked cable), recorded as one undo step.
-pub fn disconnect_links(handle: PatchbayHandle, ids: Vec<u32>) {
-    let op: LinkOp = {
+pub fn disconnect_links(handle: PatchbayHandle, ids: &[u32]) {
+    // Pair each id with its undo entry up front: a link whose endpoints
+    // are already gone yields no entry, so the two lists must be built
+    // together rather than zipped after the fact.
+    let work: Vec<(u32, (u32, u32, bool))> = {
         let graph = GRAPH.peek();
         ids.iter()
             .filter_map(|id| {
                 let l = graph.links.iter().find(|l| l.id == *id)?;
-                Some((l.output_port, l.input_port, false))
+                Some((*id, (l.output_port, l.input_port, false)))
             })
             .collect()
     };
-    record_op(op);
     spawn(async move {
-        for id in ids {
-            if let Err(e) = handle.0.destroy_link(id).await {
-                tracing::warn!("cable disconnect failed: {e:?}");
+        let mut done: LinkOp = Vec::new();
+        for (id, entry) in work {
+            match handle.0.destroy_link(id).await {
+                Ok(()) => done.push(entry),
+                Err(e) => tracing::warn!("cable disconnect failed: {e:?}"),
             }
         }
+        record_op(done);
     });
 }
 
@@ -331,7 +370,10 @@ pub async fn sleep_secs(secs: u64) {
     #[cfg(not(target_arch = "wasm32"))]
     tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
     #[cfg(target_arch = "wasm32")]
-    gloo_timers::future::TimeoutFuture::new((secs * 1000) as u32).await;
+    {
+        let ms = u32::try_from(secs.saturating_mul(1000)).unwrap_or(u32::MAX);
+        gloo_timers::future::TimeoutFuture::new(ms).await;
+    }
 }
 
 /// The user-pickable cable/port color palette.
@@ -442,16 +484,7 @@ pub fn port_color(node_name: &str, node_label: &str, port_name: &str) -> String 
     }
     // Channel-number prefix stripped so "28 - Guitar 1" categorizes.
     let display = port_label(node_name, port_name);
-    let digits = port_name
-        .chars()
-        .rev()
-        .take_while(|c| c.is_ascii_digit())
-        .count();
-    let chan = if digits > 0 && digits < port_name.len() {
-        port_name[port_name.len() - digits..].parse::<u64>().ok()
-    } else {
-        None
-    };
+    let chan = patchbay_proto::split_port_number(port_name).map(|(_, n)| n);
     let display = crate::layout::strip_channel_prefix(&display, chan);
     if let Some(c) = category_color(&display) {
         return c;
@@ -593,9 +626,10 @@ pub fn capture_view(name: String) -> patchbay_proto::CanvasView {
 pub fn apply_view(view: &patchbay_proto::CanvasView) {
     *ZOOM.write() = view.zoom.clamp(0.15, 3.0);
     *PAN.write() = (view.pan_x, view.pan_y);
+    // Saved views may carry fewer (or more) columns than we render.
     let mut cols = [false; 4];
-    for (i, c) in view.collapsed_cols.iter().take(4).enumerate() {
-        cols[i] = *c;
+    for (slot, saved) in cols.iter_mut().zip(&view.collapsed_cols) {
+        *slot = *saved;
     }
     *COLLAPSED_COLS.write() = cols;
     *HIDE_UNCONNECTED.write() = view.hide_unconnected;

@@ -42,12 +42,21 @@ install: web-stage
 run:
     cargo run -p fts-patchbay
 
+# These assume the dev shell (`nix develop`, or direnv via .envrc).
+# Outside it the build needs pipewire/gtk/webkit headers, and the
+# pactl-backed features quietly do nothing.
+
 check:
     cargo check --workspace --all-targets
 
+# Unit tests plus the sandboxed integration tests, which spin up a
+# private PipeWire daemon — never the host's session.
 test:
     cargo test --workspace
 
 lint:
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
+
+# Everything CI runs, in one go.
+ci: lint check test

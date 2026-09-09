@@ -1,10 +1,11 @@
 //! Live graph clock control via `pw-metadata` (same approach as
-//! daw-audio-io's `pw` module: express intent, shell out, best-effort —
+//! `daw-audio-io`'s `pw` module: express intent, shell out, best-effort —
 //! absent tools mean no-ops, no cfg needed).
 
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use patchbay_proto::ClockInfo;
+use patchbay_proto::{ClockDefaults, ClockInfo};
 
 fn quiet(program: &str) -> Command {
     let mut c = Command::new(program);
@@ -26,6 +27,7 @@ pub fn force_quantum(frames: u32) {
 }
 
 /// Read the live clock settings; zeroed when `pw-metadata` is missing.
+#[must_use]
 pub fn clock_info() -> ClockInfo {
     let out = Command::new("pw-metadata")
         .args(["-n", "settings"])
@@ -54,10 +56,6 @@ pub fn clock_info() -> ClockInfo {
 
 // ── Clock-defaults drop-in (runtime version of 50-quantum.conf) ─────────
 
-use std::path::PathBuf;
-
-use patchbay_proto::ClockDefaults;
-
 fn defaults_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -65,6 +63,7 @@ fn defaults_path() -> PathBuf {
 }
 
 /// Read back the patchbay-owned drop-in (zeros when absent).
+#[must_use]
 pub fn clock_defaults() -> ClockDefaults {
     let text = std::fs::read_to_string(defaults_path()).unwrap_or_default();
     let field = |key: &str| {
@@ -86,7 +85,11 @@ pub fn clock_defaults() -> ClockDefaults {
 
 /// Write (all-zero = delete) the drop-in. Later filenames win over the
 /// flake's `50-quantum.conf`, so this overrides declarative defaults
-/// without a nixos rebuild. Applies on PipeWire restart.
+/// without a nixos rebuild. Applies on `PipeWire` restart.
+///
+/// # Errors
+/// If the drop-in directory can't be created, or the file can't be
+/// written or removed.
 pub fn set_clock_defaults(d: ClockDefaults) -> Result<(), String> {
     let path = defaults_path();
     if d == ClockDefaults::default() {
@@ -102,7 +105,9 @@ pub fn set_clock_defaults(d: ClockDefaults) -> Result<(), String> {
     );
     let mut push = |key: &str, v: u32| {
         if v != 0 {
-            body.push_str(&format!("    {key} = {v}\n"));
+            // Writing to a String cannot fail.
+            use std::fmt::Write as _;
+            let _: Result<(), std::fmt::Error> = writeln!(body, "    {key} = {v}");
         }
     };
     push("default.clock.quantum", d.quantum);
@@ -115,11 +120,15 @@ pub fn set_clock_defaults(d: ClockDefaults) -> Result<(), String> {
     std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Pull `key:'…' value:'…'` out of a pw-metadata line.
+/// Pull `key:'…' value:'…'` out of a `pw-metadata` line.
+///
+/// Byte-index arithmetic on a `&str` is a panic waiting for a non-ASCII
+/// device name, so this splits on the delimiters instead — every index
+/// then lands on a real char boundary by construction.
 fn parse_metadata_line(line: &str) -> Option<(&str, &str)> {
-    let key_start = line.find("key:'")? + 5;
-    let key_end = key_start + line[key_start..].find('\'')?;
-    let val_start = line.find("value:'")? + 7;
-    let val_end = val_start + line[val_start..].find('\'')?;
-    Some((&line[key_start..key_end], &line[val_start..val_end]))
+    let quoted = |field: &str| -> Option<&str> {
+        let (_, rest) = line.split_once(field)?;
+        rest.split_once('\'').map(|(value, _)| value)
+    };
+    Some((quoted("key:'")?, quoted("value:'")?))
 }

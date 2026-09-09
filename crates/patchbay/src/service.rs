@@ -4,23 +4,33 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc;
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use patchbay_proto::services::patchbay_service::{
     PatchbayServiceStreamSource, patchbay_service_stream_service_descriptor, stream_serve,
 };
 use patchbay_proto::{
-    AliasEntry, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry, DanteDevice,
-    DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule, NamedRoute,
-    PatchbayError, PatchbayService, PortDirection, PresetLink, RouteEndpoint, RoutingPreset,
+    AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
+    DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule,
+    MeterLevel, NamedRoute, PatchbayError, PatchbayService, PresetLink, RoutingPreset,
     ServiceAction, ServiceStatus, VirtualSink, patchbay_service_service_descriptor,
     serve_patchbay_service,
 };
 
 use crate::engine::{self, Command, EngineHandle};
+use crate::meters::Taps;
+use crate::plan;
 use crate::presets::PresetStore;
+use crate::settle::{Burst, Settle};
 use crate::store::GraphStore;
+use crate::telemetry as tel;
 
-/// The headless patchbay backend: PipeWire engine thread, graph
+/// How often the `pw-dump` poller samples live node state.
+const STATE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+/// How often the event pump wakes to check whether the graph has gone
+/// quiet. Bounds settle latency; it is not itself a settle delay.
+const SETTLE_TICK: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// The headless patchbay backend: `PipeWire` engine thread, graph
 /// mirror, presets/aliases, and the RPC surface. Cheap to clone; all
 /// state is shared behind the `Arc`.
 #[derive(Clone)]
@@ -35,6 +45,9 @@ struct Inner {
     presets: Arc<PresetStore>,
     dante: crate::dante_net::DanteEndpoints,
     icons: crate::icons::IconCache,
+    /// Live meter taps. Empty until a client asks for metering — each
+    /// tap is a `parec` child, so nothing runs speculatively.
+    meters: Mutex<Taps>,
 }
 
 impl Default for PatchbayBackend {
@@ -44,133 +57,69 @@ impl Default for PatchbayBackend {
 }
 
 impl PatchbayBackend {
-    /// Spawn the PipeWire thread and the event pump. The replay window
+    /// Spawn the `PipeWire` thread and the event pump. The replay window
     /// covers the snapshot→subscribe gap: clients fetch `graph()` first,
     /// then apply (idempotent) events from the recent past.
+    ///
+    /// Long by nature: this is the backend's whole wiring diagram, and
+    /// each block's `store`/`presets`/`engine` clones only make sense
+    /// next to the thread they feed.
+    #[allow(clippy::too_many_lines)]
     pub fn new() -> Self {
         let store = Arc::new(RwLock::new(GraphStore::default()));
         let presets = Arc::new(PresetStore::open());
         let (events_tx, events_rx) = mpsc::channel::<GraphEvent>();
-        let enrich_tx = events_tx.clone();
         let poll_tx = events_tx.clone();
+        let enrich_tx = events_tx.clone();
         let engine = engine::spawn(store.clone(), events_tx);
 
-        // Live node-state poller: pw-dump every couple seconds and emit
-        // NodeStateChanged deltas. This is the free "is anything going
-        // through here" signal (running/idle/suspended) — PipeWire has
-        // no per-port level API, so activity state is the honest,
-        // no-tap answer. Read-only shell-out; only runs while the app
-        // is up. Quiet graphs emit nothing.
+        // Live node-state poller: pw-dump every couple of seconds and
+        // emit NodeStateChanged deltas. This is the free "is anything
+        // going through here" signal (running/idle/suspended) —
+        // `PipeWire` has no per-port level API, so activity state is the
+        // honest, no-tap answer. Read-only shell-out; quiet graphs emit
+        // nothing.
         {
             let store = store.clone();
-            std::thread::Builder::new()
+            let spawned = std::thread::Builder::new()
                 .name("patchbay-states".into())
                 .spawn(move || {
                     loop {
-                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                        std::thread::sleep(STATE_POLL_INTERVAL);
                         crate::enrich::poll_node_states(&store, &poll_tx);
                     }
-                })
-                .expect("spawn patchbay-states thread");
+                });
+            if let Err(e) = spawned {
+                // Degraded, not fatal: without this poller nodes just
+                // never report running/idle. The graph still works.
+                tracing::error!("could not spawn patchbay-states thread: {e}");
+            }
         }
-        // Debounce gate for the pw-dump enrichment pass.
-        let enrich_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        // Debounce gate for named-route auto-apply (a node/port burst
-        // schedules ONE apply once the graph settles).
-        let routes_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
         // Big window: a single app connecting is a burst of hundreds of
-        // port events, a PipeWire reconnect is ~2000 — a small ring
-        // drops the middle of the burst and clients silently lose
-        // nodes (REAPER "not showing up" was exactly this).
+        // port events, a `PipeWire` reconnect is ~2000 — a small ring
+        // drops the middle of the burst and clients silently lose nodes
+        // (REAPER "not showing up" was exactly this).
         let events_hub = architect::PubSub::sliding(16_384);
         let pump = events_hub.clone();
         {
             let store = store.clone();
             let presets = presets.clone();
             let engine = engine.clone();
-            std::thread::Builder::new()
+            let spawned = std::thread::Builder::new()
                 .name("patchbay-events".into())
                 .spawn(move || {
-                    while let Ok(ev) = events_rx.recv() {
-                        // Any node addition schedules a debounced
-                        // pw-dump enrichment (full props the registry
-                        // subset lacks — node.group, application.*).
-                        if matches!(ev, GraphEvent::NodeAdded(_))
-                            && !enrich_pending.swap(true, std::sync::atomic::Ordering::SeqCst)
-                        {
-                            let store = store.clone();
-                            let tx = enrich_tx.clone();
-                            let pending = enrich_pending.clone();
-                            std::thread::spawn(move || {
-                                std::thread::sleep(std::time::Duration::from_millis(1500));
-                                pending.store(false, std::sync::atomic::Ordering::SeqCst);
-                                crate::enrich::enrich_nodes(&store, &tx);
-                            });
-                        }
-                        // Nodes/ports appearing (REAPER launches, Inferno
-                        // re-opens) schedule a debounced named-route apply
-                        // — the explicit auto-connect. Only creates the
-                        // links the user declared; no routes = no-op.
-                        if matches!(ev, GraphEvent::NodeAdded(_) | GraphEvent::PortAdded(_))
-                            && !routes_pending.load(std::sync::atomic::Ordering::SeqCst)
-                            && !presets.routes().is_empty()
-                        {
-                            routes_pending.store(true, std::sync::atomic::Ordering::SeqCst);
-                            let store = store.clone();
-                            let presets = presets.clone();
-                            let engine = engine.clone();
-                            let pending = routes_pending.clone();
-                            std::thread::spawn(move || {
-                                std::thread::sleep(std::time::Duration::from_millis(2000));
-                                pending.store(false, std::sync::atomic::Ordering::SeqCst);
-                                apply_named_routes(&store, &presets, &engine);
-                            });
-                        }
-                        match &ev {
-                            // REAPER (re)appeared: pick up its channel
-                            // names from the host chanmap once the
-                            // ports have registered.
-                            GraphEvent::NodeAdded(n) if n.name == "REAPER" => {
-                                let store = store.clone();
-                                let presets = presets.clone();
-                                std::thread::spawn(move || {
-                                    std::thread::sleep(std::time::Duration::from_secs(2));
-                                    auto_import_chanmap(&store, &presets, "REAPER");
-                                });
-                            }
-                            // Engine reconnected (PipeWire restart):
-                            // re-create the persisted virtual sinks
-                            // once the fresh mirror has settled.
-                            GraphEvent::Reset => {
-                                let store = store.clone();
-                                let presets = presets.clone();
-                                let engine = engine.clone();
-                                std::thread::spawn(move || {
-                                    std::thread::sleep(std::time::Duration::from_secs(3));
-                                    ensure_virtual_sinks(&store, &presets, &engine);
-                                    apply_named_routes(&store, &presets, &engine);
-                                });
-                            }
-                            _ => {}
-                        }
-                        pump.publish(ev);
-                    }
-                    tracing::warn!("patchbay event pump ended (engine gone)");
-                })
-                .expect("spawn patchbay-events thread");
+                    event_pump(&store, &presets, &engine, &events_rx, &pump, &enrich_tx);
+                });
+            if let Err(e) = spawned {
+                // This one IS fatal in practice — with no pump the graph
+                // mirror never reaches any client — but a panic here
+                // would take out the host app, so surface it and let the
+                // caller see an empty graph instead.
+                tracing::error!("could not spawn patchbay-events thread: {e}");
+            }
         }
-        // First connect emits no Reset — seed the virtual sinks once
-        // the initial mirror is up.
-        {
-            let store = store.clone();
-            let presets = presets.clone();
-            let engine = engine.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                ensure_virtual_sinks(&store, &presets, &engine);
-                apply_named_routes(&store, &presets, &engine);
-            });
-        }
+
         Self {
             inner: Arc::new(Inner {
                 store,
@@ -179,12 +128,14 @@ impl PatchbayBackend {
                 presets,
                 dante: crate::dante_net::DanteEndpoints::default(),
                 icons: crate::icons::IconCache::default(),
+                meters: Mutex::new(Taps::default()),
             }),
         }
     }
 
     /// A fresh `LayerRouter` serving this backend — the RPC layer plus
     /// its `#[subscribe]` stream sibling over the same impl.
+    #[must_use]
     pub fn router(&self) -> architect::LayerRouter {
         architect::LayerRouter::new()
             .with(
@@ -207,11 +158,11 @@ impl PatchbayBackend {
             }
             let out_node = store
                 .node_of_port(output_port)
-                .ok_or_else(|| PatchbayError::not_found("output port", output_port))?
+                .ok_or_else(|| PatchbayError::not_found("output port", &output_port))?
                 .id;
             let in_node = store
                 .node_of_port(input_port)
-                .ok_or_else(|| PatchbayError::not_found("input port", input_port))?
+                .ok_or_else(|| PatchbayError::not_found("input port", &input_port))?
                 .id;
             (out_node, in_node)
         };
@@ -261,7 +212,20 @@ impl PatchbayBackend {
 }
 
 impl PatchbayBackend {
-    /// Rewrite the WirePlumber drop-in from `rules` (blocking I/O +
+    /// Run a blocking closure (preset-store mutations do synchronous
+    /// file I/O) off the async executor.
+    async fn blocking<T, F>(&self, f: F) -> Result<T, PatchbayError>
+    where
+        F: FnOnce(Self) -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || f(this))
+            .await
+            .map_err(|e| PatchbayError::Internal(e.to_string()))
+    }
+
+    /// Rewrite the `WirePlumber` drop-in from `rules` (blocking I/O +
     /// a pw-metadata read for the graph rate → off the executor).
     async fn write_latency_dropin(&self, rules: Vec<LatencyRule>) -> Result<(), PatchbayError> {
         tokio::task::spawn_blocking(move || {
@@ -274,219 +238,117 @@ impl PatchbayBackend {
     }
 }
 
-use patchbay_proto::sink_node_name;
+// ── Engine command execution ────────────────────────────────────────
+
+/// Hand a plan to the engine, counting what actually made it through.
+///
+/// The engine refuses commands while it is down or reconnecting; that is
+/// normal (the next settle retries), so it rides the wide event rather
+/// than a log line per command.
+fn execute(engine: &EngineHandle, commands: Vec<Command>) -> (u32, u32) {
+    let (mut sent, mut failed) = (0_u32, 0_u32);
+    for cmd in commands {
+        match engine.send(cmd) {
+            Ok(()) => sent = sent.saturating_add(1),
+            Err(_) => failed = failed.saturating_add(1),
+        }
+    }
+    tel::set(tel::COMMANDS_SENT, i64::from(sent));
+    if failed > 0 {
+        tel::set(tel::COMMANDS_FAILED, i64::from(failed));
+    }
+    (sent, failed)
+}
+
+/// `target → alias` for planning.
+fn alias_map(presets: &PresetStore) -> HashMap<String, String> {
+    presets
+        .aliases()
+        .into_iter()
+        .map(|a| (a.target, a.alias))
+        .collect()
+}
+
+// ── Settle actions ──────────────────────────────────────────────────
 
 /// Create any persisted virtual sink that isn't in the live graph.
+/// Returns how many creates were issued.
 fn ensure_virtual_sinks(
-    store: &Arc<RwLock<GraphStore>>,
-    presets: &Arc<PresetStore>,
+    store: &RwLock<GraphStore>,
+    presets: &PresetStore,
     engine: &EngineHandle,
-) {
-    for sink in presets.virtual_sinks() {
-        let node_name = sink_node_name(&sink.name);
-        let live = store.read().nodes.values().any(|n| n.name == node_name);
-        if live {
-            continue;
-        }
-        tracing::info!(name = %sink.name, "creating virtual sink");
-        if let Err(e) = engine.send(Command::CreateVirtualSink {
-            node_name,
-            description: sink.name.clone(),
-            channels: sink.channels.max(1),
-        }) {
-            tracing::warn!("virtual sink create failed: {e}");
-        }
-    }
-}
-
-/// Normalize an alias/port name for route matching: lowercase, drop a
-/// leading `"N - "` channel-number prefix and a trailing `[DSP]`,
-/// collapse whitespace. So `"81 - Engineer Vocal [DSP]"` and
-/// `"Engineer Vocal"` compare equal (but " L"/" R" is kept — stereo
-/// halves stay distinct).
-fn norm_route_name(s: &str) -> String {
-    let s = s.trim();
-    // Strip a leading "<digits> - ".
-    let s = match s.split_once(" - ") {
-        Some((pre, rest)) if !pre.is_empty() && pre.chars().all(|c| c.is_ascii_digit()) => rest,
-        _ => s,
+) -> u32 {
+    let configured = presets.virtual_sinks();
+    let commands = plan::sinks::plan(&store.read(), &configured);
+    tel::set(
+        tel::SINKS_CONFIGURED,
+        i64::try_from(configured.len()).unwrap_or(i64::MAX),
+    );
+    let created = if commands.is_empty() {
+        0
+    } else {
+        tel::set(
+            tel::SINKS_CREATED,
+            i64::try_from(commands.len()).unwrap_or(i64::MAX),
+        );
+        let (sent, _) = execute(engine, commands);
+        sent
     };
-    let mut s = s.trim().to_string();
-    // Strip a trailing "[DSP]" (any case).
-    let lower = s.to_lowercase();
-    if lower.ends_with("[dsp]") {
-        s.truncate(s.len() - "[dsp]".len());
+
+    // Companion capture sources, so a bus shows up in OBS by name. Runs
+    // after the sinks so the monitor it masters from exists; idempotent,
+    // and a no-op when nothing is marked capturable.
+    let exposed = crate::capture::ensure(&configured);
+    if exposed > 0 {
+        tel::set(tel::CAPTURE_SOURCES_CREATED, i64::from(exposed));
     }
-    s.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
+    created
 }
 
-/// Resolve one route endpoint to a live port id of the given direction,
-/// matching the port's ALIAS (or raw name) normalized. `ep.node`, when
-/// set, narrows to a node whose name / label / alias matches.
-fn resolve_route_endpoint(
-    store: &GraphStore,
-    aliases: &HashMap<String, String>,
-    ep: &RouteEndpoint,
-    dir: PortDirection,
-) -> Option<u32> {
-    let want_port = norm_route_name(&ep.port);
-    if want_port.is_empty() {
-        return None;
-    }
-    let want_node = ep.node.trim().to_lowercase();
-    for p in store.ports.values() {
-        if p.direction != dir {
-            continue;
-        }
-        let Some(node) = store.nodes.get(&p.node_id) else {
-            continue;
-        };
-        if !want_node.is_empty() {
-            let node_alias = aliases
-                .get(&node.name)
-                .map(|s| s.to_lowercase())
-                .unwrap_or_default();
-            if node.name.to_lowercase() != want_node
-                && node.label.to_lowercase() != want_node
-                && node_alias != want_node
-            {
-                continue;
-            }
-        }
-        let alias = aliases.get(&format!("{}:{}", node.name, p.name));
-        let cand = alias.map(String::as_str).unwrap_or(&p.name);
-        if norm_route_name(cand) == want_port {
-            return Some(p.id);
-        }
-    }
-    None
-}
-
-/// The port sentinel that turns a route into a whole-node BANK route:
-/// pair the two nodes' ports 1:1 by numeric suffix (like
-/// `connect_one_to_one`) instead of matching a single named port.
-const BANK_PORT: &str = "*";
-
-/// Resolve a node by `node.name` / label / alias (case-insensitive).
-fn resolve_node<'a>(
-    store: &'a GraphStore,
-    aliases: &HashMap<String, String>,
-    query: &str,
-) -> Option<&'a patchbay_proto::PwNode> {
-    let q = query.trim().to_lowercase();
-    store.nodes.values().find(|n| {
-        n.name.to_lowercase() == q
-            || n.label.to_lowercase() == q
-            || aliases.get(&n.name).map(|s| s.to_lowercase()).as_deref() == Some(q.as_str())
-    })
-}
-
-/// Issue a CreateLink for `out → inp` unless it already exists. Returns
-/// whether a command was sent.
-fn ensure_link(store: &GraphStore, engine: &EngineHandle, out: u32, inp: u32) -> bool {
-    if store.link_between(out, inp).is_some() {
-        return false;
-    }
-    let (Some(on), Some(inn)) = (store.node_of_port(out), store.node_of_port(inp)) else {
-        return false;
-    };
-    engine
-        .send(Command::CreateLink {
-            output_node: on.id,
-            output_port: out,
-            input_node: inn.id,
-            input_port: inp,
-        })
-        .is_ok()
-}
-
-/// Apply every enabled named route against the live graph: create the
-/// missing link(s) for each route whose endpoints resolve. Idempotent —
+/// Apply every enabled named route against the live graph. Idempotent —
 /// never destroys anything, never duplicates an existing link. Returns
-/// the number of links created. Runs on graph-settle and on the
-/// `apply_routes` RPC.
+/// the number of links created.
 fn apply_named_routes(
-    store: &Arc<RwLock<GraphStore>>,
-    presets: &Arc<PresetStore>,
+    store: &RwLock<GraphStore>,
+    presets: &PresetStore,
     engine: &EngineHandle,
 ) -> u32 {
     let routes = presets.routes();
     if routes.is_empty() {
         return 0;
     }
-    let aliases: HashMap<String, String> = presets
-        .aliases()
-        .into_iter()
-        .map(|a| (a.target, a.alias))
-        .collect();
-    let store_r = store.read();
-    let mut created = 0;
-    for route in routes.iter().filter(|r| r.enabled) {
-        // Bank route: pair the whole output node to the whole input node
-        // 1:1 by numeric suffix (out<N>/capture_N → in<N>/playback_N).
-        if route.from.port.trim() == BANK_PORT || route.to.port.trim() == BANK_PORT {
-            let (Some(on), Some(inn)) = (
-                resolve_node(&store_r, &aliases, &route.from.node),
-                resolve_node(&store_r, &aliases, &route.to.node),
-            ) else {
-                continue;
-            };
-            let by_channel = |node: u32, dir: PortDirection| {
-                let mut m = std::collections::BTreeMap::new();
-                for p in store_r.ports.values() {
-                    // Skip MIDI ports: REAPER exposes both `in18` and
-                    // `MIDI Input 18`, which collide on channel 18 —
-                    // pairing must land on the AUDIO port.
-                    if p.node_id == node
-                        && p.direction == dir
-                        && p.media_kind != patchbay_proto::MediaKind::Midi
-                    {
-                        if let Some(ch) = crate::chanmap::channel_of_port(&p.name) {
-                            m.entry(ch).or_insert(p.id);
-                        }
-                    }
-                }
-                m
-            };
-            let outs = by_channel(on.id, PortDirection::Output);
-            let ins = by_channel(inn.id, PortDirection::Input);
-            for (ch, out) in outs {
-                if let Some(&inp) = ins.get(&ch) {
-                    if ensure_link(&store_r, engine, out, inp) {
-                        created += 1;
-                    }
-                }
-            }
-            continue;
-        }
-        let (Some(out), Some(inp)) = (
-            resolve_route_endpoint(&store_r, &aliases, &route.from, PortDirection::Output),
-            resolve_route_endpoint(&store_r, &aliases, &route.to, PortDirection::Input),
-        ) else {
-            continue;
-        };
-        if ensure_link(&store_r, engine, out, inp) {
-            tracing::info!(route = %route.name, out, inp, "named route applied");
-            created += 1;
-        }
+    let aliases = alias_map(presets);
+    let planned = plan::routes::plan(&store.read(), &routes, &aliases);
+
+    tel::set(
+        tel::ROUTES_CONSIDERED,
+        i64::try_from(routes.iter().filter(|r| r.enabled).count()).unwrap_or(i64::MAX),
+    );
+    tel::set(tel::ROUTES_RESOLVED, i64::from(planned.resolved));
+    if !planned.unresolved.is_empty() {
+        // The "why is my rig not wired" field. Bounded by the user's own
+        // config, so safe to carry in full.
+        tel::set_display(tel::ROUTES_UNRESOLVED, planned.unresolved.join(", "));
     }
-    created
+    if planned.commands.is_empty() {
+        return 0;
+    }
+    let (sent, _) = execute(engine, planned.commands);
+    tel::set(tel::ROUTES_LINKS_CREATED, i64::from(sent));
+    sent
 }
 
 /// Non-destructive chanmap import: name `node`'s channels from the
-/// host's default ReaperChanMap, skipping channels the user already
-/// aliased in the patchbay. Missing chanmap file = silently nothing.
-fn auto_import_chanmap(store: &Arc<RwLock<GraphStore>>, presets: &Arc<PresetStore>, node: &str) {
+/// host's default `ReaperChanMap`, skipping channels the user already
+/// aliased. A missing chanmap file is silently nothing.
+fn auto_import_chanmap(store: &RwLock<GraphStore>, presets: &PresetStore, node: &str) -> u32 {
     let Ok(names) = crate::chanmap::read_names("") else {
-        return;
+        return 0;
     };
     let ports: Vec<String> = {
         let s = store.read();
         let Some(n) = s.nodes.values().find(|n| n.name == node) else {
-            return;
+            return 0;
         };
         s.ports
             .values()
@@ -494,22 +356,174 @@ fn auto_import_chanmap(store: &Arc<RwLock<GraphStore>>, presets: &Arc<PresetStor
             .map(|p| p.name.clone())
             .collect()
     };
-    let mut written = 0u32;
-    for port in ports {
-        let Some(channel) = crate::chanmap::channel_of_port(&port) else {
-            continue;
-        };
-        let target = format!("{node}:{port}");
-        if presets.has_alias(&target) {
-            continue;
+    let batch: Vec<(String, String)> = ports
+        .into_iter()
+        .filter_map(|port| {
+            let channel = patchbay_proto::channel_of_port(&port)?;
+            let target = format!("{node}:{port}");
+            // Non-destructive: never overwrite a name the user set.
+            if presets.has_alias(&target) {
+                return None;
+            }
+            Some((target, names.get(&channel)?.clone()))
+        })
+        .collect();
+    let written = u32::try_from(batch.len()).unwrap_or(u32::MAX);
+    if written > 0 {
+        presets.set_aliases(batch);
+        tel::set(tel::NODE_NAME, node.to_owned());
+        tel::set(tel::ALIASES_WRITTEN, i64::from(written));
+    }
+    written
+}
+
+// ── The event pump ──────────────────────────────────────────────────
+
+/// Nodes whose chanmap we auto-import the first time they appear.
+const CHANMAP_AUTO_IMPORT: &[&str] = &["REAPER"];
+
+/// Drain the engine's event channel: mirror events out to subscribers,
+/// and run the settle actions once the graph goes quiet.
+///
+/// One thread, one loop. Settling used to be six `thread::sleep` calls
+/// on spawned threads, each guessing how long a burst would take; a
+/// guess that is too short applies routes against a half-built graph and
+/// never retries. Here the pump watches the stream it is already
+/// draining and acts when it actually stops.
+fn event_pump(
+    store: &Arc<RwLock<GraphStore>>,
+    presets: &Arc<PresetStore>,
+    engine: &EngineHandle,
+    events_rx: &mpsc::Receiver<GraphEvent>,
+    pump: &architect::PubSub<GraphEvent>,
+    enrich_tx: &mpsc::Sender<GraphEvent>,
+) {
+    let mut settle = Settle::default();
+    // Nodes we've already auto-imported this connection; cleared on
+    // Reset so a `PipeWire` restart re-imports.
+    let mut imported: HashSet<String> = HashSet::new();
+    // A Reset means the graph is being rebuilt from scratch, so the
+    // next settle must re-seed sinks as well as routes.
+    let mut reconnected = false;
+
+    loop {
+        match events_rx.recv_timeout(SETTLE_TICK) {
+            Ok(ev) => {
+                if matches!(ev, GraphEvent::Reset) {
+                    imported.clear();
+                    reconnected = true;
+                }
+                // Only structural changes can make a route resolvable;
+                // a state flip on an existing node cannot.
+                if matches!(
+                    ev,
+                    GraphEvent::Reset
+                        | GraphEvent::NodeAdded(_)
+                        | GraphEvent::PortAdded(_)
+                        | GraphEvent::NodeRemoved { .. }
+                        | GraphEvent::PortRemoved { .. }
+                ) {
+                    settle.observe(std::time::Instant::now());
+                }
+                pump.publish(ev);
+                continue;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        if let Some(name) = names.get(&channel) {
-            presets.set_alias(target, name.clone());
-            written += 1;
+
+        if let Some(burst) = settle.take_settled(std::time::Instant::now()) {
+            on_settled(
+                store,
+                presets,
+                engine,
+                enrich_tx,
+                burst,
+                std::mem::take(&mut reconnected),
+                &mut imported,
+            );
         }
     }
-    if written > 0 {
-        tracing::info!(node, written, "auto-imported chanmap names");
+    tracing::warn!("patchbay event pump ended (engine gone)");
+}
+
+/// The graph went quiet: enrich, seed sinks, apply routes, import names.
+///
+/// One span per settle carrying the whole outcome — what the burst
+/// looked like, what got created, and which routes did not resolve. That
+/// is the wide event for background work; the individual steps do not
+/// log.
+fn on_settled(
+    store: &Arc<RwLock<GraphStore>>,
+    presets: &Arc<PresetStore>,
+    engine: &EngineHandle,
+    enrich_tx: &mpsc::Sender<GraphEvent>,
+    burst: Burst,
+    reconnected: bool,
+    imported: &mut HashSet<String>,
+) {
+    let span = tracing::info_span!("patchbay.settle", otel.name = "patchbay/settle");
+    let _guard = span.enter();
+
+    tel::set(
+        tel::TRIGGER,
+        if reconnected { "reconnect" } else { "settle" },
+    );
+    tel::set(tel::SETTLE_EVENTS, i64::from(burst.events));
+    tel::set(
+        tel::SETTLE_BURST_MS,
+        i64::try_from(burst.duration.as_millis()).unwrap_or(i64::MAX),
+    );
+
+    // Full node props the registry subset lacks (node.group,
+    // application.*). Shells out to pw-dump, so it runs off the pump.
+    {
+        let store = store.clone();
+        let tx = enrich_tx.clone();
+        if let Err(e) = std::thread::Builder::new()
+            .name("patchbay-enrich".into())
+            .spawn(move || crate::enrich::enrich_nodes(&store, &tx))
+        {
+            tracing::warn!("could not spawn enrichment: {e}");
+        }
+    }
+
+    let sinks = ensure_virtual_sinks(store, presets, engine);
+    let links = apply_named_routes(store, presets, engine);
+
+    let mut aliases = 0_u32;
+    for name in CHANMAP_AUTO_IMPORT {
+        let present = store.read().nodes.values().any(|n| n.name == *name);
+        if present && imported.insert((*name).to_owned()) {
+            aliases = aliases.saturating_add(auto_import_chanmap(store, presets, name));
+        }
+    }
+
+    {
+        let g = store.read();
+        tel::set(
+            tel::GRAPH_NODES,
+            i64::try_from(g.nodes.len()).unwrap_or(i64::MAX),
+        );
+        tel::set(
+            tel::GRAPH_PORTS,
+            i64::try_from(g.ports.len()).unwrap_or(i64::MAX),
+        );
+        tel::set(
+            tel::GRAPH_LINKS,
+            i64::try_from(g.links.len()).unwrap_or(i64::MAX),
+        );
+    }
+
+    // One line, only when the settle actually changed something. A
+    // quiet settle rides the span alone.
+    if sinks > 0 || links > 0 || aliases > 0 {
+        tracing::info!(
+            sinks_created = sinks,
+            links_created = links,
+            aliases_written = aliases,
+            "graph settled"
+        );
     }
 }
 
@@ -521,16 +535,33 @@ impl PatchbayServiceStreamSource for PatchbayBackend {
 
 impl PatchbayService for PatchbayBackend {
     async fn graph(&self) -> Result<GraphSnapshot, PatchbayError> {
-        Ok(self.inner.store.read().snapshot())
+        let snap = self.inner.store.read().snapshot();
+        tel::set(
+            tel::GRAPH_NODES,
+            i64::try_from(snap.nodes.len()).unwrap_or(i64::MAX),
+        );
+        tel::set(
+            tel::GRAPH_PORTS,
+            i64::try_from(snap.ports.len()).unwrap_or(i64::MAX),
+        );
+        tel::set(
+            tel::GRAPH_LINKS,
+            i64::try_from(snap.links.len()).unwrap_or(i64::MAX),
+        );
+        Ok(snap)
     }
 
     async fn create_link(&self, output_port: u32, input_port: u32) -> Result<(), PatchbayError> {
-        self.create_link_inner(output_port, input_port).map(|_| ())
+        tel::set(tel::LINK_OUTPUT_PORT, i64::from(output_port));
+        tel::set(tel::LINK_INPUT_PORT, i64::from(input_port));
+        let sent = self.create_link_inner(output_port, input_port)?;
+        tel::set(tel::LINK_ALREADY_PRESENT, !sent);
+        Ok(())
     }
 
     async fn destroy_link(&self, link_id: u32) -> Result<(), PatchbayError> {
         if !self.inner.store.read().links.contains_key(&link_id) {
-            return Err(PatchbayError::not_found("link", link_id));
+            return Err(PatchbayError::not_found("link", &link_id));
         }
         self.inner
             .engine
@@ -543,8 +574,8 @@ impl PatchbayService for PatchbayBackend {
         output_node: String,
         input_node: String,
     ) -> Result<u32, PatchbayError> {
-        // Pair by numeric suffix (out7 → playback_7). Non-numeric
-        // ports don't participate.
+        // Pair by numeric suffix (out7 → playback_7). Non-numeric ports
+        // don't participate; MIDI ports never win a channel.
         let pairs: Vec<(u32, u32)> = {
             let store = self.inner.store.read();
             let node_id = |name: &str| {
@@ -553,43 +584,24 @@ impl PatchbayService for PatchbayBackend {
                     .values()
                     .find(|n| n.name == name)
                     .map(|n| n.id)
-                    .ok_or_else(|| PatchbayError::not_found("node", name))
+                    .ok_or_else(|| PatchbayError::not_found("node", &name))
             };
             let out_id = node_id(&output_node)?;
             let in_id = node_id(&input_node)?;
-            let by_channel = |node: u32, dir: patchbay_proto::PortDirection| {
-                let mut m = std::collections::BTreeMap::new();
-                for p in store.ports.values() {
-                    // Skip MIDI ports (see apply_named_routes): `in18`
-                    // and `MIDI Input 18` collide on channel 18.
-                    if p.node_id == node
-                        && p.direction == dir
-                        && p.media_kind != patchbay_proto::MediaKind::Midi
-                    {
-                        if let Some(ch) = crate::chanmap::channel_of_port(&p.name) {
-                            m.entry(ch).or_insert(p.id);
-                        }
-                    }
-                }
-                m
-            };
-            let outs = by_channel(out_id, patchbay_proto::PortDirection::Output);
-            let ins = by_channel(in_id, patchbay_proto::PortDirection::Input);
-            outs.into_iter()
-                .filter_map(|(ch, out)| ins.get(&ch).map(|inp| (out, *inp)))
-                .collect()
+            plan::pairing::pair_nodes(&store, out_id, in_id)
         };
         if pairs.is_empty() {
             return Err(PatchbayError::Internal(format!(
                 "no numeric-suffix port pairs between {output_node} and {input_node}"
             )));
         }
-        let mut created = 0;
+        let mut created = 0u32;
         for (out, inp) in pairs {
             if self.create_link_inner(out, inp)? {
-                created += 1;
+                created = created.saturating_add(1);
             }
         }
+        tel::set(tel::ROUTES_LINKS_CREATED, i64::from(created));
         Ok(created)
     }
 
@@ -604,7 +616,7 @@ impl PatchbayService for PatchbayBackend {
             let (Some(out_id), Some(in_id)) = (node_id(&output_node), node_id(&input_node)) else {
                 return Err(PatchbayError::not_found(
                     "node",
-                    format!("{output_node} or {input_node}"),
+                    &format!("{output_node} or {input_node}"),
                 ));
             };
             store
@@ -620,7 +632,7 @@ impl PatchbayService for PatchbayBackend {
                 .send(Command::DestroyLink { id: *id })
                 .map_err(PatchbayError::EngineUnavailable)?;
         }
-        Ok(link_ids.len() as u32)
+        Ok(u32::try_from(link_ids.len()).unwrap_or(u32::MAX))
     }
 
     async fn list_presets(&self) -> Result<Vec<RoutingPreset>, PatchbayError> {
@@ -636,7 +648,8 @@ impl PatchbayService for PatchbayBackend {
             return Err(PatchbayError::Internal("preset name is empty".into()));
         }
         let links = self.links_by_names();
-        Ok(self.inner.presets.upsert_preset(name, description, links))
+        self.blocking(move |this| this.inner.presets.upsert_preset(name, description, links))
+            .await
     }
 
     async fn apply_preset(
@@ -649,53 +662,32 @@ impl PatchbayService for PatchbayBackend {
             .presets
             .preset(&name)
             .ok_or_else(|| PatchbayError::not_found("preset", &name))?;
-        let mut report = ApplyReport::default();
 
-        // Create every remembered link whose endpoints are live.
-        for link in &preset.links {
-            let resolved = {
-                let store = self.inner.store.read();
-                let out = store.port_by_names(&link.output_node, &link.output_port);
-                let inp = store.port_by_names(&link.input_node, &link.input_port);
-                out.zip(inp)
-            };
-            match resolved {
-                None => report.missing.push(link.clone()),
-                Some((out, inp)) => match self.create_link_inner(out, inp)? {
-                    true => report.created += 1,
-                    false => report.existing += 1,
-                },
-            }
-        }
+        // Plan against one consistent snapshot of the graph, then
+        // execute. Exclusive mode tears links DOWN, so deciding what to
+        // destroy must not race a half-applied create.
+        let planned = {
+            let store = self.inner.store.read();
+            plan::presets::plan(&store, &preset, exclusive)
+        };
 
-        // Exclusive: tear down live links the preset doesn't contain.
-        if exclusive {
-            let wanted: HashSet<&PresetLink> = preset.links.iter().collect();
-            let extras: Vec<u32> = {
-                let store = self.inner.store.read();
-                store
-                    .links
-                    .values()
-                    .filter_map(|l| {
-                        let named = PresetLink {
-                            output_node: store.nodes.get(&l.output_node)?.name.clone(),
-                            output_port: store.ports.get(&l.output_port)?.name.clone(),
-                            input_node: store.nodes.get(&l.input_node)?.name.clone(),
-                            input_port: store.ports.get(&l.input_port)?.name.clone(),
-                        };
-                        (!wanted.contains(&named)).then_some(l.id)
-                    })
-                    .collect()
-            };
-            for id in extras {
-                self.inner
-                    .engine
-                    .send(Command::DestroyLink { id })
-                    .map_err(PatchbayError::EngineUnavailable)?;
-                report.destroyed += 1;
-            }
+        tel::set(tel::PRESET_NAME, name);
+        tel::set(tel::PRESET_EXCLUSIVE, exclusive);
+        tel::set(tel::PRESET_CREATED, i64::from(planned.report.created));
+        tel::set(tel::PRESET_EXISTING, i64::from(planned.report.existing));
+        tel::set(tel::PRESET_DESTROYED, i64::from(planned.report.destroyed));
+        tel::set(
+            tel::PRESET_MISSING,
+            i64::try_from(planned.report.missing.len()).unwrap_or(i64::MAX),
+        );
+
+        let (_, failed) = execute(&self.inner.engine, planned.commands);
+        if failed > 0 {
+            return Err(PatchbayError::EngineUnavailable(format!(
+                "{failed} of the preset's commands were refused (engine reconnecting)"
+            )));
         }
-        Ok(report)
+        Ok(planned.report)
     }
 
     async fn delete_preset(&self, name: String) -> Result<(), PatchbayError> {
@@ -714,11 +706,15 @@ impl PatchbayService for PatchbayBackend {
         if route.name.trim().is_empty() {
             return Err(PatchbayError::Internal("route name is empty".into()));
         }
-        self.inner.presets.set_route(route);
-        // Apply immediately so a just-added route wires up now if both
-        // ends are already present.
-        apply_named_routes(&self.inner.store, &self.inner.presets, &self.inner.engine);
-        Ok(())
+        // Persisting writes the config file and the apply walks the
+        // graph under a lock — both blocking, so off the executor.
+        self.blocking(move |this| {
+            this.inner.presets.set_route(route);
+            // Apply immediately so a just-added route wires up now if
+            // both ends are already present.
+            apply_named_routes(&this.inner.store, &this.inner.presets, &this.inner.engine);
+        })
+        .await
     }
 
     async fn delete_route(&self, name: String) -> Result<(), PatchbayError> {
@@ -730,6 +726,7 @@ impl PatchbayService for PatchbayBackend {
     }
 
     async fn apply_routes(&self) -> Result<u32, PatchbayError> {
+        tel::set(tel::TRIGGER, "rpc");
         Ok(apply_named_routes(
             &self.inner.store,
             &self.inner.presets,
@@ -742,8 +739,73 @@ impl PatchbayService for PatchbayBackend {
     }
 
     async fn set_alias(&self, target: String, alias: String) -> Result<(), PatchbayError> {
-        self.inner.presets.set_alias(target, alias);
-        Ok(())
+        self.blocking(move |this| this.inner.presets.set_alias(target, alias))
+            .await
+    }
+
+    async fn app_streams(&self) -> Result<Vec<AppStream>, PatchbayError> {
+        // Shells out to pactl — off the executor.
+        let streams = self.blocking(|_| crate::streams::list()).await??;
+        tel::set(
+            tel::STREAMS_LISTED,
+            i64::try_from(streams.len()).unwrap_or(i64::MAX),
+        );
+        Ok(streams)
+    }
+
+    async fn move_app_stream(&self, index: u32, sink: String) -> Result<(), PatchbayError> {
+        tel::set(tel::STREAM_INDEX, i64::from(index));
+        tel::set(tel::STREAM_TARGET_SINK, sink.clone());
+        self.blocking(move |_| crate::streams::move_to_sink(index, &sink))
+            .await?
+    }
+
+    async fn set_metered(&self, nodes: Vec<String>) -> Result<u32, PatchbayError> {
+        // Resolve each name to the source that actually carries its
+        // audio (a sink is tapped through its monitor) while we hold the
+        // graph, then reconcile off the executor — spawning children is
+        // blocking work.
+        let desired: HashMap<String, String> = {
+            let store = self.inner.store.read();
+            nodes
+                .iter()
+                .filter_map(|name| {
+                    let node = store.nodes.values().find(|n| n.name == *name)?;
+                    Some((
+                        name.clone(),
+                        crate::meters::source_for(&node.name, &node.media_class),
+                    ))
+                })
+                .collect()
+        };
+        tel::set(
+            tel::METERS_REQUESTED,
+            i64::try_from(nodes.len()).unwrap_or(i64::MAX),
+        );
+        let live = self
+            .blocking(move |this| {
+                let mut taps = this.inner.meters.lock();
+                taps.reconcile(&desired);
+                taps.len()
+            })
+            .await?;
+        tel::set(tel::METERS_ACTIVE, i64::try_from(live).unwrap_or(i64::MAX));
+        Ok(u32::try_from(live).unwrap_or(u32::MAX))
+    }
+
+    async fn meters(&self) -> Result<Vec<MeterLevel>, PatchbayError> {
+        Ok(self.inner.meters.lock().levels())
+    }
+
+    async fn set_aliases(&self, entries: Vec<AliasEntry>) -> Result<u32, PatchbayError> {
+        let n = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+        self.blocking(move |this| {
+            this.inner
+                .presets
+                .set_aliases(entries.into_iter().map(|e| (e.target, e.alias)));
+        })
+        .await?;
+        Ok(n)
     }
 
     async fn import_chanmap(&self, node: String, path: String) -> Result<u32, PatchbayError> {
@@ -763,18 +825,15 @@ impl PatchbayService for PatchbayBackend {
                 .map(|p| p.name.clone())
                 .collect()
         };
-        let mut written = 0;
-        for port in ports {
-            let Some(channel) = crate::chanmap::channel_of_port(&port) else {
-                continue;
-            };
-            if let Some(name) = names.get(&channel) {
-                self.inner
-                    .presets
-                    .set_alias(format!("{node}:{port}"), name.clone());
-                written += 1;
-            }
-        }
+        let batch: Vec<(String, String)> = ports
+            .into_iter()
+            .filter_map(|port| {
+                let channel = crate::chanmap::channel_of_port(&port)?;
+                Some((format!("{node}:{port}"), names.get(&channel)?.clone()))
+            })
+            .collect();
+        let written = u32::try_from(batch.len()).unwrap_or(u32::MAX);
+        self.inner.presets.set_aliases(batch);
         Ok(written)
     }
 
@@ -797,7 +856,7 @@ impl PatchbayService for PatchbayBackend {
             return Err(PatchbayError::not_found("port aliases on node", &node));
         }
         crate::chanmap::write_names(&path, &names).map_err(PatchbayError::Internal)?;
-        Ok(names.len() as u32)
+        Ok(u32::try_from(names.len()).unwrap_or(u32::MAX))
     }
 
     async fn import_inferno_names(
@@ -825,10 +884,10 @@ impl PatchbayService for PatchbayBackend {
         .ok_or_else(|| {
             PatchbayError::not_found(
                 "dante device",
-                if device.trim().is_empty() {
+                &if device.trim().is_empty() {
                     "<any>"
                 } else {
-                    &device
+                    device.as_str()
                 },
             )
         })?;
@@ -852,18 +911,15 @@ impl PatchbayService for PatchbayBackend {
                 .map(|p| p.name.clone())
                 .collect()
         };
-        let mut written = 0;
-        for port in ports {
-            let Some(channel) = crate::chanmap::channel_of_port(&port) else {
-                continue;
-            };
-            if let Some(name) = names.get(&channel) {
-                self.inner
-                    .presets
-                    .set_alias(format!("{node}:{port}"), name.clone());
-                written += 1;
-            }
-        }
+        let batch: Vec<(String, String)> = ports
+            .into_iter()
+            .filter_map(|port| {
+                let channel = crate::chanmap::channel_of_port(&port)?;
+                Some((format!("{node}:{port}"), names.get(&channel)?.clone()))
+            })
+            .collect();
+        let written = u32::try_from(batch.len()).unwrap_or(u32::MAX);
+        self.inner.presets.set_aliases(batch);
         Ok(written)
     }
 
@@ -881,18 +937,29 @@ impl PatchbayService for PatchbayBackend {
                 sink.channels
             )));
         }
-        self.inner.presets.add_virtual_sink(sink);
-        ensure_virtual_sinks(&self.inner.store, &self.inner.presets, &self.inner.engine);
-        Ok(())
+        tel::set(tel::SINK_NAME, sink.name.clone());
+        tel::set(tel::SINK_CHANNELS, i64::from(sink.channels));
+        self.blocking(move |this| {
+            this.inner.presets.add_virtual_sink(sink);
+            ensure_virtual_sinks(&this.inner.store, &this.inner.presets, &this.inner.engine);
+        })
+        .await
     }
 
     async fn remove_virtual_sink(&self, name: String) -> Result<(), PatchbayError> {
         if !self.inner.presets.remove_virtual_sink(&name) {
             return Err(PatchbayError::not_found("virtual sink", &name));
         }
+        // Tear down the companion capture source first, so OBS stops
+        // listing a device whose bus is about to vanish.
+        {
+            let name = name.clone();
+            self.blocking(move |_| crate::capture::remove(&name))
+                .await?;
+        }
         // Destroy the live node too — but ONLY if it carries the
         // patchbay.virtual tag (never an arbitrary node).
-        let node_name = sink_node_name(&name);
+        let node_name = patchbay_proto::sink_node_name(&name);
         let live_id = self
             .inner
             .store
@@ -918,8 +985,8 @@ impl PatchbayService for PatchbayBackend {
         if view.name.trim().is_empty() {
             return Err(PatchbayError::Internal("view name is empty".into()));
         }
-        self.inner.presets.save_view(view);
-        Ok(())
+        self.blocking(move |this| this.inner.presets.save_view(view))
+            .await
     }
 
     async fn delete_view(&self, name: String) -> Result<(), PatchbayError> {
@@ -935,8 +1002,8 @@ impl PatchbayService for PatchbayBackend {
     }
 
     async fn set_color(&self, target: String, color: String) -> Result<(), PatchbayError> {
-        self.inner.presets.set_color(target, color);
-        Ok(())
+        self.blocking(move |this| this.inner.presets.set_color(target, color))
+            .await
     }
 
     async fn icons(&self, names: Vec<String>) -> Result<Vec<IconEntry>, PatchbayError> {
@@ -1075,7 +1142,7 @@ impl PatchbayService for PatchbayBackend {
             .filter(|d| !d.unreachable)
             .map(DanteDeviceConfig::from_device)
             .collect();
-        let n = cfg.len() as u32;
+        let n = u32::try_from(cfg.len()).unwrap_or(u32::MAX);
         self.inner.presets.set_dante_config(cfg);
         Ok(n)
     }
@@ -1097,7 +1164,7 @@ impl PatchbayService for PatchbayBackend {
                 );
             }
         }
-        let mut applied = 0;
+        let mut applied = 0u32;
         for dev in &saved {
             for s in &dev.subscriptions {
                 // Skip saved "unsubscribed" rows — apply never clears.
@@ -1112,126 +1179,9 @@ impl PatchbayService for PatchbayBackend {
                     .dante
                     .subscribe(&dev.name, s.rx_channel, &s.tx_device, &s.tx_channel)
                     .await?;
-                applied += 1;
+                applied = applied.saturating_add(1);
             }
         }
         Ok(applied)
-    }
-}
-
-#[cfg(test)]
-mod route_tests {
-    use super::*;
-    use patchbay_proto::{MediaKind, NodeState, PwNode, PwPort};
-
-    fn node(id: u32, name: &str) -> PwNode {
-        PwNode {
-            id,
-            name: name.into(),
-            label: name.into(),
-            media_class: String::new(),
-            media_kind: MediaKind::Audio,
-            app_name: String::new(),
-            latency: String::new(),
-            icon_name: String::new(),
-            group: String::new(),
-            virtual_sink: false,
-            state: NodeState::Running,
-        }
-    }
-    fn port(id: u32, node_id: u32, name: &str, dir: PortDirection) -> PwPort {
-        PwPort {
-            id,
-            node_id,
-            name: name.into(),
-            direction: dir,
-            media_kind: MediaKind::Audio,
-        }
-    }
-
-    #[test]
-    fn normalization_strips_prefix_and_dsp_but_keeps_lr() {
-        assert_eq!(
-            norm_route_name("81 - Engineer Vocal [DSP]"),
-            "engineer vocal"
-        );
-        assert_eq!(norm_route_name("42 - Engineer Vocal"), "engineer vocal");
-        assert_eq!(norm_route_name("Engineer Vocal"), "engineer vocal");
-        // L/R must stay distinct — stereo halves are different channels.
-        assert_ne!(
-            norm_route_name("Vocal 1 Mix L"),
-            norm_route_name("Vocal 1 Mix R")
-        );
-    }
-
-    #[test]
-    fn resolves_by_alias_across_channel_numbers() {
-        // Inferno source outputs capture_96 (aliased with the [DSP] name
-        // and a different channel number than REAPER's input).
-        let mut store = GraphStore::default();
-        store.nodes.insert(1, node(1, "Inferno source"));
-        store.nodes.insert(2, node(2, "REAPER"));
-        store
-            .ports
-            .insert(100, port(100, 1, "capture_96", PortDirection::Output));
-        store
-            .ports
-            .insert(200, port(200, 2, "in5", PortDirection::Input));
-
-        let mut aliases = HashMap::new();
-        aliases.insert(
-            "Inferno source:capture_96".into(),
-            "96 - Engineer Vocal [DSP]".into(),
-        );
-        aliases.insert("REAPER:in5".into(), "5 - Engineer Vocal".into());
-
-        let from = RouteEndpoint {
-            node: "Inferno source".into(),
-            port: "Engineer Vocal".into(),
-        };
-        let to = RouteEndpoint {
-            node: "REAPER".into(),
-            port: "Engineer Vocal".into(),
-        };
-
-        assert_eq!(
-            resolve_route_endpoint(&store, &aliases, &from, PortDirection::Output),
-            Some(100)
-        );
-        assert_eq!(
-            resolve_route_endpoint(&store, &aliases, &to, PortDirection::Input),
-            Some(200)
-        );
-        // Direction matters: the output-side spec must not match the input port.
-        assert_eq!(
-            resolve_route_endpoint(&store, &aliases, &from, PortDirection::Input),
-            None
-        );
-    }
-
-    #[test]
-    fn node_filter_disambiguates_same_alias() {
-        // Two output ports share the normalized name; the node filter picks one.
-        let mut store = GraphStore::default();
-        store.nodes.insert(1, node(1, "Inferno source"));
-        store.nodes.insert(2, node(2, "Other Card"));
-        store
-            .ports
-            .insert(100, port(100, 1, "capture_1", PortDirection::Output));
-        store
-            .ports
-            .insert(101, port(101, 2, "out_1", PortDirection::Output));
-        let mut aliases = HashMap::new();
-        aliases.insert("Inferno source:capture_1".into(), "Talkback".into());
-        aliases.insert("Other Card:out_1".into(), "Talkback".into());
-
-        let ep = RouteEndpoint {
-            node: "Other Card".into(),
-            port: "Talkback".into(),
-        };
-        assert_eq!(
-            resolve_route_endpoint(&store, &aliases, &ep, PortDirection::Output),
-            Some(101)
-        );
     }
 }

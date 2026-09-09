@@ -41,10 +41,11 @@ impl IconCache {
             icon.and_then(|icon| resolve(&icon))
         });
         let resolved = path.and_then(|p| {
+            // xpm resolves but webviews can't render it, so it falls
+            // in with "unknown extension": no data URI either way.
             let mime = match p.extension().and_then(|e| e.to_str()) {
                 Some("svg") => "image/svg+xml",
                 Some("png") => "image/png",
-                Some("xpm") => return None, // webviews don't render xpm
                 _ => return None,
             };
             let bytes = std::fs::read(&p).ok()?;
@@ -80,9 +81,9 @@ fn build_desktop_index() -> HashMap<String, String> {
                     break;
                 }
                 if let Some(v) = line.strip_prefix("Name=") {
-                    name.get_or_insert(v.trim().to_lowercase());
+                    name.get_or_insert_with(|| v.trim().to_lowercase());
                 } else if let Some(v) = line.strip_prefix("Icon=") {
-                    icon.get_or_insert(v.trim().to_string());
+                    icon.get_or_insert_with(|| v.trim().to_owned());
                 }
             }
             let Some(icon) = icon else { continue };
@@ -152,17 +153,21 @@ fn resolve(name: &str) -> Option<PathBuf> {
 
 fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    // 4 output chars per 3 input bytes; a capacity hint, so a
+    // saturating estimate is fine.
+    let mut out = String::with_capacity(bytes.len().div_ceil(3).saturating_mul(4));
     for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
-        for i in 0..4 {
+        // `chunks(3)` never yields an empty slice, and a 6-bit index is
+        // always in TABLE — but say so with total operations rather
+        // than indexing and hoping.
+        let byte = |i: usize| u32::from(chunk.get(i).copied().unwrap_or(0));
+        let n = byte(0) << 16 | byte(1) << 8 | byte(2);
+        // Each output char consumes 6 bits, most-significant first; a
+        // chunk of k bytes yields k+1 chars and pads the rest.
+        for (i, shift) in [18_u32, 12, 6, 0].into_iter().enumerate() {
             if i <= chunk.len() {
-                out.push(TABLE[(n >> (18 - 6 * i)) as usize & 63] as char);
+                let idx = usize::try_from((n >> shift) & 63).unwrap_or(0);
+                out.push(char::from(TABLE.get(idx).copied().unwrap_or(b'A')));
             } else {
                 out.push('=');
             }

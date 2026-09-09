@@ -5,8 +5,8 @@
 //! lists a human can bulk-edit in a text editor. A legacy
 //! `patchbay.json` is auto-migrated to styx on first open.
 //!
-//! Presets are connection memory (RaySession's jackpatch idea): links
-//! remembered by stable (node.name, port.name) pairs, re-applied
+//! Presets are connection memory (`RaySession`'s jackpatch idea): links
+//! remembered by stable (`node.name`, `port.name`) pairs, re-applied
 //! incrementally against whatever half of the graph currently exists.
 
 use std::fs;
@@ -72,6 +72,10 @@ fn seed_defaults() -> Vec<AliasEntry> {
 pub(crate) struct PresetStore {
     path: PathBuf,
     data: Mutex<FileFormat>,
+    /// Set when the on-disk config exists but does not parse. Every
+    /// write becomes a no-op so a user's hand-edited file is never
+    /// overwritten with the empty config we booted with.
+    degraded: bool,
 }
 
 fn config_path() -> PathBuf {
@@ -85,71 +89,136 @@ fn config_path() -> PathBuf {
         .join("fts/patchbay/patchbay.styx")
 }
 
+/// Outcome of reading the config off disk.
+enum Loaded {
+    /// Parsed cleanly (or migrated from legacy JSON).
+    Config(FileFormat),
+    /// The file exists but does not parse. We keep an empty in-memory
+    /// config so the app still runs, but persisting is disabled — see
+    /// [`PresetStore::degraded`].
+    Unreadable,
+    /// Nothing on disk yet — fresh install.
+    Fresh,
+}
+
 /// Load the config: styx if present, else migrate a legacy
-/// `patchbay.json` sitting beside it, else `None` (fresh install).
-fn load(styx_path: &std::path::Path) -> Option<FileFormat> {
+/// `patchbay.json` sitting beside it, else [`Loaded::Fresh`].
+fn load(styx_path: &std::path::Path) -> Loaded {
     if let Ok(s) = fs::read_to_string(styx_path) {
-        match facet_styx::from_str::<FileFormat>(&s) {
-            Ok(data) => return Some(data),
+        return match facet_styx::from_str::<FileFormat>(&s) {
+            Ok(data) => Loaded::Config(data),
             Err(e) => {
-                // Don't clobber a file we can't parse — surface it and
-                // fall through so the user can fix it by hand.
-                tracing::error!("patchbay.styx parse failed ({e:?}); leaving it untouched");
-                return Some(FileFormat::default());
+                // Never clobber a file we can't parse: the store goes
+                // read-only so a later mutation can't overwrite the
+                // user's hand-edited presets with an empty document.
+                tracing::error!(
+                    path = %styx_path.display(),
+                    "patchbay.styx parse failed ({e:?}); config is READ-ONLY until fixed"
+                );
+                Loaded::Unreadable
             }
-        }
+        };
     }
     // Legacy JSON migration: read once; the caller writes styx on open.
     let json_path = styx_path.with_extension("json");
-    let s = fs::read_to_string(&json_path).ok()?;
+    let Ok(s) = fs::read_to_string(&json_path) else {
+        return Loaded::Fresh;
+    };
     match serde_json::from_str::<FileFormat>(&s) {
         Ok(data) => {
             tracing::info!("migrating patchbay config {} → styx", json_path.display());
             // Keep the old file as a backup rather than deleting it.
-            let _ = fs::rename(&json_path, json_path.with_extension("json.bak"));
-            Some(data)
+            drop(fs::rename(&json_path, json_path.with_extension("json.bak")));
+            Loaded::Config(data)
         }
         Err(e) => {
             tracing::warn!("legacy patchbay.json parse failed: {e}");
-            None
+            Loaded::Fresh
         }
     }
+}
+
+/// Upsert `item` into `list` keyed by `key`, keeping the list sorted by
+/// that key. Every config section is an upsert-by-name list, so this is
+/// the one place that logic lives.
+fn upsert_by<T, K, F>(list: &mut Vec<T>, key: F, item: T)
+where
+    F: Fn(&T) -> K,
+    K: Ord,
+{
+    let k = key(&item);
+    list.retain(|existing| key(existing) != k);
+    list.push(item);
+    list.sort_by(|a, b| key(a).cmp(&key(b)));
+}
+
+/// Remove every element of `list` matching `pred`; returns whether any
+/// were removed.
+fn remove_where<T, F: Fn(&T) -> bool>(list: &mut Vec<T>, pred: F) -> bool {
+    let before = list.len();
+    list.retain(|item| !pred(item));
+    list.len() != before
 }
 
 impl PresetStore {
     pub fn open() -> Self {
         let path = config_path();
-        let data = load(&path).unwrap_or_else(|| {
+        let (data, degraded) = match load(&path) {
+            Loaded::Config(data) => (data, false),
+            Loaded::Unreadable => (FileFormat::default(), true),
             // Fresh install: start from the REAPER baseline so the
             // main outs/click are named the first time it appears.
-            FileFormat {
-                aliases: seed_defaults(),
-                ..FileFormat::default()
-            }
-        });
+            Loaded::Fresh => (
+                FileFormat {
+                    aliases: seed_defaults(),
+                    ..FileFormat::default()
+                },
+                false,
+            ),
+        };
         let store = Self {
             path,
             data: Mutex::new(data),
+            degraded,
         };
         // Write the styx file now if it doesn't exist yet — materializes
         // a freshly-migrated or seeded config so it's hand-editable.
-        if !store.path.exists() {
+        if !store.degraded && !store.path.exists() {
             store.persist(&store.data.lock());
         }
         store
     }
 
+    /// Serialize `data` over the config file, atomically: write a
+    /// sibling temp file then rename it into place, so an interrupted
+    /// write can never leave a truncated (and therefore unparseable —
+    /// see [`Loaded::Unreadable`]) config behind.
     fn persist(&self, data: &FileFormat) {
-        if let Some(dir) = self.path.parent() {
-            let _ = fs::create_dir_all(dir);
+        if self.degraded {
+            tracing::warn!(
+                path = %self.path.display(),
+                "config change NOT saved: the on-disk config is unparseable; fix or remove it"
+            );
+            return;
         }
-        match facet_styx::to_string(data) {
-            Ok(styx) => {
-                if let Err(e) = fs::write(&self.path, styx) {
-                    tracing::warn!("patchbay config write failed: {e}");
-                }
+        if let Some(dir) = self.path.parent() {
+            drop(fs::create_dir_all(dir));
+        }
+        let styx = match facet_styx::to_string(data) {
+            Ok(styx) => styx,
+            Err(e) => {
+                tracing::warn!("patchbay config serialize failed: {e:?}");
+                return;
             }
-            Err(e) => tracing::warn!("patchbay config serialize failed: {e:?}"),
+        };
+        let tmp = self.path.with_extension("styx.tmp");
+        if let Err(e) = fs::write(&tmp, styx) {
+            tracing::warn!("patchbay config write failed: {e}");
+            return;
+        }
+        if let Err(e) = fs::rename(&tmp, &self.path) {
+            tracing::warn!("patchbay config rename failed: {e}");
+            drop(fs::remove_file(&tmp));
         }
     }
 
@@ -178,18 +247,14 @@ impl PresetStore {
             links,
         };
         let mut data = self.data.lock();
-        data.presets.retain(|p| p.name != preset.name);
-        data.presets.push(preset.clone());
-        data.presets.sort_by(|a, b| a.name.cmp(&b.name));
+        upsert_by(&mut data.presets, |p| p.name.clone(), preset.clone());
         self.persist(&data);
         preset
     }
 
     pub fn delete_preset(&self, name: &str) -> bool {
         let mut data = self.data.lock();
-        let before = data.presets.len();
-        data.presets.retain(|p| p.name != name);
-        let removed = data.presets.len() != before;
+        let removed = remove_where(&mut data.presets, |p| p.name == name);
         if removed {
             self.persist(&data);
         }
@@ -209,18 +274,14 @@ impl PresetStore {
         rule: patchbay_proto::LatencyRule,
     ) -> Vec<patchbay_proto::LatencyRule> {
         let mut data = self.data.lock();
-        data.latency_rules.retain(|r| r.pattern != rule.pattern);
-        data.latency_rules.push(rule);
-        data.latency_rules.sort_by(|a, b| a.pattern.cmp(&b.pattern));
+        upsert_by(&mut data.latency_rules, |r| r.pattern.clone(), rule);
         self.persist(&data);
         data.latency_rules.clone()
     }
 
     pub fn remove_latency_rule(&self, pattern: &str) -> Option<Vec<patchbay_proto::LatencyRule>> {
         let mut data = self.data.lock();
-        let before = data.latency_rules.len();
-        data.latency_rules.retain(|r| r.pattern != pattern);
-        if data.latency_rules.len() == before {
+        if !remove_where(&mut data.latency_rules, |r| r.pattern == pattern) {
             return None;
         }
         self.persist(&data);
@@ -233,17 +294,13 @@ impl PresetStore {
 
     pub fn add_virtual_sink(&self, sink: VirtualSink) {
         let mut data = self.data.lock();
-        data.virtual_sinks.retain(|s| s.name != sink.name);
-        data.virtual_sinks.push(sink);
-        data.virtual_sinks.sort_by(|a, b| a.name.cmp(&b.name));
+        upsert_by(&mut data.virtual_sinks, |s| s.name.clone(), sink);
         self.persist(&data);
     }
 
     pub fn remove_virtual_sink(&self, name: &str) -> bool {
         let mut data = self.data.lock();
-        let before = data.virtual_sinks.len();
-        data.virtual_sinks.retain(|s| s.name != name);
-        let removed = data.virtual_sinks.len() != before;
+        let removed = remove_where(&mut data.virtual_sinks, |s| s.name == name);
         if removed {
             self.persist(&data);
         }
@@ -262,17 +319,13 @@ impl PresetStore {
 
     pub fn save_view(&self, view: CanvasView) {
         let mut data = self.data.lock();
-        data.views.retain(|v| v.name != view.name);
-        data.views.push(view);
-        data.views.sort_by(|a, b| a.name.cmp(&b.name));
+        upsert_by(&mut data.views, |v| v.name.clone(), view);
         self.persist(&data);
     }
 
     pub fn delete_view(&self, name: &str) -> bool {
         let mut data = self.data.lock();
-        let before = data.views.len();
-        data.views.retain(|v| v.name != name);
-        let removed = data.views.len() != before;
+        let removed = remove_where(&mut data.views, |v| v.name == name);
         if removed {
             self.persist(&data);
         }
@@ -286,9 +339,14 @@ impl PresetStore {
     /// Empty color clears the entry.
     pub fn set_color(&self, target: String, color: String) {
         let mut data = self.data.lock();
-        data.colors.retain(|c| c.target != target);
-        if !color.is_empty() {
-            data.colors.push(ColorEntry { target, color });
+        if color.is_empty() {
+            remove_where(&mut data.colors, |c| c.target == target);
+        } else {
+            upsert_by(
+                &mut data.colors,
+                |c| c.target.clone(),
+                ColorEntry { target, color },
+            );
         }
         self.persist(&data);
     }
@@ -311,17 +369,13 @@ impl PresetStore {
     /// Upsert a named route (by `name`).
     pub fn set_route(&self, route: NamedRoute) {
         let mut data = self.data.lock();
-        data.routes.retain(|r| r.name != route.name);
-        data.routes.push(route);
-        data.routes.sort_by(|a, b| a.name.cmp(&b.name));
+        upsert_by(&mut data.routes, |r| r.name.clone(), route);
         self.persist(&data);
     }
 
     pub fn delete_route(&self, name: &str) -> bool {
         let mut data = self.data.lock();
-        let before = data.routes.len();
-        data.routes.retain(|r| r.name != name);
-        let removed = data.routes.len() != before;
+        let removed = remove_where(&mut data.routes, |r| r.name == name);
         if removed {
             self.persist(&data);
         }
@@ -330,12 +384,144 @@ impl PresetStore {
 
     /// Empty alias clears the entry.
     pub fn set_alias(&self, target: String, alias: String) {
+        self.set_aliases(std::iter::once((target, alias)));
+    }
+
+    /// Bulk alias upsert — ONE persist for the whole batch. A chanmap
+    /// or Dante-name import touches every channel on a 128-port node;
+    /// doing that one `set_alias` at a time rewrote the entire config
+    /// file 128 times.
+    pub fn set_aliases<I: IntoIterator<Item = (String, String)>>(&self, entries: I) {
         let mut data = self.data.lock();
-        data.aliases.retain(|a| a.target != target);
-        if !alias.is_empty() {
-            data.aliases.push(AliasEntry { target, alias });
+        let mut touched = false;
+        for (target, alias) in entries {
+            touched = true;
+            if alias.is_empty() {
+                remove_where(&mut data.aliases, |a| a.target == target);
+            } else {
+                upsert_by(
+                    &mut data.aliases,
+                    |a| a.target.clone(),
+                    AliasEntry { target, alias },
+                );
+            }
         }
-        self.persist(&data);
+        if touched {
+            self.persist(&data);
+        }
+    }
+}
+
+#[cfg(test)]
+mod persistence {
+    use super::*;
+
+    fn tmpdir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "patchbay-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn store_at(path: PathBuf) -> PresetStore {
+        let (data, degraded) = match load(&path) {
+            Loaded::Config(d) => (d, false),
+            Loaded::Unreadable => (FileFormat::default(), true),
+            Loaded::Fresh => (FileFormat::default(), false),
+        };
+        PresetStore {
+            path,
+            data: Mutex::new(data),
+            degraded,
+        }
+    }
+
+    /// The regression this guards: a config that fails to parse used to
+    /// boot as an EMPTY in-memory config, and the next mutation (the
+    /// automatic chanmap import fires ~2s after REAPER appears) wrote
+    /// that empty config straight over the user's file.
+    #[test]
+    fn unparseable_config_is_never_overwritten() {
+        let path = tmpdir().join("corrupt.styx");
+        let garbage = "presets ({{{ this is not styx";
+        std::fs::write(&path, garbage).unwrap();
+
+        let store = store_at(path.clone());
+        assert!(store.degraded, "a bad parse must mark the store degraded");
+
+        // Any mutation must be a no-op on disk.
+        store.set_alias("REAPER:out1".into(), "Main L".into());
+        store.set_route(NamedRoute {
+            name: "r".into(),
+            from: patchbay_proto::RouteEndpoint::default(),
+            to: patchbay_proto::RouteEndpoint::default(),
+            enabled: true,
+        });
+        store.set_color("REAPER".into(), "#fff".into());
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            garbage,
+            "the user's unparseable config must survive byte-for-byte"
+        );
+    }
+
+    #[test]
+    fn writes_are_atomic_and_leave_no_temp_file() {
+        let path = tmpdir().join("atomic.styx");
+        let store = store_at(path.clone());
+        store.set_alias("REAPER:out1".into(), "Main L".into());
+
+        assert!(path.exists());
+        assert!(
+            !path.with_extension("styx.tmp").exists(),
+            "the temp file must be renamed away, not left behind"
+        );
+        let reread = store_at(path);
+        assert_eq!(reread.aliases().len(), 1);
+    }
+
+    #[test]
+    fn bulk_alias_import_persists_once_and_round_trips() {
+        let path = tmpdir().join("bulk.styx");
+        let store = store_at(path.clone());
+        let entries: Vec<(String, String)> = (1..=128)
+            .map(|n| (format!("REAPER:in{n}"), format!("Channel {n}")))
+            .collect();
+        store.set_aliases(entries);
+
+        let reread = store_at(path);
+        let aliases = reread.aliases();
+        assert_eq!(aliases.len(), 128);
+        assert!(
+            aliases
+                .iter()
+                .any(|a| a.target == "REAPER:in42" && a.alias == "Channel 42")
+        );
+    }
+
+    #[test]
+    fn empty_alias_clears_the_entry() {
+        let path = tmpdir().join("clear.styx");
+        let store = store_at(path);
+        store.set_alias("REAPER:out1".into(), "Main L".into());
+        assert!(store.has_alias("REAPER:out1"));
+        store.set_alias("REAPER:out1".into(), String::new());
+        assert!(!store.has_alias("REAPER:out1"));
+    }
+
+    #[test]
+    fn upsert_replaces_rather_than_duplicates() {
+        let path = tmpdir().join("upsert.styx");
+        let store = store_at(path);
+        store.set_alias("REAPER:out1".into(), "First".into());
+        store.set_alias("REAPER:out1".into(), "Second".into());
+        let aliases = store.aliases();
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].alias, "Second");
     }
 }
 
@@ -372,6 +558,7 @@ mod styx_roundtrip {
             virtual_sinks: vec![VirtualSink {
                 name: "Stems".into(),
                 channels: 8,
+                capturable: true,
             }],
             views: vec![CanvasView {
                 name: "Broadcast".into(),

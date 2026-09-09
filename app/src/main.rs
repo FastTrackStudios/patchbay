@@ -1,8 +1,4 @@
-// Lint debt: workspace flipped dead_code/unused to warn (task cleanup);
-// this crate predates that — burn down separately.
-#![allow(dead_code, unused)]
-
-//! FTS Patchbay — the PipeWire studio-routing desktop app.
+//! FTS Patchbay — the `PipeWire` studio-routing desktop app.
 //!
 //! The [`patchbay::PatchbayBackend`] engine runs in-process and is ALSO
 //! served at `ws://0.0.0.0:4046/vox` (override `PATCHBAY_ADDR`), so any
@@ -10,6 +6,7 @@
 //! talks to it through the exact same generated client every remote
 //! uses — over an in-process `architect::LocalServer` link.
 
+use std::process::ExitCode;
 use std::sync::{Arc, OnceLock};
 
 use architect::host::{EngineHost, WebBundle};
@@ -20,6 +17,10 @@ use patchbay_proto::{GraphEvent, PatchbayServiceClient};
 use patchbay_ui::{PatchbayApp, PatchbayHandle};
 
 const DEFAULT_ADDR: &str = "0.0.0.0:4046";
+
+/// How often the UI reconciles against a full snapshot, as a backstop
+/// for anything the event stream dropped.
+const RECONCILE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The staged web bundle, compiled into the binary (`just
 /// patchbay-web-stage` copies the dx build into `web-dist/`).
@@ -50,7 +51,7 @@ fn web_bundle() -> Option<WebBundle> {
     {
         let exe_dir = std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))?;
+            .and_then(|p| p.parent().map(std::path::Path::to_path_buf))?;
         let candidates = [
             exe_dir.join("../dx/patchbay-web/release/web/public"),
             exe_dir.join("../dx/patchbay-web/debug/web/public"),
@@ -62,16 +63,24 @@ fn web_bundle() -> Option<WebBundle> {
     }
 }
 
-/// In-process clients over the LocalServer conduit — the same shape
+/// In-process clients over the `LocalServer` conduit — the same shape
 /// every network remote uses.
 struct Engine {
     client: PatchbayServiceClient,
     stream_client: PatchbayServiceStreamClient,
-    /// Keeps the LocalServer's acceptor + lanes alive.
+    /// Keeps the `LocalServer`'s acceptor + lanes alive.
     _scope: Arc<architect::Scope>,
 }
 
 static ENGINE: OnceLock<Engine> = OnceLock::new();
+
+/// The bootstrapped engine. `main` refuses to reach the dioxus launch
+/// unless `bootstrap_blocking` succeeded, so this is set for the whole
+/// life of the UI; a `None` here can only mean the component tree was
+/// mounted without `main`, which the UI treats as "nothing to show".
+fn bootstrapped() -> Option<&'static Engine> {
+    ENGINE.get()
+}
 
 fn bind_addr() -> String {
     std::env::var("PATCHBAY_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string())
@@ -123,7 +132,7 @@ fn bootstrap_blocking() -> eyre::Result<()> {
     })
 }
 
-fn main() {
+fn main() -> ExitCode {
     // WebKitGTK on NVIDIA/Wayland lags hard; force X11 before any GTK
     // init (same workaround as apps/fasttrackstudio).
     #[cfg(target_os = "linux")]
@@ -149,7 +158,7 @@ fn main() {
 
     if let Err(e) = bootstrap_blocking() {
         eprintln!("patchbay engine failed to start: {e:?}");
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     }
 
     let window = dioxus::desktop::WindowBuilder::new()
@@ -162,23 +171,26 @@ fn main() {
                 .with_menu(None),
         )
         .launch(App);
+    ExitCode::SUCCESS
 }
 
 #[component]
 fn App() -> Element {
-    let engine = ENGINE.get().expect("engine bootstrapped in main");
+    let Some(engine) = bootstrapped() else {
+        return rsx! { div { "patchbay engine not bootstrapped" } };
+    };
     use_context_provider(|| PatchbayHandle(Arc::new(engine.client.clone())));
 
     // Bridge: initial snapshot + `#[subscribe]` events → UI signals.
     use_future(move || async move {
-        let engine = ENGINE.get().expect("engine bootstrapped in main");
+        let Some(engine) = bootstrapped() else { return };
         let handle = PatchbayHandle(Arc::new(engine.client.clone()));
 
         // Consume the stream through the stream client so the vox lane
         // pumps it (a raw Tx attached to the hub is never drained).
         let (tx, mut rx) = vox::channel::<GraphEvent>();
         spawn(async move {
-            let engine = ENGINE.get().expect("engine bootstrapped in main");
+            let Some(engine) = bootstrapped() else { return };
             if let Err(e) = engine.stream_client.graph_events(tx).await {
                 tracing::warn!("graph_events subscription ended: {e:?}");
             }
@@ -204,9 +216,9 @@ fn App() -> Element {
     // snapshot swap guarantees the UI converges within seconds even
     // if the event path lost something.
     use_future(move || async move {
-        let engine = ENGINE.get().expect("engine bootstrapped in main");
+        let Some(engine) = bootstrapped() else { return };
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            tokio::time::sleep(RECONCILE_INTERVAL).await;
             match engine.client.graph().await {
                 Ok(snap) => patchbay_ui::replace_graph(snap),
                 Err(e) => tracing::warn!("graph reconcile failed: {e:?}"),

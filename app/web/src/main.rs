@@ -146,7 +146,7 @@ fn Connected(engine: EngineHandles) -> Element {
     });
 
     // Periodic reconcile — streams can drop under burst.
-    let reconcile = engine.clone();
+    let reconcile = engine;
     use_future(move || {
         let engine = reconcile.clone();
         async move {

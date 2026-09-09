@@ -8,3 +8,6 @@ result-*
 *.profraw
 .DS_Store
 /web-dist
+
+# direnv (see .envrc / flake.nix)
+.direnv/
