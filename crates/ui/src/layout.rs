@@ -21,6 +21,12 @@ pub const COL_HEADER_H: f64 = 34.0;
 /// Runs shorter than this never group.
 pub const GROUP_MIN: usize = 5;
 
+/// Column indices — see [`column_of`].
+pub const COL_INPUTS: usize = 0;
+pub const COL_APPS: usize = 1;
+pub const COL_GROUPS: usize = 2;
+pub const COL_OUTPUTS: usize = 3;
+
 /// Column semantics: 0 = Inputs (capture devices/sources), 1 =
 /// Applications (streams + app clients), 2 = Groups (bus sinks —
 /// loopbacks like System Audio / Voice Chat / Games and patchbay
@@ -29,19 +35,19 @@ pub const GROUP_MIN: usize = 5;
 pub fn column_of(node: &PwNode) -> usize {
     if node.media_class.contains("/Sink") {
         if node.virtual_sink || node.group.starts_with("loopback") {
-            2
+            COL_GROUPS
         } else {
-            3
+            COL_OUTPUTS
         }
     } else if node.media_class.contains("/Source") && !node.media_class.starts_with("Stream") {
-        0
+        COL_INPUTS
     } else {
-        1
+        COL_APPS
     }
 }
 
 /// Column titles per media tab.
-pub fn column_titles(tab: MediaKind) -> [&'static str; 4] {
+pub const fn column_titles(tab: MediaKind) -> [&'static str; 4] {
     match tab {
         MediaKind::Midi => ["MIDI Inputs", "Applications", "Groups", "MIDI Outputs"],
         MediaKind::Video => ["Cameras / Sources", "Applications", "Groups", "Outputs"],
@@ -83,13 +89,13 @@ pub struct PortRow {
 
 /// "28 - Guitar 1" → "Guitar 1", but ONLY when the leading number is
 /// this port's actual channel — the UI shows the channel natively, so
-/// a matching baked-in number is redundant; a MISmatched one is
+/// a matching baked-in number is redundant; a `MISmatched` one is
 /// information and stays.
 pub fn strip_channel_prefix(label: &str, chan: Option<u64>) -> String {
     let Some(chan) = chan else {
         return label.to_string();
     };
-    let digits = label.chars().take_while(|c| c.is_ascii_digit()).count();
+    let digits = label.chars().take_while(char::is_ascii_digit).count();
     if digits == 0 {
         return label.to_string();
     }
@@ -113,19 +119,35 @@ pub fn strip_channel_prefix(label: &str, chan: Option<u64>) -> String {
 fn assign_row_positions(rows: &mut [PortRow]) -> f64 {
     let (mut n_in, mut n_out) = (0usize, 0usize);
     for row in rows.iter_mut() {
+        // Post-increment: the row takes the CURRENT count as its index.
         let idx = match row.direction {
             PortDirection::Input => {
-                n_in += 1;
-                n_in - 1
+                let i = n_in;
+                n_in = n_in.saturating_add(1);
+                i
             }
             PortDirection::Output => {
-                n_out += 1;
-                n_out - 1
+                let i = n_out;
+                n_out = n_out.saturating_add(1);
+                i
             }
         };
-        row.y = HEADER_H + (idx as f64 + 0.5) * ROW_H;
+        row.y = HEADER_H + (row_offset(idx) + 0.5) * ROW_H;
     }
-    HEADER_H + n_in.max(n_out) as f64 * ROW_H + 8.0
+    HEADER_H + row_offset(n_in.max(n_out)) * ROW_H + 8.0
+}
+
+/// Left edge of column `i`, relative to the canvas margin.
+#[must_use]
+pub fn column_x(i: usize) -> f64 {
+    row_offset(i) * (CARD_W + COL_GAP)
+}
+
+/// A row count as a pixel multiplier. Cards never approach 2^53 rows,
+/// so the saturating conversion is a formality that keeps the cast
+/// total.
+fn row_offset(n: usize) -> f64 {
+    u32::try_from(n).map_or_else(|_| f64::from(u32::MAX), f64::from)
 }
 
 pub struct CardLayout {
@@ -151,22 +173,12 @@ pub struct GraphLayout {
 }
 
 /// Split `playback_97` → (`playback_`, 97). Ports without a numeric
-/// suffix never group.
-fn split_numeric(name: &str) -> Option<(&str, u64)> {
-    let digits = name
-        .chars()
-        .rev()
-        .take_while(|c| c.is_ascii_digit())
-        .count();
-    if digits == 0 || digits == name.len() {
-        return None;
-    }
-    let (prefix, num) = name.split_at(name.len() - digits);
-    num.parse().ok().map(|n| (prefix, n))
-}
+/// suffix never group. The canonical definition lives in the wire crate
+/// so the engine and every UI agree on channel identity.
+use patchbay_proto::split_port_number as split_numeric;
 
 /// Is this display label the left or right half of a stereo pair?
-/// Returns `(base, is_right)`. Matches `_FL`/`_FR` style PipeWire
+/// Returns `(base, is_right)`. Matches `_FL`/`_FR` style `PipeWire`
 /// channel suffixes and human `… L` / `… R` / `… Left` / `… Right`
 /// aliases — always separated from the base by `_`, space, `-`, `.`
 /// or `/` so `Vocal`/`GTR` never false-match.
@@ -213,58 +225,67 @@ fn merge_lr_pairs(
     };
     let mut out: Vec<PortRow> = Vec::new();
     for mut row in rows {
+        // Pop the candidate up front rather than peeking and popping
+        // later: the "peek, then pop and unwrap" shape was two
+        // expect()s that only held because of the enclosing `if let`.
+        // If this row can't pair, `prev` goes straight back on.
         let mergeable = row.group_key.is_none() && !row.pair && row.ports.len() == 1;
-        if mergeable {
-            if let Some(prev) = out.last() {
-                if prev.group_key.is_none()
-                    && !prev.pair
-                    && prev.pair_key.is_none()
-                    && prev.ports.len() == 1
-                    && prev.monitor == row.monitor
-                    && prev.kind == row.kind
-                {
-                    let (pl, rl) = (display(prev), display(&row));
-                    let pair = match (lr_split(&pl), lr_split(&rl)) {
-                        (Some((b1, false)), Some((b2, true))) if b1 == b2 => Some(b1.to_string()),
-                        _ => None,
-                    };
-                    if let Some(b1) = pair {
-                        let key = format!("pair/{}/{}/{}", node.name, dir_str, prev.label);
-                        if expanded.get(&key).copied().unwrap_or(false) {
-                            // Expanded: keep both channels, each able
-                            // to collapse the pair back.
-                            let mut prev = out.pop().expect("just peeked");
-                            prev.pair_key = Some(key.clone());
-                            row.pair_key = Some(key);
-                            out.push(prev);
-                            out.push(row);
-                            continue;
-                        }
-                        let base = b1.trim_end_matches(['_', ' ', '-', '.', '/']);
-                        let label = if base.is_empty() {
-                            "L/R".to_string()
-                        } else {
-                            format!("{base} L/R")
-                        };
-                        let prev = out.pop().expect("just peeked");
-                        out.push(PortRow {
-                            label,
-                            direction: row.direction,
-                            kind: row.kind,
-                            ports: vec![prev.ports[0], row.ports[0]],
-                            group_key: None,
-                            monitor: row.monitor,
-                            pair: true,
-                            pair_key: Some(key),
-                            chan: (prev.chan.0, row.chan.0),
-                            y: 0.0,
-                        });
-                        continue;
-                    }
-                }
+        let Some(prev) = (if mergeable { out.pop() } else { None }) else {
+            out.push(row);
+            continue;
+        };
+        let pairable = prev.group_key.is_none()
+            && !prev.pair
+            && prev.pair_key.is_none()
+            && prev.ports.len() == 1
+            && prev.monitor == row.monitor
+            && prev.kind == row.kind;
+        let base = if pairable {
+            let (prev_label, row_label) = (display(&prev), display(&row));
+            match (lr_split(&prev_label), lr_split(&row_label)) {
+                (Some((b1, false)), Some((b2, true))) if b1 == b2 => Some(b1.to_owned()),
+                _ => None,
             }
+        } else {
+            None
+        };
+        let (Some(base), Some(&prev_port), Some(&row_port)) =
+            (base, prev.ports.first(), row.ports.first())
+        else {
+            out.push(prev);
+            out.push(row);
+            continue;
+        };
+
+        let key = format!("pair/{}/{}/{}", node.name, dir_str, prev.label);
+        if expanded.get(&key).copied().unwrap_or(false) {
+            // Expanded: keep both channels, each able to collapse the
+            // pair back.
+            let mut prev = prev;
+            prev.pair_key = Some(key.clone());
+            row.pair_key = Some(key);
+            out.push(prev);
+            out.push(row);
+            continue;
         }
-        out.push(row);
+        let trimmed = base.trim_end_matches(['_', ' ', '-', '.', '/']);
+        let label = if trimmed.is_empty() {
+            "L/R".to_owned()
+        } else {
+            format!("{trimmed} L/R")
+        };
+        out.push(PortRow {
+            label,
+            direction: row.direction,
+            kind: row.kind,
+            ports: vec![prev_port, row_port],
+            group_key: None,
+            monitor: row.monitor,
+            pair: true,
+            pair_key: Some(key),
+            chan: (prev.chan.0, row.chan.0),
+            y: 0.0,
+        });
     }
     out
 }
@@ -275,9 +296,10 @@ fn merge_lr_pairs(
 /// Alias interaction: a handful of named channels ("Guitar" on a
 /// 128-port Inferno node) split OUT of their group so they're always
 /// visible — the whole point of naming a channel is seeing it. But a
-/// bank where ≥ GROUP_MIN channels are named (a full chanmap import)
+/// bank where ≥ `GROUP_MIN` channels are named (a full chanmap import)
 /// stays grouped, or the card would explode back to 128 rows; the
 /// aliases show when the group is expanded.
+#[allow(clippy::too_many_lines)]
 fn build_rows(
     node: &PwNode,
     ports: &[&PwPort],
@@ -285,12 +307,12 @@ fn build_rows(
     expanded: &HashMap<String, bool>,
     aliases: &HashMap<String, String>,
 ) -> Vec<PortRow> {
-    let aliased = |p: &PwPort| aliases.contains_key(&format!("{}:{}", node.name, p.name));
+    let is_aliased = |p: &PwPort| aliases.contains_key(&format!("{}:{}", node.name, p.name));
     let dir_str = match direction {
         PortDirection::Input => "in",
         PortDirection::Output => "out",
     };
-    let mut rows = Vec::new();
+    let mut out_rows = Vec::new();
 
     let single = |rows: &mut Vec<PortRow>, p: &PwPort| {
         rows.push(PortRow {
@@ -307,44 +329,41 @@ fn build_rows(
         });
     };
     let group = |rows: &mut Vec<PortRow>, run: &[&PwPort]| {
-        let (prefix, first) = split_numeric(&run[0].name).unwrap_or(("", 0));
-        let last = split_numeric(&run[run.len() - 1].name)
-            .map(|(_, n)| n)
-            .unwrap_or(0);
+        // Callers only ever pass a non-empty run; `first()`/`last()`
+        // say so without indexing.
+        let (Some(head), Some(tail)) = (run.first(), run.last()) else {
+            return;
+        };
+        let (prefix, first) = split_numeric(&head.name).unwrap_or(("", 0));
+        let last = split_numeric(&tail.name).map_or(0, |(_, n)| n);
         // `first` in the key keeps two segments of the same prefix
         // (split by a named channel) independently expandable.
         let key = format!("{}/{}/{}{}", node.name, dir_str, prefix, first);
         let is_expanded = expanded.get(&key).copied().unwrap_or(false);
-        let monitor = is_monitor(&run[0].name);
+        let label = format!("{prefix}{first}–{last}");
+        let monitor = is_monitor(&head.name);
+        rows.push(PortRow {
+            label,
+            direction,
+            kind: head.media_kind,
+            // Expanded: the group row is a header, its channels follow
+            // as singles. Collapsed: the row stands for every port.
+            ports: if is_expanded {
+                Vec::new()
+            } else {
+                run.iter().map(|p| p.id).collect()
+            },
+            group_key: Some(key),
+            monitor,
+            pair: false,
+            pair_key: None,
+            chan: (None, None),
+            y: 0.0,
+        });
         if is_expanded {
-            rows.push(PortRow {
-                label: format!("{}{}–{}", prefix, first, last),
-                direction,
-                kind: run[0].media_kind,
-                ports: Vec::new(),
-                group_key: Some(key),
-                monitor,
-                pair: false,
-                pair_key: None,
-                chan: (None, None),
-                y: 0.0,
-            });
             for p in run {
                 single(rows, p);
             }
-        } else {
-            rows.push(PortRow {
-                label: format!("{}{}–{}", prefix, first, last),
-                direction,
-                kind: run[0].media_kind,
-                ports: run.iter().map(|p| p.id).collect(),
-                group_key: Some(key),
-                monitor,
-                pair: false,
-                pair_key: None,
-                chan: (None, None),
-                y: 0.0,
-            });
         }
     };
     // A slice shorter than GROUP_MIN renders as singles.
@@ -359,18 +378,18 @@ fn build_rows(
     };
 
     let mut i = 0;
-    while i < ports.len() {
+    while let Some(head) = ports.get(i) {
         // Extend a run of consecutive same-prefix numbered ports
         // (alias-blind — alias handling comes after).
-        let run_end = match split_numeric(&ports[i].name) {
-            None => i + 1,
+        let run_end = match split_numeric(&head.name) {
+            None => i.saturating_add(1),
             Some((prefix, mut num)) => {
-                let mut j = i + 1;
-                while j < ports.len() {
-                    match split_numeric(&ports[j].name) {
-                        Some((p, n)) if p == prefix && n == num + 1 => {
+                let mut j = i.saturating_add(1);
+                while let Some(next) = ports.get(j) {
+                    match split_numeric(&next.name) {
+                        Some((p, n)) if p == prefix && n == num.saturating_add(1) => {
                             num = n;
-                            j += 1;
+                            j = j.saturating_add(1);
                         }
                         _ => break,
                     }
@@ -378,32 +397,38 @@ fn build_rows(
                 j
             }
         };
-        let run = &ports[i..run_end];
+        let Some(run) = ports.get(i..run_end) else {
+            break;
+        };
         i = run_end;
 
         if run.len() < GROUP_MIN {
             for p in run {
-                single(&mut rows, p);
+                single(&mut out_rows, p);
             }
             continue;
         }
-        let aliased_count = run.iter().filter(|p| aliased(p)).count();
+        let aliased_count = run.iter().filter(|p| is_aliased(p)).count();
         if aliased_count == 0 || aliased_count >= GROUP_MIN {
-            group(&mut rows, run);
+            group(&mut out_rows, run);
             continue;
         }
         // A few named channels: split them out, group the gaps.
         let mut seg_start = 0;
-        for k in 0..run.len() {
-            if aliased(run[k]) {
-                segment(&mut rows, &run[seg_start..k]);
-                single(&mut rows, run[k]);
-                seg_start = k + 1;
+        for (k, port) in run.iter().enumerate() {
+            if is_aliased(port) {
+                if let Some(seg) = run.get(seg_start..k) {
+                    segment(&mut out_rows, seg);
+                }
+                single(&mut out_rows, port);
+                seg_start = k.saturating_add(1);
             }
         }
-        segment(&mut rows, &run[seg_start..]);
+        if let Some(seg) = run.get(seg_start..) {
+            segment(&mut out_rows, seg);
+        }
     }
-    merge_lr_pairs(rows, node, dir_str, expanded, aliases)
+    merge_lr_pairs(out_rows, node, dir_str, expanded, aliases)
 }
 
 /// Does a port belong on the given media tab? `Other` (control/dsp
@@ -432,6 +457,10 @@ pub struct Filters<'a> {
     pub collapsed: [bool; 4],
 }
 
+// The remaining body is one loop over nodes; the separable phases are
+// already extracted (`fold_loopback_forwarders`, `stack_columns`,
+// `port_anchors`).
+#[allow(clippy::too_many_lines)]
 pub fn compute_layout(
     graph: &GraphSnapshot,
     filters: &Filters,
@@ -440,6 +469,23 @@ pub fn compute_layout(
     let search = filters.search.to_lowercase();
     let mut columns: [Vec<CardLayout>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
 
+    // Index ports by owning node ONCE. This used to be three full scans
+    // of `graph.ports` per node (ins, outs, and the MIDI is_app probe),
+    // i.e. O(nodes x ports) on every render — ~600k iterations on a
+    // 100-node / 2000-port graph, which is exactly the shape a PipeWire
+    // reconnect produces.
+    let mut ports_by_node: HashMap<u32, Vec<&PwPort>> = HashMap::new();
+    for port in &graph.ports {
+        ports_by_node.entry(port.node_id).or_default().push(port);
+    }
+    // Same story for `hide_unconnected`, which scanned every link per node.
+    let linked_nodes: std::collections::HashSet<u32> = graph
+        .links
+        .iter()
+        .flat_map(|l| [l.output_node, l.input_node])
+        .collect();
+    let no_ports: Vec<&PwPort> = Vec::new();
+
     for node in &graph.nodes {
         // Prop-less ghosts (a global whose full info never arrived)
         // render as unnamed junk cards — skip until they resolve.
@@ -447,61 +493,54 @@ pub fn compute_layout(
             continue;
         }
         if !search.is_empty() {
-            let alias = filters
-                .aliases
-                .get(&node.name)
-                .map(String::as_str)
-                .unwrap_or("");
+            let alias = filters.aliases.get(&node.name).map_or("", String::as_str);
             let hay = format!("{} {} {}", node.name, node.label, alias).to_lowercase();
             if !hay.contains(&search) {
                 continue;
             }
         }
-        let keep = |p: &&PwPort| {
+        let node_ports = ports_by_node.get(&node.id).unwrap_or(&no_ports);
+        let keep = |p: &&&PwPort| {
             kind_on_tab(p.media_kind, filters.tab)
                 && !(filters.hide_monitors && is_monitor(&p.name))
         };
-        let mut ins: Vec<&PwPort> = graph
-            .ports
+        let mut ins: Vec<&PwPort> = node_ports
             .iter()
-            .filter(|p| p.node_id == node.id && p.direction == PortDirection::Input)
+            .filter(|p| p.direction == PortDirection::Input)
             .filter(keep)
+            .copied()
             .collect();
-        let mut outs: Vec<&PwPort> = graph
-            .ports
+        let mut outs: Vec<&PwPort> = node_ports
             .iter()
-            .filter(|p| p.node_id == node.id && p.direction == PortDirection::Output)
+            .filter(|p| p.direction == PortDirection::Output)
             .filter(keep)
+            .copied()
             .collect();
         if ins.is_empty() && outs.is_empty() {
             continue; // metadata/factory nodes — nothing to patch
         }
-        if filters.hide_unconnected {
-            let touched = graph
-                .links
-                .iter()
-                .any(|l| l.output_node == node.id || l.input_node == node.id);
-            if !touched {
-                continue;
-            }
+        if filters.hide_unconnected && !linked_nodes.contains(&node.id) {
+            continue;
         }
         // Numeric-aware sort so playback_10 follows playback_9.
+        // `sort_by_cached_key`: the key allocates, and `sort_by_key`
+        // would rebuild it O(n log n) times per card.
         let numeric_key = |p: &&PwPort| match split_numeric(&p.name) {
-            Some((prefix, n)) => (prefix.to_string(), n),
+            Some((prefix, n)) => (prefix.to_owned(), n),
             None => (p.name.clone(), 0),
         };
-        ins.sort_by_key(numeric_key);
-        outs.sort_by_key(numeric_key);
+        ins.sort_by_cached_key(numeric_key);
+        outs.sort_by_cached_key(numeric_key);
 
         let make_card = |rows: Vec<PortRow>, col: usize, key: String| {
-            let collapsed = filters.collapsed[col];
+            let collapsed = filters.collapsed.get(col).copied().unwrap_or(false);
             let mut rows = rows;
             let full_h = assign_row_positions(&mut rows);
             let h = if collapsed { HEADER_H + 6.0 } else { full_h };
             CardLayout {
                 node: node.clone(),
                 key,
-                x: MARGIN + col as f64 * (CARD_W + COL_GAP),
+                x: MARGIN + row_offset(col) * (CARD_W + COL_GAP),
                 y: 0.0,
                 h,
                 collapsed,
@@ -515,10 +554,7 @@ pub fn compute_layout(
         // light guides) right. Applications — anything that also
         // carries audio, or a stream — stay whole in the middle,
         // since their MIDI mostly routes within themselves.
-        let is_app = graph
-            .ports
-            .iter()
-            .any(|p| p.node_id == node.id && p.media_kind == MediaKind::Audio)
+        let is_app = node_ports.iter().any(|p| p.media_kind == MediaKind::Audio)
             || node.media_class.starts_with("Stream");
         if filters.tab == MediaKind::Midi && !is_app {
             if !outs.is_empty() {
@@ -529,11 +565,15 @@ pub fn compute_layout(
                     expanded,
                     filters.aliases,
                 );
-                columns[0].push(make_card(rows, 0, format!("{}-out", node.id)));
+                if let Some(column) = columns.get_mut(COL_INPUTS) {
+                    column.push(make_card(rows, COL_INPUTS, format!("{}-out", node.id)));
+                }
             }
             if !ins.is_empty() {
                 let rows = build_rows(node, &ins, PortDirection::Input, expanded, filters.aliases);
-                columns[3].push(make_card(rows, 3, format!("{}-in", node.id)));
+                if let Some(column) = columns.get_mut(COL_OUTPUTS) {
+                    column.push(make_card(rows, COL_OUTPUTS, format!("{}-in", node.id)));
+                }
             }
         } else {
             let mut rows = build_rows(node, &ins, PortDirection::Input, expanded, filters.aliases);
@@ -545,7 +585,9 @@ pub fn compute_layout(
                 filters.aliases,
             ));
             let col = column_of(node);
-            columns[col].push(make_card(rows, col, node.id.to_string()));
+            if let Some(column) = columns.get_mut(col) {
+                column.push(make_card(rows, col, node.id.to_string()));
+            }
         }
     }
 
@@ -554,38 +596,76 @@ pub fn compute_layout(
     // rows belong ON the sink's card (Outputs column), not floating in
     // Applications ("System Audio → Inferno TX 97/98").
     if filters.tab == MediaKind::Audio {
-        let moved: Vec<(usize, usize)> = {
-            let sink_groups: HashMap<&str, usize> = columns[2]
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| !c.node.group.is_empty())
-                .map(|(i, c)| (c.node.group.as_str(), i))
-                .collect();
-            columns[1]
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| {
-                    c.node.media_class.starts_with("Stream/Output") && !c.node.group.is_empty()
-                })
-                .filter_map(|(i, c)| sink_groups.get(c.node.group.as_str()).map(|&s| (i, s)))
-                .collect()
-        };
-        for (stream_idx, sink_idx) in moved.into_iter().rev() {
-            let stream = columns[1].remove(stream_idx);
-            let sink = &mut columns[2][sink_idx];
-            sink.rows.extend(stream.rows);
-            let full_h = assign_row_positions(&mut sink.rows);
-            if !sink.collapsed {
-                sink.h = full_h;
-            }
-        }
+        fold_loopback_forwarders(&mut columns);
     }
 
-    // Stack each column; stable order by label keeps the layout calm
-    // as ids churn.
+    let (cards, height) = stack_columns(&mut columns);
+
+    let anchors = port_anchors(&cards);
+
+    GraphLayout {
+        cards,
+        anchors,
+        width: MARGIN * 2.0 + 4.0 * CARD_W + 3.0 * COL_GAP,
+        height: height + MARGIN,
+    }
+}
+
+/// Loopback passthroughs: a `Stream/Output` node sharing `node.group`
+/// with an `Audio/Sink` is that sink's forwarder half — its output rows
+/// belong ON the sink's card (Groups column), not floating in
+/// Applications ("System Audio → Inferno TX 97/98").
+fn fold_loopback_forwarders(columns: &mut [Vec<CardLayout>; 4]) {
+    let moved: Vec<(usize, usize)> = {
+        let sink_groups: HashMap<&str, usize> = columns
+            .get(COL_GROUPS)
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .filter(|(_, c)| !c.node.group.is_empty())
+            .map(|(i, c)| (c.node.group.as_str(), i))
+            .collect();
+        columns
+            .get(COL_APPS)
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .filter(|(_, c)| {
+                c.node.media_class.starts_with("Stream/Output") && !c.node.group.is_empty()
+            })
+            .filter_map(|(i, c)| sink_groups.get(c.node.group.as_str()).map(|&s| (i, s)))
+            .collect()
+    };
+    // Reverse so earlier removals don't shift later indices.
+    for (stream_idx, sink_idx) in moved.into_iter().rev() {
+        let Some(stream) = columns
+            .get_mut(COL_APPS)
+            .filter(|c| stream_idx < c.len())
+            .map(|c| c.remove(stream_idx))
+        else {
+            continue;
+        };
+        let Some(sink) = columns
+            .get_mut(COL_GROUPS)
+            .and_then(|c| c.get_mut(sink_idx))
+        else {
+            continue;
+        };
+        sink.rows.extend(stream.rows);
+        let full_h = assign_row_positions(&mut sink.rows);
+        if !sink.collapsed {
+            sink.h = full_h;
+        }
+    }
+}
+
+/// Stack each column top-to-bottom, returning the flattened cards and
+/// the tallest column's height. Stable order by label keeps the layout
+/// calm as `PipeWire` ids churn.
+fn stack_columns(columns: &mut [Vec<CardLayout>; 4]) -> (Vec<CardLayout>, f64) {
     let mut cards = Vec::new();
     let mut height: f64 = 0.0;
-    for col in &mut columns {
+    for col in columns.iter_mut() {
         col.sort_by(|a, b| {
             a.node
                 .label
@@ -600,13 +680,16 @@ pub fn compute_layout(
         }
         height = height.max(y);
     }
+    (cards, height)
+}
 
-    // Anchors: every port maps to its row's edge point (collapsed group
-    // members all share the group row's anchor). A collapsed-column
-    // card anchors ALL its ports at the header edge midpoints, so its
-    // cables converge on the card.
+/// Cable attachment point for every port: its row's edge (collapsed
+/// group members all share the group row's anchor). A collapsed-column
+/// card anchors ALL its ports at the header edge midpoints, so its
+/// cables converge on the card.
+fn port_anchors(cards: &[CardLayout]) -> HashMap<u32, (f64, f64)> {
     let mut anchors = HashMap::new();
-    for card in &cards {
+    for card in cards {
         for row in &card.rows {
             let (x, y) = if card.collapsed {
                 let mid = card.y + card.h / 2.0;
@@ -620,11 +703,11 @@ pub fn compute_layout(
                     PortDirection::Output => (card.x + CARD_W, card.y + row.y),
                 }
             };
-            if !card.collapsed && row.pair && row.ports.len() == 2 {
+            if let (false, true, [left, right]) = (card.collapsed, row.pair, row.ports.as_slice()) {
                 // Two thin cables want two distinct anchors — L just
                 // above the row center, R just below.
-                anchors.insert(row.ports[0], (x, y - 3.0));
-                anchors.insert(row.ports[1], (x, y + 3.0));
+                anchors.insert(*left, (x, y - 3.0));
+                anchors.insert(*right, (x, y + 3.0));
             } else {
                 for pid in &row.ports {
                     anchors.insert(*pid, (x, y));
@@ -632,17 +715,24 @@ pub fn compute_layout(
             }
         }
     }
-
-    GraphLayout {
-        cards,
-        anchors,
-        width: MARGIN * 2.0 + 4.0 * CARD_W + 3.0 * COL_GAP,
-        height: height + MARGIN,
-    }
+    anchors
 }
 
 #[cfg(test)]
 mod reaper_layout {
+    // Layout assertions compare exact pixel coordinates the code just
+    // computed, and probes cast freely — the panic carve-out
+    // `clippy.toml` gives tests, extended to those.
+    #![allow(
+        clippy::float_cmp,
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::items_after_statements,
+        clippy::arithmetic_side_effects
+    )]
+
     use super::*;
 
     /// REAPER joins the graph as a JACK client: `node.name = "REAPER"`,
@@ -742,6 +832,19 @@ mod reaper_layout {
 
 #[cfg(test)]
 mod stereo_pairs {
+    // Layout assertions compare exact pixel coordinates the code just
+    // computed, and probes cast freely — the panic carve-out
+    // `clippy.toml` gives tests, extended to those.
+    #![allow(
+        clippy::float_cmp,
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::items_after_statements,
+        clippy::arithmetic_side_effects
+    )]
+
     use super::*;
 
     fn node() -> PwNode {
@@ -1031,6 +1134,19 @@ mod stereo_pairs {
 
 #[cfg(test)]
 mod live_probe {
+    // Layout assertions compare exact pixel coordinates the code just
+    // computed, and probes cast freely — the panic carve-out
+    // `clippy.toml` gives tests, extended to those.
+    #![allow(
+        clippy::float_cmp,
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::items_after_statements,
+        clippy::arithmetic_side_effects
+    )]
+
     use super::*;
     use patchbay_proto::PatchbayServiceClient;
 
@@ -1182,7 +1298,7 @@ mod live_probe {
         );
     }
 
-    /// Ground truth against the LIVE PipeWire graph via an in-process
+    /// Ground truth against the LIVE `PipeWire` graph via an in-process
     /// backend (no separate app needed):
     /// `cargo test -p patchbay-ui inproc_layout -- --ignored --nocapture`
     #[tokio::test]
@@ -1243,6 +1359,19 @@ mod live_probe {
 
 #[cfg(test)]
 mod category_colors {
+    // Layout assertions compare exact pixel coordinates the code just
+    // computed, and probes cast freely — the panic carve-out
+    // `clippy.toml` gives tests, extended to those.
+    #![allow(
+        clippy::float_cmp,
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::items_after_statements,
+        clippy::arithmetic_side_effects
+    )]
+
     /// Print which real-world channel names miss categorization:
     /// `cargo test -p patchbay-ui category_coverage -- --nocapture`
     #[test]

@@ -7,47 +7,63 @@
 
 use facet::Facet;
 use serde::{Deserialize, Serialize};
-use vox::Tx;
 
 use crate::types::{
-    AliasEntry, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry, DanteDevice,
-    DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule, NamedRoute,
-    RoutingPreset, ServiceAction, ServiceStatus, VirtualSink,
+    AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
+    DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule,
+    MeterLevel, NamedRoute, RoutingPreset, ServiceAction, ServiceStatus, VirtualSink,
 };
 
-/// Typed error for patchbay service boundaries.
-#[repr(C)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet, thiserror::Error)]
-pub enum PatchbayError {
-    /// Entity not found (port, link, preset, …).
-    #[error("{entity} not found: {id}")]
-    NotFound { entity: String, id: String },
+// `Facet`'s derive for a `#[repr(C)]` enum generates discriminant
+// arithmetic we don't control, and the lint attributes to the derive
+// token rather than the item — so the allow has to scope a module.
+// Nothing hand-written in here does arithmetic.
+mod error {
+    #![allow(clippy::arithmetic_side_effects)]
 
-    /// The PipeWire engine isn't running (no daemon, engine thread died).
-    #[error("pipewire engine unavailable: {0}")]
-    EngineUnavailable(String),
+    use super::{Deserialize, Facet, Serialize};
 
-    /// Catch-all for unexpected failures.
-    #[error("internal error: {0}")]
-    Internal(String),
-}
+    /// Typed error for patchbay service boundaries.
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet, thiserror::Error)]
+    pub enum PatchbayError {
+        /// Entity not found (port, link, preset, …).
+        #[error("{entity} not found: {id}")]
+        NotFound { entity: String, id: String },
 
-impl PatchbayError {
-    pub fn not_found(entity: impl Into<String>, id: impl ToString) -> Self {
-        Self::NotFound {
-            entity: entity.into(),
-            id: id.to_string(),
+        /// The `PipeWire` engine isn't running (no daemon, engine thread died).
+        #[error("pipewire engine unavailable: {0}")]
+        EngineUnavailable(String),
+
+        /// Catch-all for unexpected failures.
+        #[error("internal error: {0}")]
+        Internal(String),
+    }
+
+    impl PatchbayError {
+        /// A "no such thing" error naming what was looked up and by what.
+        pub fn not_found(entity: impl Into<String>, id: &impl ToString) -> Self {
+            Self::NotFound {
+                entity: entity.into(),
+                id: id.to_string(),
+            }
+        }
+    }
+
+    impl From<String> for PatchbayError {
+        fn from(s: String) -> Self {
+            Self::Internal(s)
         }
     }
 }
 
-impl From<String> for PatchbayError {
-    fn from(s: String) -> Self {
-        Self::Internal(s)
-    }
-}
+pub use error::PatchbayError;
 
 pub mod patchbay_service {
+    // The `#[architect::rpc]` macro expands to items that reference
+    // every type in the trait signature plus the derive traits, so the
+    // glob is load-bearing here rather than laziness.
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[architect::rpc]
@@ -136,7 +152,43 @@ pub mod patchbay_service {
         /// An empty alias clears the entry.
         async fn set_alias(&self, target: String, alias: String) -> Result<(), PatchbayError>;
 
-        /// Pull channel names from a REAPER ChanMap (`nameN=Label`,
+        // ── Application streams ──────────────────────────────────────
+
+        /// Applications currently playing audio, with the sink each one
+        /// is playing into.
+        async fn app_streams(&self) -> Result<Vec<AppStream>, PatchbayError>;
+
+        /// Move a playing application's audio to `sink` (a `node.name`,
+        /// e.g. a patchbay virtual sink).
+        ///
+        /// Takes the stream's `index` from [`AppStream`] — indices are
+        /// unstable, so list immediately before moving.
+        async fn move_app_stream(&self, index: u32, sink: String) -> Result<(), PatchbayError>;
+
+        // ── Metering ─────────────────────────────────────────────────
+
+        /// Declare which nodes should be metered, by `node.name`.
+        ///
+        /// Replaces the whole set: pass what is currently on screen,
+        /// pass empty to stop metering. Each tapped node costs a `parec`
+        /// child process, so this is deliberately explicit rather than
+        /// metering everything. Returns the number of live taps.
+        async fn set_metered(&self, nodes: Vec<String>) -> Result<u32, PatchbayError>;
+
+        /// Current peak levels for every metered node.
+        ///
+        /// Poll this while meters are visible; a node whose tap has gone
+        /// quiet or failed reports silence rather than a stale value.
+        async fn meters(&self) -> Result<Vec<MeterLevel>, PatchbayError>;
+
+        /// Set many aliases at once, persisted as ONE write.
+        ///
+        /// Naming a 128-channel bank one `set_alias` at a time meant 128
+        /// round-trips AND 128 full rewrites of the config file; this is
+        /// the bulk path every importer/renamer should use.
+        async fn set_aliases(&self, entries: Vec<AliasEntry>) -> Result<u32, PatchbayError>;
+
+        /// Pull channel names from a REAPER `ChanMap` (`nameN=Label`,
         /// 0-based → channel N+1) into port aliases on `node`: every
         /// port whose numeric suffix is N+1 (playback/capture/monitor)
         /// gets the label. Empty `path` = the host's default chanmap
@@ -144,7 +196,7 @@ pub mod patchbay_service {
         /// Returns the number of aliases written.
         async fn import_chanmap(&self, node: String, path: String) -> Result<u32, PatchbayError>;
 
-        /// Push `node`'s port aliases back into a REAPER ChanMap's
+        /// Push `node`'s port aliases back into a REAPER `ChanMap`'s
         /// `nameN=` lines (other lines preserved; file created if
         /// missing). Empty `path` = the host default. Returns the
         /// number of channel names written.
@@ -225,7 +277,7 @@ pub mod patchbay_service {
 
         /// Write (all-zero = delete) the clock-defaults drop-in. Wins
         /// over the flake's 50-quantum.conf by filename ordering;
-        /// applied on PipeWire restart (services panel).
+        /// applied on `PipeWire` restart (services panel).
         async fn set_clock_defaults(&self, defaults: ClockDefaults) -> Result<(), PatchbayError>;
 
         // ── Per-app latency rules ────────────────────────────────────
@@ -233,8 +285,8 @@ pub mod patchbay_service {
         async fn latency_rules(&self) -> Result<Vec<LatencyRule>, PatchbayError>;
 
         /// Add or replace the rule for `rule.pattern` and rewrite the
-        /// WirePlumber drop-in. Takes effect when a matching node is
-        /// (re)created — restart the app or WirePlumber.
+        /// `WirePlumber` drop-in. Takes effect when a matching node is
+        /// (re)created — restart the app or `WirePlumber`.
         async fn set_latency_rule(&self, rule: LatencyRule) -> Result<(), PatchbayError>;
 
         /// Remove the rule matching `pattern` and rewrite the drop-in.
@@ -249,8 +301,8 @@ pub mod patchbay_service {
 
         // ── Managed services (rig health) ────────────────────────────
 
-        /// Status of every managed audio-stack unit (PipeWire,
-        /// WirePlumber, statime, Inferno nodes, routing links, …).
+        /// Status of every managed audio-stack unit (`PipeWire`,
+        /// `WirePlumber`, statime, Inferno nodes, routing links, …).
         async fn services(&self) -> Result<Vec<ServiceStatus>, PatchbayError>;
 
         /// Start/stop/restart one managed unit. Only whitelisted units

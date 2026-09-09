@@ -1,4 +1,4 @@
-//! ChanMap parse/merge roundtrip (no PipeWire needed).
+//! `ChanMap` parse/merge roundtrip (no `PipeWire` needed).
 
 use std::collections::BTreeMap;
 

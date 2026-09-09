@@ -10,6 +10,9 @@ default = []
 [dependencies]
 patchbay-proto.workspace = true
 architect = { workspace = true, features = ["vox"] }
+# Wide-event enrichment. `wide::set` is a no-op unless the binary turns
+# on the `otel` feature, so the engine can call it unconditionally.
+architect-telemetry.workspace = true
 vox.workspace = true
 eyre.workspace = true
 parking_lot.workspace = true

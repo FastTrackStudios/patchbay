@@ -1,13 +1,25 @@
 //! The graph canvas: positioned node cards + an SVG cable layer.
 
 use dioxus::prelude::*;
-use patchbay_proto::{MediaKind, PortDirection};
+use patchbay_proto::PortDirection;
 
-use crate::layout::{self, CARD_W, COL_GAP, Filters, MARGIN, ROW_H, column_titles};
+use crate::layout::{self, CARD_W, Filters, MARGIN, ROW_H, column_titles};
 use crate::state::{
     self, ARMED_OUTPUTS, DRAG, Drag, DragSource, EXPANDED_GROUPS, GRAPH, HIDE_MONITORS,
     HIDE_UNCONNECTED, MEDIA_TAB, PAN, SEARCH, SELECTED_NODE, ZOOM,
 };
+
+/// One drawn cable path. A collapsed-group fan-in becomes ONE path
+/// standing for many links, so clicking it disconnects them all.
+struct Cable {
+    ids: Vec<u32>,
+    d: String,
+    color: String,
+    active: bool,
+    thin: bool,
+    out_node: u32,
+    in_node: u32,
+}
 
 #[component]
 pub fn GraphCanvas() -> Element {
@@ -84,16 +96,18 @@ pub fn GraphCanvas() -> Element {
     // fan-ins collapse to one drawn path per (from-anchor, to-anchor)
     // pair — the path remembers every link id it stands for, so
     // clicking it disconnects them all.
-    struct Cable {
-        ids: Vec<u32>,
-        d: String,
-        color: String,
-        active: bool,
-        thin: bool,
-        out_node: u32,
-        in_node: u32,
-    }
-    let mut by_path: std::collections::HashMap<(u64, u64), usize> =
+    // Index by id once: this loop previously did a linear `find` over
+    // every port AND every node per link — O(links x ports) each render.
+    let port_by_id: std::collections::HashMap<u32, &patchbay_proto::PwPort> =
+        graph.ports.iter().map(|p| (p.id, p)).collect();
+    let node_by_id: std::collections::HashMap<u32, &patchbay_proto::PwNode> =
+        graph.nodes.iter().map(|n| (n.id, n)).collect();
+    // Colors are resolved per distinct source port, not per cable:
+    // `port_color` does map lookups, a `format!` and a music-catalog
+    // category walk, and a 128-channel bank shares one source node.
+    let mut color_cache: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+
+    let mut by_path: std::collections::HashMap<((u64, u64), (u64, u64)), usize> =
         std::collections::HashMap::new();
     let mut cables: Vec<Cable> = Vec::new();
     for l in &graph.links {
@@ -103,29 +117,28 @@ pub fn GraphCanvas() -> Element {
         ) else {
             continue;
         };
-        let key = (
-            (x1 as u64) << 32 | (y1 as u64),
-            (x2 as u64) << 32 | (y2 as u64),
-        );
-        if let Some(&i) = by_path.get(&key) {
-            cables[i].ids.push(l.id);
-            cables[i].active |= l.active;
+        // `to_bits` keeps the full f64 identity. The old key cast each
+        // coordinate to u64, which discarded the fraction (merging
+        // anchors under 1px apart) and saturated negatives to zero.
+        let key = ((x1.to_bits(), y1.to_bits()), (x2.to_bits(), y2.to_bits()));
+        if let Some(&i) = by_path.get(&key)
+            && let Some(cable) = cables.get_mut(i)
+        {
+            cable.ids.push(l.id);
+            cable.active |= l.active;
             continue;
         }
-        let port_name = graph
-            .ports
-            .iter()
-            .find(|p| p.id == l.output_port)
-            .map(|p| p.name.as_str())
-            .unwrap_or("");
-        let (node_name, node_label) = graph
-            .nodes
-            .iter()
-            .find(|n| n.id == l.output_node)
-            .map(|n| (n.name.as_str(), n.label.as_str()))
-            .unwrap_or(("", ""));
+        let port_name = port_by_id
+            .get(&l.output_port)
+            .map_or("", |p| p.name.as_str());
+        let (node_name, node_label) = node_by_id
+            .get(&l.output_node)
+            .map_or(("", ""), |n| (n.name.as_str(), n.label.as_str()));
         // Cables wear the color of where they come FROM.
-        let color = state::port_color(node_name, node_label, port_name);
+        let color = color_cache
+            .entry(l.output_port)
+            .or_insert_with(|| state::port_color(node_name, node_label, port_name))
+            .clone();
         let dx = ((x2 - x1) * 0.5).max(40.0);
         by_path.insert(key, cables.len());
         cables.push(Cable {
@@ -244,18 +257,24 @@ pub fn GraphCanvas() -> Element {
                 style: "width:{world_w}px;height:{world_h}px;\
                         transform: translate({pan_x}px, {pan_y}px) scale({zoom});\
                         transform-origin: 0 0;",
-                for (i, title) in column_titles(*MEDIA_TAB.read()).iter().enumerate() {
+                for (i, (title, is_collapsed)) in column_titles(*MEDIA_TAB.read())
+                    .iter()
+                    .zip(collapsed_cols)
+                    .enumerate()
+                {
                     div {
                         key: "{title}",
-                        class: if collapsed_cols[i] { "col-header collapsed" } else { "col-header" },
-                        style: "left:{MARGIN + i as f64 * (CARD_W + COL_GAP)}px;width:{CARD_W}px;",
-                        title: if collapsed_cols[i] { "expand this column" } else { "collapse this column (headers only)" },
+                        class: if is_collapsed { "col-header collapsed" } else { "col-header" },
+                        style: "left:{MARGIN + layout::column_x(i)}px;width:{CARD_W}px;",
+                        title: if is_collapsed { "expand this column" } else { "collapse this column (headers only)" },
                         onclick: move |_| {
                             let mut cols = *state::COLLAPSED_COLS.peek();
-                            cols[i] = !cols[i];
+                            if let Some(slot) = cols.get_mut(i) {
+                                *slot = !*slot;
+                            }
                             *state::COLLAPSED_COLS.write() = cols;
                         },
-                        if collapsed_cols[i] { "▸ {title}" } else { "{title}" }
+                        if is_collapsed { "▸ {title}" } else { "{title}" }
                     }
                 }
                 svg {
@@ -307,7 +326,7 @@ pub fn GraphCanvas() -> Element {
                                     pointer_events: "stroke",
                                     onclick: move |e: Event<MouseData>| {
                                         e.stop_propagation();
-                                        state::disconnect_links(handle.clone(), ids.clone());
+                                        state::disconnect_links(handle.clone(), &ids);
                                     },
                                     title { "{n} link(s), {state_note} — click to disconnect" }
                                 }
@@ -396,8 +415,7 @@ pub fn GraphCanvas() -> Element {
                                 expanded: r
                                     .group_key
                                     .as_ref()
-                                    .map(|k| expanded.get(k).copied().unwrap_or(false))
-                                    .unwrap_or(false),
+                                    .is_some_and(|k| expanded.get(k).copied().unwrap_or(false)),
                             })
                             .collect::<Vec<_>>(),
                     }
@@ -407,6 +425,9 @@ pub fn GraphCanvas() -> Element {
     }
 }
 
+// A row's render flags are genuinely five independent booleans; a
+// bitflags type here would obscure rather than clarify the rsx! below.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, PartialEq)]
 struct RowProps {
     label: String,
@@ -456,7 +477,7 @@ fn NodeCard(
     let both = rows.iter().any(|r| r.direction == PortDirection::Input)
         && rows.iter().any(|r| r.direction == PortDirection::Output);
     let header_drag_name = node_name.clone();
-    let header_drop_name = node_name.clone();
+    let header_drop_name = node_name;
     let drop_handle = handle.clone();
     // Live activity dot: PipeWire's node state is the free, no-tap
     // answer to "is anything happening here" (running = actively

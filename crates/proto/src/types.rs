@@ -17,7 +17,7 @@ pub enum MediaKind {
     Other,
 }
 
-/// Port direction as PipeWire reports it (`port.direction`).
+/// Port direction as `PipeWire` reports it (`port.direction`).
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Facet)]
 pub enum PortDirection {
@@ -27,7 +27,7 @@ pub enum PortDirection {
 
 /// A node's live processing state (`info.state` from `pw-dump`).
 ///
-/// This is the closest thing PipeWire gives to "is anything happening
+/// This is the closest thing `PipeWire` gives to "is anything happening
 /// here" without tapping the audio itself: `Running` = the node is
 /// actively cycling in a driven graph; `Idle` = negotiated but not
 /// being driven (a paused stream, a source with nothing to send);
@@ -47,6 +47,7 @@ pub enum NodeState {
 
 impl NodeState {
     /// Parse a `pw-dump` `info.state` string.
+    #[must_use]
     pub fn parse(s: &str) -> Self {
         match s {
             "running" => Self::Running,
@@ -57,10 +58,10 @@ impl NodeState {
     }
 }
 
-/// A PipeWire node (device, stream, virtual sink/source, …).
+/// A `PipeWire` node (device, stream, virtual sink/source, …).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
 pub struct PwNode {
-    /// PipeWire global id (unstable across restarts — never persist).
+    /// `PipeWire` global id (unstable across restarts — never persist).
     pub id: u32,
     /// `node.name` — the stable identity used by presets/aliases.
     pub name: String,
@@ -95,7 +96,7 @@ pub struct PwNode {
 /// A port on a node.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
 pub struct PwPort {
-    /// PipeWire global id.
+    /// `PipeWire` global id.
     pub id: u32,
     /// Owning node's global id.
     pub node_id: u32,
@@ -108,7 +109,7 @@ pub struct PwPort {
 /// A link between an output port and an input port.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
 pub struct PwLink {
-    /// PipeWire global id.
+    /// `PipeWire` global id.
     pub id: u32,
     pub output_node: u32,
     pub output_port: u32,
@@ -131,7 +132,7 @@ pub struct GraphSnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
 #[repr(u8)]
 pub enum GraphEvent {
-    /// The engine's PipeWire connection dropped (daemon restart) —
+    /// The engine's `PipeWire` connection dropped (daemon restart) —
     /// clients must clear their mirror; the reconnect re-announces
     /// everything with fresh ids.
     Reset,
@@ -159,10 +160,11 @@ pub enum GraphEvent {
     },
 }
 
-// SelfRef compatibility: GraphEvent has no lifetime parameters, so Ref<'a> = Self.
+// SelfRef compatibility: `GraphEvent` has no lifetime parameters, so
+// `Ref<'a>` is just `Self`.
 #[allow(unsafe_code)]
 unsafe impl vox_types::Reborrow for GraphEvent {
-    type Ref<'a> = GraphEvent;
+    type Ref<'a> = Self;
 }
 
 // ─── Presets (connection memory) ────────────────────────────────────────
@@ -216,11 +218,12 @@ pub struct RouteEndpoint {
 }
 
 /// An explicit auto-connect rule: keep `from`'s output port linked to
-/// `to`'s input port whenever BOTH resolve in the live graph. Applied
-/// idempotently — it only ever *creates* the missing link, never tears
-/// down anything else — on graph settle and on demand. Because the
-/// endpoints are addressed by alias, a route keeps working when the
-/// underlying channel numbers move.
+/// `to`'s input port whenever BOTH resolve in the live graph.
+///
+/// Applied idempotently — it only ever *creates* the missing link,
+/// never tears down anything else — on graph settle and on demand.
+/// Because the endpoints are addressed by alias, a route keeps working
+/// when the underlying channel numbers move.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Facet)]
 pub struct NamedRoute {
     /// Unique label ("Engineer TB → REAPER"); upsert key.
@@ -236,7 +239,7 @@ pub struct NamedRoute {
 // ─── Aliases (pretty names) ─────────────────────────────────────────────
 
 /// Display alias for a node (`target = node.name`) or a port
-/// (`target = "node.name:port.name"`). Pure presentation — PipeWire
+/// (`target = "node.name:port.name"`). Pure presentation — `PipeWire`
 /// names are never rewritten, so nothing else on the system breaks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
 pub struct AliasEntry {
@@ -247,7 +250,8 @@ pub struct AliasEntry {
 // ─── Colors (cable/port identity) ───────────────────────────────────────
 
 /// User-set color for a node (`target = node.name`) or a port
-/// (`target = "node.name:port.name"`). CSS color string (`#rrggbb`).
+/// (`target = "node.name:port.name"`), as a CSS color (`#rrggbb`).
+///
 /// Cables inherit: output-port color → output-node color → media-kind
 /// default. Pure presentation, persisted alongside aliases.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
@@ -269,17 +273,72 @@ pub struct IconEntry {
 
 /// A patchbay-owned null-audio sink (a named bus): persisted in config
 /// and re-created whenever the engine (re)connects, so buses survive
-/// PipeWire restarts even though `object.linger` alone doesn't.
+/// `PipeWire` restarts even though `object.linger` alone doesn't.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Facet)]
 pub struct VirtualSink {
     /// Display name; the node name is derived (`patchbay.<slug>`).
     pub name: String,
     /// Channel count: 1 = mono, 2 = stereo (FL/FR), n = AUX0..n-1.
     pub channels: u32,
+    /// Also expose this bus as a first-class CAPTURE source, so OBS and
+    /// friends list it under "Audio Input Capture" by name.
+    ///
+    /// The bus already has a `.monitor`, but recorders either hide
+    /// monitors or bury them as "Monitor of …"; a companion virtual
+    /// source shows up as a real device called after the bus.
+    ///
+    /// Defaults to false so an existing config (and an existing rig)
+    /// behaves exactly as before.
+    #[serde(default)]
+    #[facet(default)]
+    pub capturable: bool,
+}
+
+/// Source name for a capturable bus (`patchbay.stems_bus` →
+/// `patchbay.stems_bus-src`).
+///
+/// Shared by the engine (creation) and any UI that wants to tell the
+/// user what to pick in OBS.
+#[must_use]
+pub fn capture_source_name(sink_node_name: &str) -> String {
+    format!("{sink_node_name}-src")
+}
+
+// ─── Port-name numbering ────────────────────────────────────────────────
+
+/// Split a port name into its non-numeric prefix and trailing channel
+/// number: `playback_97` → `("playback_", 97)`.
+///
+/// `None` when there is no trailing digit run, or when the name is
+/// *entirely* digits (that is a bare number, not a numbered channel).
+/// This is the one definition of "which channel is this port" — the
+/// engine (chanmap import/export, 1:1 bulk wiring) and every UI
+/// (grouping, stereo pairing, inspector ordering) share it.
+#[must_use]
+pub fn split_port_number(port_name: &str) -> Option<(&str, u64)> {
+    let digits = port_name
+        .chars()
+        .rev()
+        .take_while(char::is_ascii_digit)
+        .count();
+    if digits == 0 || digits == port_name.len() {
+        return None;
+    }
+    let split = port_name.len().checked_sub(digits)?;
+    let (prefix, num) = port_name.split_at(split);
+    num.parse().ok().map(|n| (prefix, n))
+}
+
+/// The 1-based channel a port belongs to, from its numeric suffix
+/// (`playback_97` → `97`). See [`split_port_number`].
+#[must_use]
+pub fn channel_of_port(port_name: &str) -> Option<u32> {
+    split_port_number(port_name).and_then(|(_, n)| u32::try_from(n).ok())
 }
 
 /// Node name for a virtual sink ("Stems Bus" → `patchbay.stems_bus`) —
 /// shared by the engine (creation) and UIs (live-state matching).
+#[must_use]
 pub fn sink_node_name(display: &str) -> String {
     let slug: String = display
         .trim()
@@ -293,6 +352,52 @@ pub fn sink_node_name(display: &str) -> String {
         })
         .collect();
     format!("patchbay.{slug}")
+}
+
+// ─── Metering ───────────────────────────────────────────────────────────
+
+/// Live peak level for one node, one entry per tapped channel (0.0–1.0).
+///
+/// `PipeWire`'s registry carries no level, so this comes from recording
+/// the node's monitor source and measuring it. Metering costs a process
+/// per node, so it is opt-in: a client calls `set_metered` with the
+/// nodes it is currently showing and polls `meters` while they're on
+/// screen. Nothing is tapped until asked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
+pub struct MeterLevel {
+    /// `node.name` of the metered node.
+    pub node_name: String,
+    /// Peak per channel since the last read, 0.0–1.0. Empty when the
+    /// tap has not produced data yet.
+    pub peak: Vec<f32>,
+}
+
+// ─── Application streams ────────────────────────────────────────────────
+
+/// A running application's audio stream, as `pipewire-pulse` sees it.
+///
+/// Port links wire devices; they cannot move a playing app between
+/// sinks. That is a sink-input operation, and this is the handle for it
+/// — "send Firefox to the Stems bus" without touching Firefox.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Facet)]
+pub struct AppStream {
+    /// Pulse sink-input index — the handle `move_app_stream` takes.
+    /// Unstable across restarts; never persist it.
+    pub index: u32,
+    /// Display name (`application.name`, falling back to the stream or
+    /// node name).
+    pub app_name: String,
+    /// `application.process.binary`, empty when unknown.
+    pub binary: String,
+    /// What the app calls this stream (`media.name`).
+    pub media_name: String,
+    /// Index of the sink it currently plays into.
+    pub sink_index: u32,
+    /// `node.name` of that sink.
+    pub sink_name: String,
+    /// The stream is paused. Still movable — it will land on the new
+    /// sink when it resumes.
+    pub corked: bool,
 }
 
 // ─── Saved canvas views ─────────────────────────────────────────────────
@@ -313,10 +418,11 @@ pub struct CanvasView {
 
 // ─── Clock / latency ────────────────────────────────────────────────────
 
-/// Graph clock defaults, materialized as a PipeWire drop-in — the
-/// runtime-editable version of the flake's `50-quantum.conf`. Zero
+/// Graph clock defaults, materialized as a `PipeWire` drop-in.
+///
+/// The runtime-editable version of the flake's `50-quantum.conf`. Zero
 /// fields mean "not set here" (fall through to the flake/system
-/// config). Applied on PipeWire restart.
+/// config). Applied on `PipeWire` restart.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Facet)]
 pub struct ClockDefaults {
     pub quantum: u32,
@@ -324,7 +430,7 @@ pub struct ClockDefaults {
     pub max_quantum: u32,
 }
 
-/// Per-app latency rule, materialized as a WirePlumber drop-in.
+/// Per-app latency rule, materialized as a `WirePlumber` drop-in.
 ///
 /// While a matching node is running, the graph runs at `quantum`
 /// (`force` = `node.force-quantum`, a hard pin; otherwise
@@ -332,11 +438,11 @@ pub struct ClockDefaults {
 /// running nodes). When the app closes, the graph returns to its idle
 /// default — that's how REAPER runs at 64 while everything
 /// non-critical idles at 1024. Applied when the node is created:
-/// restart the app or WirePlumber after changing rules.
+/// restart the app or `WirePlumber` after changing rules.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
 pub struct LatencyRule {
     /// `node.name` to match; prefix with `~` for a regex
-    /// (WirePlumber match syntax).
+    /// (`WirePlumber` match syntax).
     pub pattern: String,
     /// Quantum in frames (32…2048).
     pub quantum: u32,
@@ -372,7 +478,7 @@ pub struct UnitStatus {
 pub struct ServiceStatus {
     /// Unit name (`pipewire.service`, `statime-inferno.service`, …).
     pub unit: String,
-    /// Short display label ("PipeWire", "PTP clock (statime)").
+    /// Short display label ("`PipeWire`", "PTP clock (statime)").
     pub label: String,
     /// `ActiveState`: active / inactive / failed / activating / …
     pub state: String,
@@ -428,11 +534,12 @@ pub struct DanteDevice {
 }
 
 /// A persisted snapshot of one Dante device's routing: its TX/RX
-/// channel NAMES plus its live subscriptions. Saved so the studio's
-/// Dante patch (Galaxy32 → Inferno, etc.) survives power-cycles and can
-/// be re-applied with one command, and so channel names are available
-/// offline for name-addressed routing. IP / ARC port are rediscovered on
-/// each scan, so they aren't stored.
+/// channel NAMES plus its live subscriptions.
+///
+/// Saved so the studio's Dante patch (Galaxy32 → Inferno, etc.)
+/// survives power-cycles and can be re-applied with one command, and so
+/// channel names are available offline for name-addressed routing. IP /
+/// ARC port are rediscovered on each scan, so they aren't stored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
 pub struct DanteDeviceConfig {
     pub name: String,
@@ -442,8 +549,9 @@ pub struct DanteDeviceConfig {
 }
 
 impl DanteDeviceConfig {
-    /// Drop the transient live fields (ip / arc_port / unreachable) from
+    /// Drop the transient live fields (`ip` / `arc_port` / `unreachable`) from
     /// a scanned device to get the persistable form.
+    #[must_use]
     pub fn from_device(d: &DanteDevice) -> Self {
         Self {
             name: d.name.clone(),
@@ -454,7 +562,7 @@ impl DanteDeviceConfig {
     }
 }
 
-/// State of the `dante.target` AoIP stack on this host.
+/// State of the `dante.target` `AoIP` stack on this host.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Facet)]
 pub struct DanteStatus {
     /// Whether `dante.target` exists on this host at all.

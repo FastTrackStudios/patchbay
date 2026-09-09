@@ -1,3 +1,14 @@
+// Smoke binary: this is a hand-run probe against a live PipeWire graph,
+// so panicking loudly on a failed step IS the intended behaviour — the
+// same carve-out `clippy.toml` gives tests.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::as_conversions,
+    clippy::items_after_statements
+)]
+
 //! Read-only smoke for the rig-health + Dante surfaces:
 //! service states, then an mDNS + ARC scan of the Dante network.
 //!
@@ -48,8 +59,7 @@ async fn main() {
             let rx_name =
                 d.rx.iter()
                     .find(|c| c.number == s.rx_channel)
-                    .map(|c| c.name.as_str())
-                    .unwrap_or("?");
+                    .map_or("?", |c| c.name.as_str());
             println!(
                 "     rx {} ({}) <- {}@{} [status {}]",
                 s.rx_channel, rx_name, s.tx_channel, s.tx_device, s.status

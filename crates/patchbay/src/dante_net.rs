@@ -28,7 +28,7 @@ impl DanteEndpoints {
     fn client(&self, device: &str) -> Result<DanteClient, PatchbayError> {
         let addr =
             self.map.lock().get(device).copied().ok_or_else(|| {
-                PatchbayError::not_found("dante device (refresh the grid)", device)
+                PatchbayError::not_found("dante device (refresh the grid)", &device)
             })?;
         Ok(DanteClient::new(addr, ARC_TIMEOUT))
     }
@@ -68,10 +68,10 @@ impl DanteEndpoints {
                 .iter()
                 .filter(|c| c.tx_channel_name.is_some() || c.tx_device_name.is_some())
                 .map(|c| DanteSubscription {
-                    rx_channel: c.number as u32,
+                    rx_channel: u32::from(c.number),
                     tx_channel: c.tx_channel_name.clone().unwrap_or_default(),
                     tx_device: c.tx_device_name.clone().unwrap_or_default(),
-                    status: c.subscription_status as u32,
+                    status: u32::from(c.subscription_status),
                 })
                 .collect();
 
@@ -82,14 +82,14 @@ impl DanteEndpoints {
                 tx: tx
                     .into_iter()
                     .map(|c| DanteChannel {
-                        number: c.number as u32,
+                        number: u32::from(c.number),
                         name: c.name,
                     })
                     .collect(),
                 rx: rx
                     .into_iter()
                     .map(|c| DanteChannel {
-                        number: c.number as u32,
+                        number: u32::from(c.number),
                         name: c.name,
                     })
                     .collect(),
@@ -108,8 +108,14 @@ impl DanteEndpoints {
         tx_device: &str,
         tx_channel: &str,
     ) -> Result<(), PatchbayError> {
+        // ARC channel numbers are u16 on the wire. Refuse an
+        // out-of-range channel rather than silently wrapping it onto a
+        // DIFFERENT channel of the same device.
+        let channel = u16::try_from(rx_channel).map_err(|_| {
+            PatchbayError::Internal(format!("rx channel {rx_channel} out of range (1–65535)"))
+        })?;
         self.client(rx_device)?
-            .add_subscription(rx_channel as u16, tx_channel, tx_device)
+            .add_subscription(channel, tx_channel, tx_device)
             .await
             .map_err(|e| PatchbayError::Internal(format!("add_subscription: {e}")))
     }

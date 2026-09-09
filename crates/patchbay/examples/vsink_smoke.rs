@@ -1,3 +1,14 @@
+// Smoke binary: this is a hand-run probe against a live PipeWire graph,
+// so panicking loudly on a failed step IS the intended behaviour — the
+// same carve-out `clippy.toml` gives tests.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::as_conversions,
+    clippy::items_after_statements
+)]
+
 //! Virtual-sink smoke: create a scratch bus, verify it lands in the
 //! graph tagged `patchbay.virtual`, then remove it again.
 //!
@@ -21,6 +32,7 @@ async fn main() {
         .add_virtual_sink(VirtualSink {
             name: name.into(),
             channels: 2,
+            capturable: false,
         })
         .await
         .expect("add_virtual_sink");

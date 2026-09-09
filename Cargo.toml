@@ -55,6 +55,7 @@ dioxus = { git = "https://github.com/DioxusLabs/dioxus", rev = "f717a8e184a522d0
 # ── Third-party ───────────────────────────────────────────────────────
 clap = { version = "4", features = ["derive"] }
 eyre = "0.6"
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 include_dir = "0.7"
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }
@@ -89,6 +90,56 @@ private_intra_doc_links = "allow"
 redundant_explicit_links = "allow"
 
 [workspace.lints.clippy]
+# ── Strict baseline (namtao.com/rust) ─────────────────────────────────
+# Groups at priority -1 so the individual `allow`s below still win.
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+# Deny the panic paths.
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny"
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"
+
+# ── Unfixable in-place: these fire inside derive-generated code ───────
+# `facet`'s derive emits unsafe, so every Facet type trips this.
+unsafe_derive_deserialize = "allow"
+# `#[architect::rpc]` generates the async trait shape; impls that need
+# no `.await` are still required to be async. (Two distinct lints:
+# `unused_async` for free functions, `unused_async_trait_impl` for the
+# trait impls that make up the whole RPC surface.)
+unused_async = "allow"
+unused_async_trait_impl = "allow"
+# The wire types are Facet/serde-derived; adding Eq to 15 derives buys
+# nothing and some carry f64 fields that genuinely can't be Eq.
+derive_partial_eq_without_eq = "allow"
+# rsx!/derive-heavy modules legitimately exceed these.
+multiple_crate_versions = "allow"
+
+# ── Fights this codebase's deliberate design ──────────────────────────
+# Every module here is private with a `pub(crate)` surface — that IS the
+# crate facade pattern (see crates/CLAUDE.md), and bare `pub` inside a
+# private module reads as a wider surface than it is.
+redundant_pub_crate = "allow"
+# The preset store holds its mutex across `persist` ON PURPOSE: dropping
+# it earlier would let two writers interleave a read-modify-write of the
+# same config file.
+significant_drop_tightening = "allow"
+# RPC futures are inherently large (the service surface is wide); boxing
+# each one costs an allocation per call to satisfy a heuristic.
+large_futures = "allow"
+# Layout math is written for legibility, not FMA fusion.
+suboptimal_flops = "allow"
+
+# ── Carried from the FastTrackStudio workspace ────────────────────────
 field_reassign_with_default = "allow"
 redundant_closure = "allow"
 nonminimal_bool = "allow"

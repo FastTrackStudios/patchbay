@@ -1,12 +1,13 @@
-//! Per-app latency rules → a WirePlumber drop-in.
+//! Per-app latency rules → a `WirePlumber` drop-in.
 //!
 //! Rules live in the patchbay config (source of truth) and are
 //! materialized to
 //! `~/.config/wireplumber/wireplumber.conf.d/99-fts-patchbay-latency.conf`
-//! as `node.rules` entries. WirePlumber applies props when it creates a
+//! as `node.rules` entries. `WirePlumber` applies props when it creates a
 //! node, so changes take effect on app restart — or immediately for
-//! everything via a WirePlumber restart (the services panel button).
+//! everything via a `WirePlumber` restart (the services panel button).
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
@@ -33,22 +34,29 @@ fn render(rules: &[LatencyRule], rate: u32) -> String {
         // WirePlumber match syntax passes through: `~` prefix = regex.
         // Escape quotes so a weird node name can't break the file.
         let pattern = rule.pattern.replace('"', "\\\"");
-        out.push_str(&format!(
+        // Writing to a String cannot fail.
+        let _: Result<(), std::fmt::Error> = write!(
+            out,
             "  {{\n    matches = [\n      {{ node.name = \"{pattern}\" }}\n    ]\n    actions = {{\n      update-props = {{\n"
-        ));
+        );
         if rule.force {
-            out.push_str(&format!("        node.force-quantum = {}\n", rule.quantum));
+            let _: Result<(), std::fmt::Error> =
+                writeln!(out, "        node.force-quantum = {}", rule.quantum);
         }
-        out.push_str(&format!(
+        let _: Result<(), std::fmt::Error> = write!(
+            out,
             "        node.latency = \"{}/{}\"\n      }}\n    }}\n  }}\n",
             rule.quantum, rate
-        ));
+        );
     }
     out.push_str("]\n");
     out
 }
 
 /// Write (or remove, when empty) the drop-in for `rules`.
+///
+/// # Errors
+/// If the drop-in directory or file can't be written or removed.
 pub(crate) fn write_dropin(rules: &[LatencyRule], rate: u32) -> Result<(), String> {
     let path = dropin_path();
     if rules.is_empty() {
