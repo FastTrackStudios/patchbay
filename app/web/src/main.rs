@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay_proto::{GraphEvent, PatchbayServiceClient};
+use patchbay_proto::{DeviceEventWire, GraphEvent, PatchbayServiceClient};
 use patchbay_ui::{PatchbayApp, PatchbayHandle};
 
 /// Same-origin `/vox` (the engine that served this page serves the
@@ -142,6 +142,24 @@ fn Connected(engine: EngineHandles) -> Element {
                 }
             }
             tracing::warn!("graph event stream ended");
+        }
+    });
+
+    // External-device events → the Devices view.
+    let devices = engine.clone();
+    use_future(move || {
+        let engine = devices.clone();
+        async move {
+            let (tx, mut rx) = vox::channel::<DeviceEventWire>();
+            let stream = engine.stream.clone();
+            spawn(async move {
+                if let Err(e) = stream.device_events(tx).await {
+                    tracing::warn!("device_events subscription ended: {e:?}");
+                }
+            });
+            while let Ok(Some(ev)) = rx.recv().await {
+                patchbay_ui::apply_device_event(ev.get());
+            }
         }
     });
 

@@ -66,6 +66,11 @@ pub(crate) struct EngineHandle {
 }
 
 impl EngineHandle {
+    // Off Linux this is a stub that ignores both arguments.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(clippy::unused_self, clippy::needless_pass_by_value)
+    )]
     pub fn send(&self, cmd: Command) -> Result<(), String> {
         #[cfg(target_os = "linux")]
         {

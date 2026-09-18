@@ -8,10 +8,12 @@
 //! Everything a GUI needs goes over [`PatchbayService`] — the engine is
 //! 100% headless and every UI (desktop, browser, tablet) is a vox remote.
 
+mod devices;
 mod types;
 
 pub mod services;
 
+pub use devices::*;
 pub use services::{
     PatchbayError, PatchbayService, PatchbayServiceClient, PatchbayServiceDispatcher,
     PatchbayServiceLayer, patchbay_service_layer, patchbay_service_service_descriptor,

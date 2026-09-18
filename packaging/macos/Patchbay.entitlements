@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for Patchbay.app (Developer ID, not
+  sandboxed). System Audio Recording (process taps) has no entitlement:
+  it is a TCC grant keyed on the signed bundle id + team, requested via
+  NSAudioCaptureUsageDescription in Info.plist.
+
+  WKWebView (wry) needs no JIT entitlement: JavaScriptCore JITs inside
+  Apple's own WebContent XPC process, not in ours. Patchbay's own process
+  does JIT, though (see allow-jit below).
+-->
+<plist version="1.0">
+<dict>
+    <!-- Microphone / audio-interface input under the hardened runtime. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- vox's (de)serialiser JIT-compiles codecs: phon -> weavy ->
+         copypatch mmaps MAP_JIT pages and flips them with
+         pthread_jit_write_protect_np. Without this the hardened runtime
+         refuses the mapping and the app panics at launch with
+         "mmap(MAP_JIT) failed". MAP_JIT is exactly what allow-jit covers;
+         allow-unsigned-executable-memory is NOT needed. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+</dict>
+</plist>

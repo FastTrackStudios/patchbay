@@ -8,9 +8,11 @@
 mod app;
 mod canvas;
 mod dante_grid;
+mod devices;
 mod layout;
 mod panels;
 mod state;
 
 pub use app::PatchbayApp;
+pub use devices::apply_device_event;
 pub use state::{PatchbayHandle, apply_graph_event, refresh_all, replace_graph, sleep_secs};

@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 
 use crate::canvas::GraphCanvas;
 use crate::dante_grid::DanteGrid;
+use crate::devices::DevicesView;
 use crate::panels::{SidePanel, StatusBar, Toolbar};
 use crate::state::{ARMED_OUTPUTS, VIEW, View};
 
@@ -62,6 +63,11 @@ pub fn PatchbayApp() -> Element {
                         onclick: move |_| *VIEW.write() = View::Dante,
                         "Dante"
                     }
+                    button {
+                        class: if view == View::Devices { "tab on" } else { "tab" },
+                        onclick: move |_| *VIEW.write() = View::Devices,
+                        "Devices"
+                    }
                 }
                 if view == View::Patchbay {
                     Toolbar {}
@@ -76,6 +82,9 @@ pub fn PatchbayApp() -> Element {
                 },
                 View::Dante => rsx! {
                     DanteGrid {}
+                },
+                View::Devices => rsx! {
+                    DevicesView {}
                 },
             }
             StatusBar {}

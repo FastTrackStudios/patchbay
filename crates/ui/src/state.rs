@@ -48,6 +48,8 @@ pub static DANTE_ERROR: GlobalSignal<String> = Signal::global(String::new);
 pub enum View {
     Patchbay,
     Dante,
+    /// External hardware (device adapters).
+    Devices,
 }
 pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Patchbay);
 

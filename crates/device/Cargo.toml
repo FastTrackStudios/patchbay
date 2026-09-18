@@ -1,0 +1,22 @@
+[package]
+name = "patchbay-device"
+description = "Adapter-agnostic device model (routing, parameters, events) and the DeviceAdapter trait"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio.workspace = true
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true

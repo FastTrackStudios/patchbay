@@ -7,10 +7,13 @@
 // accept node/port ALIASES everywhere, so "connect the Guitar channel
 // into REAPER in 3" works without knowing `capture_23`.
 
+mod cli_device;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
 use patchbay_proto::{
     ClockInfo, DanteDevice, DanteStatus, GraphSnapshot, LatencyRule, NamedRoute,
     PatchbayServiceClient, PortDirection, PwNode, RouteEndpoint, ServiceAction, ServiceStatus,
@@ -137,6 +140,36 @@ enum Cmd {
         #[command(subcommand)]
         cmd: LatencyCmd,
     },
+    /// External hardware (Antelope Galaxy32, …): list, params, routing,
+    /// named snapshots. See `patchbay device --help`.
+    Device {
+        #[command(subcommand)]
+        cmd: cli_device::DeviceCmd,
+    },
+    /// macOS privacy permissions of the running app (System Audio
+    /// Recording, Microphone, Local Network). `permissions request` asks
+    /// the app to show the system prompts / System Settings alert again.
+    Permissions {
+        #[command(subcommand)]
+        cmd: Option<PermissionsCmd>,
+    },
+    /// Run the engine headless (no window) and serve it at `--bind`
+    /// (`/vox` ws for this CLI and remotes). Useful on hosts without a
+    /// desktop session, and on macOS where only the device layer runs.
+    Serve {
+        /// Address to listen on (`0.0.0.0:4046` to expose on the LAN).
+        #[arg(long, default_value = "127.0.0.1:4046")]
+        bind: String,
+    },
+}
+
+#[derive(Subcommand, Clone, Copy)]
+enum PermissionsCmd {
+    /// Show the current state (the default).
+    Status,
+    /// Ask the app to re-run its permission flow (returns at once; the
+    /// prompts appear in the app — check again with `permissions`).
+    Request,
 }
 
 #[derive(Subcommand)]
@@ -305,9 +338,42 @@ async fn client(url: &str, local: bool) -> eyre::Result<PatchbayServiceClient> {
         .await
         .map_err(|e| eyre::eyre!("local caller: {e:?}"))?;
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-    // Leak so the acceptor + engine outlive this fn.
-    Box::leak(Box::new((scope, server, backend)));
+    // Leak so the acceptor + engine outlive this fn; keep the server
+    // reachable for stream clients (`device watch`).
+    let leaked = Box::leak(Box::new((scope, server, backend)));
+    let _ = LOCAL_SERVER.set(&leaked.1);
     Ok(PatchbayServiceClient::new(caller))
+}
+
+/// The `--local` in-process server, once `client` created it.
+static LOCAL_SERVER: std::sync::OnceLock<&'static architect::LocalServer> =
+    std::sync::OnceLock::new();
+
+/// A `#[subscribe]` stream client on the same target as `client`.
+async fn stream_client(url: String) -> eyre::Result<PatchbayServiceStreamClient> {
+    if let Some(server) = LOCAL_SERVER.get() {
+        return server
+            .establish::<PatchbayServiceStreamClient>()
+            .await
+            .map_err(|e| eyre::eyre!("local stream client: {e:?}"));
+    }
+    let link = vox_websocket::WsLink::connect(&url)
+        .await
+        .map_err(|e| eyre::eyre!("connect (stream) {url}: {e}"))?;
+    vox_core::initiator_on(link)
+        .establish()
+        .await
+        .map_err(|e| eyre::eyre!("stream handshake with {url} failed: {e:?}"))
+}
+
+/// `patchbay serve`: the engine without a window.
+async fn serve(bind: String) -> eyre::Result<()> {
+    let backend = patchbay::PatchbayBackend::new();
+    eprintln!("patchbay engine serving ws://{bind}/vox (ctrl-c to stop)");
+    architect::host::EngineHost::new(backend.router(), bind)
+        .serve()
+        .await;
+    Ok(())
 }
 
 /// Resolve a node by name, label, or alias (case-insensitive; exact
@@ -379,7 +445,7 @@ fn alias_map(entries: Vec<patchbay_proto::AliasEntry>) -> HashMap<String, String
     entries.into_iter().map(|a| (a.target, a.alias)).collect()
 }
 
-fn ok_or_msg<T, E: std::fmt::Display>(r: Result<T, E>) -> eyre::Result<T> {
+pub(crate) fn ok_or_msg<T, E: std::fmt::Display>(r: Result<T, E>) -> eyre::Result<T> {
     r.map_err(|e| eyre::eyre!("{e}"))
 }
 
@@ -695,9 +761,20 @@ fn print_dante_health(
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
+    if let Cmd::Serve { bind } = cli.cmd {
+        return serve(bind).await;
+    }
     let c = client(&cli.url, cli.local).await?;
 
     match cli.cmd {
+        Cmd::Serve { .. } => {}
+        Cmd::Device { cmd } => {
+            if cli.local {
+                cli_device::settle_local(&c).await;
+            }
+            let url = cli.url.clone();
+            cli_device::run(&c, || stream_client(url), cmd, cli.json).await?;
+        }
         Cmd::Status => {
             let g = ok_or_msg(c.graph().await)?;
             let clock = ok_or_msg(c.clock().await)?;
@@ -750,6 +827,32 @@ async fn main() -> eyre::Result<()> {
                     graph.links.len()
                 );
                 println!("use `patchbay nodes`, `patchbay ports <node>`, or `patchbay links`");
+            }
+        }
+        Cmd::Permissions { cmd } => {
+            let status = match cmd.unwrap_or(PermissionsCmd::Status) {
+                PermissionsCmd::Status => ok_or_msg(c.permissions().await)?,
+                PermissionsCmd::Request => ok_or_msg(c.request_permissions().await)?,
+            };
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            } else {
+                println!(
+                    "platform: {}{}",
+                    status.platform,
+                    if status.bundled {
+                        " (Patchbay.app)"
+                    } else {
+                        ""
+                    }
+                );
+                println!("system audio recording: {}", status.system_audio_recording);
+                println!("microphone:             {}", status.microphone);
+                println!("local network:          {}", status.local_network);
+                if status.requesting {
+                    println!("request in progress:    yes");
+                }
+                println!("{}", status.note);
             }
         }
         Cmd::Health { strict } => {

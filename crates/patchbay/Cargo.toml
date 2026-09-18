@@ -9,6 +9,14 @@ default = []
 
 [dependencies]
 patchbay-proto.workspace = true
+# External-device layer: the generic model + one crate per adapter family.
+patchbay-device.workspace = true
+patchbay-antelope.workspace = true
+patchbay-yamaha.workspace = true
+patchbay-dante.workspace = true
+# System Audio (read-only host summary): the host model + Core Audio backend.
+patchbay-host.workspace = true
+patchbay-host-coreaudio.workspace = true
 architect = { workspace = true, features = ["vox"] }
 # Wide-event enrichment. `wide::set` is a no-op unless the binary turns
 # on the `otel` feature, so the engine can call it unconditionally.

@@ -571,3 +571,33 @@ pub struct DanteStatus {
     pub active: bool,
     pub units: Vec<UnitStatus>,
 }
+
+// ─── Host privacy permissions (macOS) ───────────────────────────────────
+
+/// Privacy permissions of the process serving the engine. On macOS they
+/// belong to `Patchbay.app` (when the engine runs inside it) or to the
+/// terminal that launched a headless `patchbay serve`.
+///
+/// Each state is one of `granted`, `denied`, `restricted`,
+/// `not_determined`, `unknown`, or `not_applicable` (not macOS).
+/// `local_network` can only be probed, not queried, so it is `granted`
+/// or `blocked` (denied or not answered yet), or `unknown`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Facet)]
+pub struct PermissionsStatus {
+    /// `macos`, `linux`, …
+    pub platform: String,
+    /// The engine runs inside `Patchbay.app`, which owns the grants.
+    pub bundled: bool,
+    /// System Audio Recording (Core Audio process taps).
+    pub system_audio_recording: String,
+    /// Microphone / audio-interface input.
+    pub microphone: String,
+    /// Local Network (Dante, Yamaha TF, … discovery on the LAN).
+    pub local_network: String,
+    /// A request flow (prompts / alert) is running right now.
+    pub requesting: bool,
+    /// Unix seconds of the last full check, `0` if never.
+    pub checked_at: u64,
+    /// What to do next, for humans and agents.
+    pub note: String,
+}

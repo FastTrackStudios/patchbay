@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use facet::Facet;
 use parking_lot::Mutex;
 use patchbay_proto::{
-    AliasEntry, CanvasView, ColorEntry, DanteDeviceConfig, NamedRoute, PresetLink, RoutingPreset,
-    VirtualSink,
+    AliasEntry, CanvasView, ColorEntry, DanteDeviceConfig, DeviceConfig, DeviceSettingSnapshot,
+    NamedRoute, PresetLink, RoutingPreset, VirtualSink,
 };
 
 /// The whole patchbay config, one styx document. Every list defaults to
@@ -49,6 +49,16 @@ struct FileFormat {
     #[serde(default)]
     #[facet(default)]
     dante_devices: Vec<DanteDeviceConfig>,
+    /// External devices to connect (hardware adapters). Empty = the
+    /// built-in default set (system audio, Galaxy32, Yamaha TF, Dante —
+    /// all auto-discovered, see `devices::registry::default_devices`).
+    #[serde(default)]
+    #[facet(default)]
+    devices: Vec<DeviceConfig>,
+    /// Named device snapshots (params + crosspoints by stable path).
+    #[serde(default)]
+    #[facet(default)]
+    device_snapshots: Vec<DeviceSettingSnapshot>,
 }
 
 /// First-run channel names for a stock REAPER JACK client: the main
@@ -78,7 +88,7 @@ pub(crate) struct PresetStore {
     degraded: bool,
 }
 
-fn config_path() -> PathBuf {
+pub(crate) fn config_path() -> PathBuf {
     // Override for tests / scratch instances so smoke runs never touch
     // the real config.
     if let Ok(p) = std::env::var("PATCHBAY_CONFIG") {
@@ -382,6 +392,39 @@ impl PresetStore {
         removed
     }
 
+    pub fn device_configs(&self) -> Vec<DeviceConfig> {
+        self.data.lock().devices.clone()
+    }
+
+    pub fn device_snapshots(&self) -> Vec<DeviceSettingSnapshot> {
+        self.data.lock().device_snapshots.clone()
+    }
+
+    pub fn device_snapshot(&self, name: &str) -> Option<DeviceSettingSnapshot> {
+        self.data
+            .lock()
+            .device_snapshots
+            .iter()
+            .find(|s| s.name == name)
+            .cloned()
+    }
+
+    /// Upsert a device snapshot (by `name`).
+    pub fn save_device_snapshot(&self, snapshot: DeviceSettingSnapshot) {
+        let mut data = self.data.lock();
+        upsert_by(&mut data.device_snapshots, |s| s.name.clone(), snapshot);
+        self.persist(&data);
+    }
+
+    pub fn delete_device_snapshot(&self, name: &str) -> bool {
+        let mut data = self.data.lock();
+        let removed = remove_where(&mut data.device_snapshots, |s| s.name == name);
+        if removed {
+            self.persist(&data);
+        }
+        removed
+    }
+
     /// Empty alias clears the entry.
     pub fn set_alias(&self, target: String, alias: String) {
         self.set_aliases(std::iter::once((target, alias)));
@@ -530,6 +573,7 @@ mod styx_roundtrip {
     use super::*;
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn full_config_survives_styx_roundtrip() {
         let original = FileFormat {
             presets: vec![RoutingPreset {
@@ -598,10 +642,76 @@ mod styx_roundtrip {
                     status: 1,
                 }],
             }],
+            devices: vec![
+                DeviceConfig {
+                    name: "galaxy32".into(),
+                    kind: "antelope-galaxy32".into(),
+                    serial: "4202524000109".into(),
+                    addr: String::new(),
+                    disabled: false,
+                    enabled: None,
+                },
+                DeviceConfig {
+                    name: "tf1".into(),
+                    kind: "yamaha-tf".into(),
+                    serial: String::new(),
+                    addr: "192.168.1.214:49280".into(),
+                    disabled: true,
+                    enabled: None,
+                },
+                DeviceConfig {
+                    enabled: Some(false),
+                    ..DeviceConfig::new("dante", "dante")
+                },
+            ],
+            device_snapshots: vec![DeviceSettingSnapshot {
+                name: "sunday".into(),
+                device: "antelope:galaxy32:4202524000109".into(),
+                created: 1_789_756_133,
+                include: vec!["mixer/1/strip/16".into(), "route/DIGI_OUT0".into()],
+                exclude: vec!["clock".into()],
+                params: vec![
+                    patchbay_proto::DeviceParamSetting::new(
+                        "mixer/1/strip/16/level",
+                        &patchbay_proto::DeviceParamValue::Level(-12.5),
+                    ),
+                    patchbay_proto::DeviceParamSetting::new(
+                        "mixer/1/strip/16/mute",
+                        &patchbay_proto::DeviceParamValue::Toggle(true),
+                    ),
+                    patchbay_proto::DeviceParamSetting::new(
+                        "mixer/1/strip/16/pan",
+                        &patchbay_proto::DeviceParamValue::Pan(-0.5),
+                    ),
+                    patchbay_proto::DeviceParamSetting::new(
+                        "trim/line_in/control",
+                        &patchbay_proto::DeviceParamValue::Enum(1),
+                    ),
+                    patchbay_proto::DeviceParamSetting::new(
+                        "mixer/1/reverb/room_size",
+                        &patchbay_proto::DeviceParamValue::Int(200),
+                    ),
+                    patchbay_proto::DeviceParamSetting::new(
+                        "names/in/1",
+                        &patchbay_proto::DeviceParamValue::Text("Kick <in>".into()),
+                    ),
+                ],
+                routes: vec![
+                    patchbay_proto::DeviceRouteSetting {
+                        path: "route/DIGI_OUT0/1".into(),
+                        source: "COM_PLAY1:1".into(),
+                    },
+                    patchbay_proto::DeviceRouteSetting {
+                        path: "route/DIGI_OUT0/2".into(),
+                        source: String::new(),
+                    },
+                ],
+            }],
         };
 
         let styx = facet_styx::to_string(&original).expect("serialize");
-        let parsed: FileFormat = facet_styx::from_str(&styx).expect("parse");
+        let parsed: FileFormat =
+            facet_styx::from_str(&styx).unwrap_or_else(|e| panic!("parse: {e:?}\n{styx}"));
         assert_eq!(original, parsed, "styx round-trip must be lossless\n{styx}");
     }
 
@@ -612,5 +722,98 @@ mod styx_roundtrip {
         let parsed: FileFormat = facet_styx::from_str(styx).expect("parse partial");
         assert_eq!(parsed.aliases.len(), 1);
         assert!(parsed.presets.is_empty() && parsed.views.is_empty());
+        assert!(parsed.devices.is_empty() && parsed.device_snapshots.is_empty());
+    }
+
+    #[test]
+    fn infinite_levels_survive_styx() {
+        let snap = DeviceSettingSnapshot {
+            name: "inf".into(),
+            device: "yamaha:tf1:foh".into(),
+            created: 0,
+            include: Vec::new(),
+            exclude: Vec::new(),
+            params: vec![patchbay_proto::DeviceParamSetting::new(
+                "in/1/level",
+                &patchbay_proto::DeviceParamValue::Level(f64::NEG_INFINITY),
+            )],
+            routes: Vec::new(),
+        };
+        let original = FileFormat {
+            device_snapshots: vec![snap],
+            ..FileFormat::default()
+        };
+        let styx = facet_styx::to_string(&original).expect("serialize");
+        let parsed: FileFormat =
+            facet_styx::from_str(&styx).unwrap_or_else(|e| panic!("parse: {e:?}\n{styx}"));
+        assert_eq!(
+            parsed.device_snapshots[0].params[0].value(),
+            Some(patchbay_proto::DeviceParamValue::Level(f64::NEG_INFINITY)),
+            "{styx}"
+        );
+    }
+
+    #[test]
+    fn hand_written_devices_section_parses_with_defaults() {
+        let styx = "devices ({name galaxy32, kind antelope-galaxy32})\n";
+        let parsed: FileFormat = facet_styx::from_str(styx).expect("parse devices");
+        assert_eq!(
+            parsed.devices,
+            vec![DeviceConfig {
+                name: "galaxy32".into(),
+                kind: "antelope-galaxy32".into(),
+                serial: String::new(),
+                addr: String::new(),
+                disabled: false,
+                enabled: None,
+            }]
+        );
+        // The README's example, verbatim.
+        let styx = "devices ({name system-audio, kind system-audio}\n         {name galaxy32, kind antelope-galaxy32}\n         {name tf1, kind yamaha-tf, addr \"192.168.1.214\"}\n         {name dante, kind dante, enabled false})\n";
+        let parsed: FileFormat = facet_styx::from_str(styx).expect("parse readme example");
+        assert_eq!(parsed.devices.len(), 4);
+        assert_eq!(parsed.devices[2].addr, "192.168.1.214");
+        assert!(!parsed.devices[3].is_enabled());
+        let styx = "devices ({name tf1, kind yamaha-tf, enabled false})\n";
+        let parsed: FileFormat = facet_styx::from_str(styx).expect("parse enabled");
+        assert_eq!(parsed.devices[0].enabled, Some(false));
+        assert!(!parsed.devices[0].is_enabled());
+    }
+
+    #[test]
+    fn device_snapshot_upsert_and_delete_persist() {
+        let path = std::env::temp_dir().join(format!(
+            "patchbay-devsnap-{}-{:?}.styx",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        drop(std::fs::remove_file(&path));
+        let store = PresetStore {
+            path: path.clone(),
+            data: Mutex::new(FileFormat::default()),
+            degraded: false,
+        };
+        let snap = |n: &str, level: f64| DeviceSettingSnapshot {
+            name: n.into(),
+            device: "antelope:galaxy32:1".into(),
+            created: 0,
+            include: Vec::new(),
+            exclude: Vec::new(),
+            params: vec![patchbay_proto::DeviceParamSetting::new(
+                "mixer/1/strip/16/level",
+                &patchbay_proto::DeviceParamValue::Level(level),
+            )],
+            routes: Vec::new(),
+        };
+        store.save_device_snapshot(snap("a", -1.0));
+        store.save_device_snapshot(snap("a", -2.0));
+        store.save_device_snapshot(snap("b", -3.0));
+        let text = std::fs::read_to_string(&path).expect("persisted");
+        let reread: FileFormat = facet_styx::from_str(&text).expect("reparse");
+        assert_eq!(reread.device_snapshots.len(), 2, "upsert by name\n{text}");
+        assert_eq!(reread.device_snapshots[0], snap("a", -2.0));
+        assert!(store.delete_device_snapshot("a"));
+        assert!(!store.delete_device_snapshot("a"));
+        assert_eq!(store.device_snapshots().len(), 1);
     }
 }

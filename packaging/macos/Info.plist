@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Patchbay.app Info.plist template. `just macos-app` substitutes
+  @VERSION@ (app/Cargo.toml) and @BUILD@ (a monotonically increasing
+  build number) and copies the result to Contents/Info.plist.
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleName</key>
+    <string>Patchbay</string>
+    <key>CFBundleDisplayName</key>
+    <string>Patchbay</string>
+    <key>CFBundleIdentifier</key>
+    <string>app.fasttrackstudio.patchbay</string>
+    <key>CFBundleExecutable</key>
+    <string>Patchbay</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@BUILD@</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>FastTrackStudio. MIT OR Apache-2.0.</string>
+
+    <!-- Core Audio process taps are macOS 14.2+. -->
+    <key>LSMinimumSystemVersion</key>
+    <string>14.2</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.music</string>
+
+    <!-- Dioxus desktop = tao window + wry/WKWebView. -->
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <!-- The UI is served from dioxus://, the RPC server is plain ws/http on
+         127.0.0.1 — allow local (non-TLS) loads from the webview. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+
+    <!-- Privacy (TCC) usage strings. Without NSAudioCaptureUsageDescription
+         macOS never shows the System Audio Recording prompt and process
+         taps deliver silence. -->
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Patchbay captures audio from the apps you choose so it can route it to other outputs and devices, the way Loopback does. Audio is processed live on this Mac and is never recorded or sent anywhere.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Patchbay reads audio inputs (microphones and audio interfaces) so it can route them to other outputs and devices. Audio is processed live on this Mac and is never recorded or sent anywhere.</string>
+    <!-- The RPC server can be exposed on the LAN (PATCHBAY_ADDR=0.0.0.0:4046)
+         for the browser remote and Dante devices. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Patchbay talks to networked audio devices (Dante, mixers, interfaces) and serves its browser remote to tablets on your studio network.</string>
+</dict>
+</plist>

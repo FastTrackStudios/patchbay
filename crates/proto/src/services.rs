@@ -8,10 +8,15 @@
 use facet::Facet;
 use serde::{Deserialize, Serialize};
 
+use crate::devices::{
+    DeviceChannel, DeviceCrosspoint, DeviceEventWire, DeviceParamValue, DeviceRestoreReport,
+    DeviceSnapshotInfo, DeviceSummary, DeviceView, ParamView,
+};
 use crate::types::{
     AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
     DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule,
-    MeterLevel, NamedRoute, RoutingPreset, ServiceAction, ServiceStatus, VirtualSink,
+    MeterLevel, NamedRoute, PermissionsStatus, RoutingPreset, ServiceAction, ServiceStatus,
+    VirtualSink,
 };
 
 // `Facet`'s derive for a `#[repr(C)]` enum generates discriminant
@@ -38,6 +43,14 @@ mod error {
         /// Catch-all for unexpected failures.
         #[error("internal error: {0}")]
         Internal(String),
+
+        /// An external device refused or failed an operation. `code`
+        /// is a stable `snake_case` tag for agents (`offline`,
+        /// `timeout`, `unknown_param`, `unknown_port`, `invalid_value`,
+        /// `read_only`, `disruptive_write`, `unsupported`, `protocol`,
+        /// `transport`, `ambiguous_device`).
+        #[error("device error ({code}): {message}")]
+        Device { code: String, message: String },
     }
 
     impl PatchbayError {
@@ -46,6 +59,16 @@ mod error {
             Self::NotFound {
                 entity: entity.into(),
                 id: id.to_string(),
+            }
+        }
+    }
+
+    impl PatchbayError {
+        /// A [`PatchbayError::Device`] with a stable code.
+        pub fn device(code: impl Into<String>, message: impl Into<String>) -> Self {
+            Self::Device {
+                code: code.into(),
+                message: message.into(),
             }
         }
     }
@@ -354,6 +377,99 @@ pub mod patchbay_service {
         /// subscriptions (re)applied. This writes to the Dante hardware
         /// over ARC — an explicit, on-demand restore, never automatic.
         async fn apply_dante_config(&self) -> Result<u32, PatchbayError>;
+
+        // ── External devices (hardware adapters) ─────────────────────
+        //
+        // `id` everywhere accepts the device id (`vendor:model:serial`),
+        // the config entry name, or a unique case-insensitive substring
+        // of id / model / serial. Channels on the wire are 0-based.
+
+        /// Every configured device and its link state (no device I/O).
+        async fn list_devices(&self) -> Result<Vec<DeviceSummary>, PatchbayError>;
+
+        /// Full state read from the device now: port groups,
+        /// crosspoints, params.
+        async fn device(&self, id: String) -> Result<DeviceView, PatchbayError>;
+
+        /// Params whose path is inside `prefix` (whole segments; empty =
+        /// all), read from the device now.
+        async fn device_params(
+            &self,
+            id: String,
+            prefix: String,
+        ) -> Result<Vec<ParamView>, PatchbayError>;
+
+        /// Write one param. Disruptive params (clock, sample rate) are
+        /// refused unless `allow_disruptive`. Returns the param as read
+        /// back from the device after the write.
+        async fn set_device_param(
+            &self,
+            id: String,
+            path: String,
+            value: DeviceParamValue,
+            allow_disruptive: bool,
+        ) -> Result<ParamView, PatchbayError>;
+
+        /// Patch `source` (or nothing) into router output `output`.
+        /// Returns the crosspoint as read back from the device.
+        async fn set_device_route(
+            &self,
+            id: String,
+            output: DeviceChannel,
+            source: Option<DeviceChannel>,
+        ) -> Result<DeviceCrosspoint, PatchbayError>;
+
+        /// Every device event (all devices, tagged with the id).
+        #[subscribe]
+        fn device_events(&self) -> DeviceEventWire;
+
+        /// Save the device's current writable params + crosspoints under
+        /// `name` (upsert). `include` / `exclude` are path prefixes
+        /// (`mixer/1/strip/16`, `route/DIGI_OUT0`); empty include = all.
+        async fn save_device_snapshot(
+            &self,
+            id: String,
+            name: String,
+            include: Vec<String>,
+            exclude: Vec<String>,
+        ) -> Result<DeviceSnapshotInfo, PatchbayError>;
+
+        async fn list_device_snapshots(&self) -> Result<Vec<DeviceSnapshotInfo>, PatchbayError>;
+
+        async fn delete_device_snapshot(&self, name: String) -> Result<(), PatchbayError>;
+
+        /// What `restore_device_snapshot` would change right now (reads
+        /// the live device, writes nothing). `only` narrows the plan to
+        /// path prefixes (empty = the whole snapshot).
+        async fn diff_device_snapshot(
+            &self,
+            name: String,
+            only: Vec<String>,
+            allow_disruptive: bool,
+        ) -> Result<DeviceRestoreReport, PatchbayError>;
+
+        /// Diff against live, then write ONLY the differences (params via
+        /// set_param, crosspoints via set_route) and report per item.
+        /// `dry_run` = plan only.
+        async fn restore_device_snapshot(
+            &self,
+            name: String,
+            only: Vec<String>,
+            dry_run: bool,
+            allow_disruptive: bool,
+        ) -> Result<DeviceRestoreReport, PatchbayError>;
+
+        // ── Host privacy permissions (macOS) ─────────────────────────
+
+        /// System Audio Recording / Microphone / Local Network state of
+        /// the process serving the engine (`Patchbay.app` when bundled).
+        async fn permissions(&self) -> Result<PermissionsStatus, PatchbayError>;
+
+        /// Ask the app to re-run its permission flow: system prompts for
+        /// anything undecided, an alert offering System Settings for
+        /// anything denied. Returns at once (the flow runs in the app);
+        /// poll `permissions` for the outcome.
+        async fn request_permissions(&self) -> Result<PermissionsStatus, PatchbayError>;
     }
 }
 

@@ -38,6 +38,11 @@ vox-websocket.workspace = true
 
 include_dir = { workspace = true, optional = true }
 
+# Patchbay.app glue (src/macos.rs): permission prompts, log redirect.
+[target.'cfg(target_os = "macos")'.dependencies]
+patchbay-host-coreaudio = { workspace = true, features = ["tcc-spi"] }
+libc = "0.2"
+
 [features]
 default = []
 # Embed the staged web bundle (`web-dist/`, copied from the dx web build

@@ -66,3 +66,28 @@ lint:
 
 # Everything CI runs, in one go.
 ci: lint check test
+
+# ── macOS: Patchbay.app ───────────────────────────────────────────────
+# The engine runs inside Patchbay.app, which owns the privacy grants
+# (System Audio Recording for Core Audio taps, Microphone); the
+# `patchbay` CLI stays a plain RPC client. Scripts: packaging/macos/.
+
+# Build target/macos/Patchbay.app (release, unsigned).
+macos-app:
+    packaging/macos/build-app.sh
+
+# Build + sign (hardened runtime, Developer ID; PATCHBAY_SIGN_ID overrides) + verify.
+macos-sign: macos-app
+    packaging/macos/sign.sh
+
+# Build + sign + install to ~/Applications (PATCHBAY_APP_DIR overrides); CLI → ~/.local/bin/patchbay.
+macos-install: macos-sign
+    packaging/macos/install.sh
+
+# Notarize + staple the signed app for other Macs (profile: PATCHBAY_NOTARY_PROFILE, default patchbay-notary).
+macos-notarize:
+    packaging/macos/notarize.sh
+
+# Regenerate packaging/macos/AppIcon.icns from app/assets/icon.svg (needs rsvg-convert).
+macos-icon:
+    packaging/macos/make-icon.sh

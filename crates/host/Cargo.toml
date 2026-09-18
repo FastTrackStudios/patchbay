@@ -1,0 +1,21 @@
+[package]
+name = "patchbay-host"
+description = "Platform-independent host-audio graph model (nodes, ports, mixing links, virtual devices) and the HostBackend trait"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true

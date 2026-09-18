@@ -1,0 +1,23 @@
+[package]
+name = "patchbay-antelope"
+description = "Antelope Audio adapter (Galaxy32 via Antelope Manager Server) for patchbay-device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+patchbay-device.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+socket2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true

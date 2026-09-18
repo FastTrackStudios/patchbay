@@ -19,6 +19,7 @@
 //! its own commands produced and it returns an empty plan.
 
 pub(crate) mod cycles;
+pub(crate) mod devices;
 pub(crate) mod pairing;
 pub(crate) mod presets;
 pub(crate) mod routes;

@@ -1,0 +1,47 @@
+[package]
+name = "patchbay-host-coreaudio"
+description = "macOS Core Audio host backend for patchbay (device/process enumeration, process taps, private aggregates)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+patchbay-host.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing.workspace = true
+
+# Everything platform-specific is macOS-only: on Linux the crate compiles
+# to an "unsupported" stub and pulls none of these in.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSUUID", "NSValue", "NSURL"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFString", "CFNumber", "CFArray", "CFDictionary"] }
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2", "objc2-foundation", "objc2-core-audio-types"] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+# Permission flow (`permissions` module): microphone authorization,
+# opening System Settings, the native "permission needed" alert.
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSRunningApplication", "NSView", "NSWorkspace"] }
+block2 = "0.6"
+dispatch2 = "0.3"
+
+[features]
+default = []
+# Fall back to the PRIVATE `TCCAccessRequest` SPI (dlopen'd from
+# TCC.framework) when the tap-based System Audio Recording prompt does not
+# appear. Fine for Developer ID distribution; never for the App Store.
+tcc-spi = []
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio.workspace = true
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true

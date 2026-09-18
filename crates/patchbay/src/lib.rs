@@ -14,11 +14,13 @@ pub mod chanmap;
 pub mod clock;
 pub mod dante;
 mod dante_net;
+mod devices;
 mod engine;
 mod enrich;
 mod icons;
 mod latency;
 mod meters;
+pub mod permissions;
 /// Pure decision logic — graph + config in, engine commands out.
 mod plan;
 mod presets;

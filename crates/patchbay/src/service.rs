@@ -10,10 +10,11 @@ use patchbay_proto::services::patchbay_service::{
 };
 use patchbay_proto::{
     AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
-    DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule,
-    MeterLevel, NamedRoute, PatchbayError, PatchbayService, PresetLink, RoutingPreset,
-    ServiceAction, ServiceStatus, VirtualSink, patchbay_service_service_descriptor,
-    serve_patchbay_service,
+    DanteDevice, DanteDeviceConfig, DanteStatus, DeviceChannel, DeviceCrosspoint, DeviceEventWire,
+    DeviceParamValue, DeviceRestoreReport, DeviceSnapshotInfo, DeviceSummary, DeviceView,
+    GraphEvent, GraphSnapshot, IconEntry, LatencyRule, MeterLevel, NamedRoute, ParamView,
+    PatchbayError, PatchbayService, PermissionsStatus, PresetLink, RoutingPreset, ServiceAction,
+    ServiceStatus, VirtualSink, patchbay_service_service_descriptor, serve_patchbay_service,
 };
 
 use crate::engine::{self, Command, EngineHandle};
@@ -48,6 +49,13 @@ struct Inner {
     /// Live meter taps. Empty until a client asks for metering — each
     /// tap is a `parec` child, so nothing runs speculatively.
     meters: Mutex<Taps>,
+    /// External hardware (adapters). Independent of the `PipeWire`
+    /// engine: works on hosts without one, and a device being offline
+    /// never affects the graph.
+    devices: crate::devices::DeviceHub,
+    /// Registered by the hosting app (`Patchbay.app`); see
+    /// [`crate::permissions`].
+    permissions: std::sync::OnceLock<Arc<dyn crate::permissions::PermissionProvider>>,
 }
 
 impl Default for PatchbayBackend {
@@ -120,17 +128,30 @@ impl PatchbayBackend {
             }
         }
 
+        let devices = crate::devices::DeviceHub::start(presets.clone(), store.clone());
+
         Self {
             inner: Arc::new(Inner {
                 store,
                 engine,
                 events_hub,
+                devices,
                 presets,
                 dante: crate::dante_net::DanteEndpoints::default(),
                 icons: crate::icons::IconCache::default(),
                 meters: Mutex::new(Taps::default()),
+                permissions: std::sync::OnceLock::new(),
             }),
         }
+    }
+
+    /// Let the hosting app answer the `permissions` /
+    /// `request_permissions` RPCs (first registration wins).
+    pub fn set_permission_provider(
+        &self,
+        provider: Arc<dyn crate::permissions::PermissionProvider>,
+    ) {
+        let _ = self.inner.permissions.set(provider);
     }
 
     /// A fresh `LayerRouter` serving this backend — the RPC layer plus
@@ -530,6 +551,10 @@ fn on_settled(
 impl PatchbayServiceStreamSource for PatchbayBackend {
     fn graph_events_hub(&self) -> &architect::PubSub<GraphEvent> {
         &self.inner.events_hub
+    }
+
+    fn device_events_hub(&self) -> &architect::PubSub<DeviceEventWire> {
+        self.inner.devices.events()
     }
 }
 
@@ -1183,5 +1208,114 @@ impl PatchbayService for PatchbayBackend {
             }
         }
         Ok(applied)
+    }
+
+    // ── External devices ─────────────────────────────────────────────
+
+    async fn permissions(&self) -> Result<PermissionsStatus, PatchbayError> {
+        Ok(self
+            .inner
+            .permissions
+            .get()
+            .map_or_else(crate::permissions::fallback_status, |p| p.status()))
+    }
+
+    async fn request_permissions(&self) -> Result<PermissionsStatus, PatchbayError> {
+        let Some(provider) = self.inner.permissions.get() else {
+            let mut status = crate::permissions::fallback_status();
+            status.note = format!("nothing to request: {}", status.note);
+            return Ok(status);
+        };
+        provider.request();
+        let mut status = provider.status();
+        status.requesting = true;
+        Ok(status)
+    }
+
+    async fn list_devices(&self) -> Result<Vec<DeviceSummary>, PatchbayError> {
+        Ok(self.inner.devices.list())
+    }
+
+    async fn device(&self, id: String) -> Result<DeviceView, PatchbayError> {
+        self.inner.devices.view(&id).await
+    }
+
+    async fn device_params(
+        &self,
+        id: String,
+        prefix: String,
+    ) -> Result<Vec<ParamView>, PatchbayError> {
+        self.inner.devices.params(&id, &prefix).await
+    }
+
+    async fn set_device_param(
+        &self,
+        id: String,
+        path: String,
+        value: DeviceParamValue,
+        allow_disruptive: bool,
+    ) -> Result<ParamView, PatchbayError> {
+        self.inner
+            .devices
+            .set_param(&id, &path, &value, allow_disruptive)
+            .await
+    }
+
+    async fn set_device_route(
+        &self,
+        id: String,
+        output: DeviceChannel,
+        source: Option<DeviceChannel>,
+    ) -> Result<DeviceCrosspoint, PatchbayError> {
+        self.inner
+            .devices
+            .set_route(&id, &output, source.as_ref())
+            .await
+    }
+
+    async fn save_device_snapshot(
+        &self,
+        id: String,
+        name: String,
+        include: Vec<String>,
+        exclude: Vec<String>,
+    ) -> Result<DeviceSnapshotInfo, PatchbayError> {
+        self.inner
+            .devices
+            .save_snapshot(&id, &name, include, exclude)
+            .await
+    }
+
+    async fn list_device_snapshots(&self) -> Result<Vec<DeviceSnapshotInfo>, PatchbayError> {
+        Ok(self.inner.devices.snapshots())
+    }
+
+    async fn delete_device_snapshot(&self, name: String) -> Result<(), PatchbayError> {
+        self.inner.devices.delete_snapshot(&name).await
+    }
+
+    async fn diff_device_snapshot(
+        &self,
+        name: String,
+        only: Vec<String>,
+        allow_disruptive: bool,
+    ) -> Result<DeviceRestoreReport, PatchbayError> {
+        self.inner
+            .devices
+            .restore(&name, &only, true, allow_disruptive)
+            .await
+    }
+
+    async fn restore_device_snapshot(
+        &self,
+        name: String,
+        only: Vec<String>,
+        dry_run: bool,
+        allow_disruptive: bool,
+    ) -> Result<DeviceRestoreReport, PatchbayError> {
+        self.inner
+            .devices
+            .restore(&name, &only, dry_run, allow_disruptive)
+            .await
     }
 }

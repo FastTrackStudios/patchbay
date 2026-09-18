@@ -4,6 +4,12 @@
 #   crates/proto     patchbay-proto  — the wire contract (architect RPC)
 #   crates/patchbay  patchbay        — the headless core (PipeWire)
 #   crates/ui        patchbay-ui     — the Dioxus UI (native + wasm)
+#   crates/device    patchbay-device — adapter-agnostic hardware model + DeviceAdapter
+#   crates/adapters/antelope  patchbay-antelope — Antelope Galaxy32 adapter
+#   crates/adapters/yamaha    patchbay-yamaha   — Yamaha TF-series (RCP) adapter
+#   crates/adapters/dante     patchbay-dante    — Dante network (inferno-net) adapter
+#   crates/host      patchbay-host   — host-audio graph model + HostBackend
+#   crates/host-coreaudio  patchbay-host-coreaudio — macOS Core Audio backend
 #   app              fts-patchbay    — the binary (server + desktop shell)
 #   app/web          patchbay-web    — the browser remote (dx web build)
 
@@ -13,6 +19,12 @@ members = [
     "crates/patchbay",
     "crates/proto",
     "crates/ui",
+    "crates/device",
+    "crates/adapters/antelope",
+    "crates/adapters/yamaha",
+    "crates/adapters/dante",
+    "crates/host",
+    "crates/host-coreaudio",
     "app",
     "app/web",
 ]
@@ -30,6 +42,12 @@ repository = "https://github.com/FastTrackStudios/patchbay"
 patchbay = { path = "crates/patchbay" }
 patchbay-proto = { path = "crates/proto" }
 patchbay-ui = { path = "crates/ui" }
+patchbay-device = { path = "crates/device" }
+patchbay-antelope = { path = "crates/adapters/antelope" }
+patchbay-yamaha = { path = "crates/adapters/yamaha" }
+patchbay-dante = { path = "crates/adapters/dante" }
+patchbay-host = { path = "crates/host" }
+patchbay-host-coreaudio = { path = "crates/host-coreaudio" }
 
 # ── architect (RPC / services / transports) ───────────────────────────
 architect = { git = "https://github.com/FastTrackStudios/architect", tag = "v0.2.0" }
@@ -60,6 +78,7 @@ include_dir = "0.7"
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+socket2 = { version = "0.6", features = ["all"] }
 thiserror = "2.0"
 tokio = { version = "1.48", features = ["full"] }
 tracing = { version = "0.1", features = ["std"] }

@@ -389,3 +389,40 @@ input[type="number"]::-webkit-outer-spin-button { filter: invert(0.85); }
   background: #2b4a6f; color: #cfe6ff; border-radius: 999px;
   padding: 0 7px; font-size: 10px;
 }
+
+/* ── devices view ────────────────────────────────────────────────── */
+.devices-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.devices-view .dante-header { flex-wrap: wrap; }
+.devices-body { display: flex; flex: 1; min-height: 0; }
+.device-params { flex: 1; overflow: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.device-id { margin-bottom: 4px; }
+.device-side { width: 560px; border-left: 1px solid #262c35; overflow: auto; }
+.param-section { border: 1px solid #262c35; border-radius: 6px; }
+.param-section-h { padding: 5px 10px; cursor: pointer; user-select: none; background: #1b1f26; border-radius: 6px; }
+.param-section-h:hover { color: #7cc4ff; }
+.param-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px;
+  padding: 4px 10px; border-top: 1px solid #1f242c;
+}
+.param-row:hover { background: rgba(74,144,217,0.06); }
+.param-row-h { width: 170px; color: #aab4c0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.param { display: inline-flex; align-items: center; gap: 5px; }
+.param.disruptive { outline: 1px dashed #d9534a; border-radius: 4px; padding: 1px 3px; }
+.param-leaf { color: #7a8494; font-size: 11px; }
+.param-val { color: #d7dde5; font-size: 11px; min-width: 56px; font-variant-numeric: tabular-nums; }
+.param input.fader { width: 140px; }
+.param input.pan { width: 70px; }
+.param-int { width: 80px; padding: 2px 4px; }
+.param-text { width: 140px; padding: 2px 4px; }
+.chip.toggle { padding: 2px 8px; font-size: 11px; }
+.chip:disabled, .param input:disabled, .param select:disabled { opacity: 0.45; cursor: not-allowed; }
+.router-pick { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.router-scroll { overflow: auto; max-height: 460px; }
+.corner-dev { position: sticky; left: 0; font-size: 11px; }
+.snap-save { display: flex; gap: 6px; margin-bottom: 8px; }
+.snap-save .search { width: auto; flex: 1; }
+.snap-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.snap-name { font-weight: 600; }
+.snap-report { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.snap-table { border-collapse: collapse; font-size: 11px; }
+.snap-table td { padding: 2px 6px; border-bottom: 1px solid #1f242c; white-space: nowrap; }

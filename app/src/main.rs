@@ -13,8 +13,11 @@ use architect::host::{EngineHost, WebBundle};
 use dioxus::prelude::*;
 use patchbay::PatchbayBackend;
 use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay_proto::{GraphEvent, PatchbayServiceClient};
+use patchbay_proto::{DeviceEventWire, GraphEvent, PatchbayServiceClient};
 use patchbay_ui::{PatchbayApp, PatchbayHandle};
+
+#[cfg(target_os = "macos")]
+mod macos;
 
 const DEFAULT_ADDR: &str = "0.0.0.0:4046";
 
@@ -83,7 +86,12 @@ fn bootstrapped() -> Option<&'static Engine> {
 }
 
 fn bind_addr() -> String {
-    std::env::var("PATCHBAY_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string())
+    // Patchbay.app defaults to loopback (the RPC is unauthenticated).
+    #[cfg(target_os = "macos")]
+    let default = macos::default_addr(DEFAULT_ADDR);
+    #[cfg(not(target_os = "macos"))]
+    let default = DEFAULT_ADDR;
+    std::env::var("PATCHBAY_ADDR").unwrap_or_else(|_| default.to_string())
 }
 
 /// Bring up the backend + serving before the UI launches. The runtime
@@ -97,6 +105,13 @@ fn bootstrap_blocking() -> eyre::Result<()> {
 
     rt.block_on(async {
         let backend = PatchbayBackend::new();
+        // macOS privacy permissions belong to Patchbay.app: the app
+        // answers the `permissions` RPCs and runs the prompt flow once
+        // the window is up (see `App`).
+        #[cfg(target_os = "macos")]
+        backend.set_permission_provider(Arc::new(macos::AppPermissions::install(
+            tokio::runtime::Handle::current(),
+        )));
 
         // In-process client link.
         let scope = architect::Scope::new();
@@ -133,6 +148,11 @@ fn bootstrap_blocking() -> eyre::Result<()> {
 }
 
 fn main() -> ExitCode {
+    // Patchbay.app from Finder: cwd `/`, bare PATH, no stdout. Fix up
+    // before any thread exists.
+    #[cfg(target_os = "macos")]
+    macos::prepare_env();
+
     // WebKitGTK on NVIDIA/Wayland lags hard; force X11 before any GTK
     // init (same workaround as apps/fasttrackstudio).
     #[cfg(target_os = "linux")]
@@ -154,6 +174,17 @@ fn main() -> ExitCode {
     }
     if let Some(g) = otel_guard {
         std::mem::forget(g);
+    }
+
+    // Single instance: a second Patchbay.app (or one started next to
+    // `patchbay serve`) would fight over the RPC port.
+    #[cfg(target_os = "macos")]
+    if macos::is_bundled() && macos::already_running(&bind_addr()) {
+        tracing::error!(
+            addr = bind_addr(),
+            "another Patchbay is already serving this address; exiting"
+        );
+        return ExitCode::FAILURE;
     }
 
     if let Err(e) = bootstrap_blocking() {
@@ -180,6 +211,11 @@ fn App() -> Element {
         return rsx! { div { "patchbay engine not bootstrapped" } };
     };
     use_context_provider(|| PatchbayHandle(Arc::new(engine.client.clone())));
+
+    // AppKit is registered now: safe to prompt for permissions (doing it
+    // during launch races NSApplication's own registration).
+    #[cfg(target_os = "macos")]
+    use_hook(macos::AppPermissions::on_window_ready);
 
     // Bridge: initial snapshot + `#[subscribe]` events → UI signals.
     use_future(move || async move {
@@ -209,6 +245,20 @@ fn App() -> Element {
             }
         }
         tracing::warn!("graph event stream ended");
+    });
+
+    // External-device events (Galaxy32, …) → the Devices view.
+    use_future(move || async move {
+        let (tx, mut rx) = vox::channel::<DeviceEventWire>();
+        spawn(async move {
+            let Some(engine) = bootstrapped() else { return };
+            if let Err(e) = engine.stream_client.device_events(tx).await {
+                tracing::warn!("device_events subscription ended: {e:?}");
+            }
+        });
+        while let Ok(Some(ev)) = rx.recv().await {
+            patchbay_ui::apply_device_event(ev.get());
+        }
     });
 
     // Belt-and-suspenders reconcile: streams can drop under burst
