@@ -11,6 +11,10 @@ path = "src/main.rs"
 
 [[bin]]
 name = "patchbay-cli"
+path = "src/cli_compat.rs"
+
+[[bin]]
+name = "patchbay"
 path = "src/cli.rs"
 
 [dependencies]
@@ -25,6 +29,7 @@ vox.workspace = true
 clap = { workspace = true, features = ["env"] }
 dioxus = { workspace = true, default-features = true, features = ["desktop", "launch"] }
 eyre.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true

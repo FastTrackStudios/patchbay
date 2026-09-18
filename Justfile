@@ -20,7 +20,9 @@ install: web-stage
     set -euo pipefail
     cargo build --release -p fts-patchbay --features embed-web
     install -d ~/.local/lib/fts
-    install -m 755 target/release/fts-patchbay ~/.local/lib/fts/patchbay.new
+    install -m 755 target/release/fts-patchbay ~/.local/lib/fts/patchbay-app.new
+    mv -T ~/.local/lib/fts/patchbay-app.new ~/.local/lib/fts/patchbay-app
+    install -m 755 target/release/patchbay ~/.local/lib/fts/patchbay.new
     mv -T ~/.local/lib/fts/patchbay.new ~/.local/lib/fts/patchbay
     install -d ~/.local/bin
     ln -sf ~/.local/lib/fts/patchbay ~/.local/bin/patchbay
@@ -28,7 +30,7 @@ install: web-stage
     install -m 644 app/assets/icon.svg \
         ~/.local/share/icons/hicolor/scalable/apps/patchbay.svg
     install -d ~/.local/share/applications
-    sed "s|@BIN@|$HOME/.local/lib/fts/patchbay|" \
+    sed "s|@BIN@|$HOME/.local/lib/fts/patchbay-app|" \
         app/assets/patchbay.desktop \
         > ~/.local/share/applications/patchbay.desktop
     update-desktop-database ~/.local/share/applications 2>/dev/null || true
@@ -36,11 +38,15 @@ install: web-stage
     # KDE keeps its own per-environment menu cache; rebuild it in the
     # session's env (a dev-shell kbuildsycoca updates the wrong cache).
     systemd-run --user --collect kbuildsycoca6 2>/dev/null || kbuildsycoca6 2>/dev/null || true
-    echo "installed: Patchbay (run 'patchbay' or launch from the app menu)"
+    echo "installed: Patchbay CLI ('patchbay health') and desktop app (launch from the app menu or run 'patchbay-app')"
 
 # Run the app from source
 run:
     cargo run -p fts-patchbay
+
+# Run the agent CLI from source, e.g. `just cli health --json`.
+cli *args:
+    cargo run -p fts-patchbay --bin patchbay -- {{args}}
 
 # These assume the dev shell (`nix develop`, or direnv via .envrc).
 # Outside it the build needs pipewire/gtk/webkit headers, and the

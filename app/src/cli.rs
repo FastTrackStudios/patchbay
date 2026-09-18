@@ -1,25 +1,26 @@
-//! patchbay-cli — the scriptable / AI-friendly surface of the patchbay.
-//!
-//! Talks to a RUNNING Patchbay app over ws (default
-//! `ws://127.0.0.1:4046/vox`, override `PATCHBAY_ADDR`/`--url`); if none
-//! is up, spins its own in-process engine so it works headless too.
-//! Every read command takes `--json` for machine consumption; names
-//! accept node/port ALIASES everywhere, so "connect the Guitar channel
-//! into REAPER in 3" works without knowing `capture_23`.
+// patchbay — the scriptable / AI-friendly surface of the patchbay.
+//
+// Talks to a RUNNING Patchbay app over ws (default
+// `ws://127.0.0.1:4046/vox`, override `PATCHBAY_ADDR`/`--url`); if none
+// is up, spins its own in-process engine so it works headless too.
+// Every read command takes `--json` for machine consumption; names
+// accept node/port ALIASES everywhere, so "connect the Guitar channel
+// into REAPER in 3" works without knowing `capture_23`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use patchbay_proto::{
-    GraphSnapshot, LatencyRule, NamedRoute, PatchbayServiceClient, PortDirection, PwNode,
-    RouteEndpoint, ServiceAction,
+    ClockInfo, DanteDevice, DanteStatus, GraphSnapshot, LatencyRule, NamedRoute,
+    PatchbayServiceClient, PortDirection, PwNode, RouteEndpoint, ServiceAction, ServiceStatus,
 };
+use serde::Serialize;
 
 #[derive(Parser)]
 #[command(
-    name = "patchbay-cli",
-    about = "PipeWire studio-routing control (FTS Patchbay)"
+    name = "patchbay",
+    about = "Agent-friendly PipeWire and Dante studio routing control"
 )]
 struct Cli {
     /// ws endpoint of a running Patchbay app.
@@ -45,6 +46,17 @@ struct Cli {
 enum Cmd {
     /// Engine + graph + clock + dante overview.
     Status,
+    /// Full graph snapshot, including aliases when `--json` is used.
+    #[command(alias = "snapshot")]
+    Graph,
+    /// Read-only rig and Dante health check. Exits successfully after
+    /// printing findings so agents can consume the JSON report directly.
+    #[command(alias = "doctor")]
+    Health {
+        /// Return exit code 1 when an error-level finding is present.
+        #[arg(long)]
+        strict: bool,
+    },
     /// List nodes (aliases shown; `--json` for the full record).
     Nodes,
     /// List a node's ports with aliases (`node` = name, label, or alias).
@@ -110,6 +122,7 @@ enum Cmd {
     /// Show or force the graph quantum (`auto` clears the force).
     Quantum { frames: Option<String> },
     /// Managed systemd units (status, or `restart|start|stop <unit>`).
+    #[command(alias = "service")]
     Services {
         action: Option<String>,
         unit: Option<String>,
@@ -205,6 +218,27 @@ fn parse_endpoint(s: &str) -> RouteEndpoint {
 enum DanteCmd {
     /// Discover devices + channels + subscriptions (slow: mDNS + ARC).
     List,
+    /// Show the Dante stack and live subscription health.
+    Health {
+        /// Return exit code 1 when an error-level finding is present.
+        #[arg(long)]
+        strict: bool,
+    },
+    /// Explicitly repair selected Dante/rig problems.
+    Repair {
+        /// Start dante.target when it is installed but inactive.
+        #[arg(long)]
+        start_stack: bool,
+        /// Restart managed units currently in the failed state.
+        #[arg(long)]
+        restart_failed: bool,
+        /// Re-apply the saved, non-destructive Dante subscription snapshot.
+        #[arg(long)]
+        apply_config: bool,
+        /// Run all of the repair actions above.
+        #[arg(long)]
+        all: bool,
+    },
     /// Subscribe `<rx_device> <rx_channel> <tx_device> <tx_channel>`.
     Subscribe {
         rx_device: String,
@@ -349,6 +383,311 @@ fn ok_or_msg<T, E: std::fmt::Display>(r: Result<T, E>) -> eyre::Result<T> {
     r.map_err(|e| eyre::eyre!("{e}"))
 }
 
+#[derive(Debug, Serialize)]
+struct HealthIssue {
+    severity: String,
+    code: String,
+    target: String,
+    detail: String,
+    remediation: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct GraphHealth {
+    nodes: usize,
+    ports: usize,
+    links: usize,
+    active_links: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct HealthReport {
+    ok: bool,
+    graph: GraphHealth,
+    clock: ClockInfo,
+    dante: DanteStatus,
+    services: Vec<ServiceStatus>,
+    dante_devices: Vec<DanteDevice>,
+    dante_scan_error: Option<String>,
+    issues: Vec<HealthIssue>,
+}
+
+fn issue(
+    severity: &str,
+    code: &str,
+    target: impl Into<String>,
+    detail: impl Into<String>,
+    remediation: Option<&str>,
+) -> HealthIssue {
+    HealthIssue {
+        severity: severity.to_owned(),
+        code: code.to_owned(),
+        target: target.into(),
+        detail: detail.into(),
+        remediation: remediation.map(str::to_owned),
+    }
+}
+
+fn add_dante_issues(
+    dante: &DanteStatus,
+    devices: &[DanteDevice],
+    scan_error: Option<&str>,
+    issues: &mut Vec<HealthIssue>,
+) {
+    if !dante.installed {
+        issues.push(issue(
+            "warning",
+            "dante_not_installed",
+            "dante.target",
+            "the managed Dante stack is not installed on this host",
+            Some("install/deploy the Dante stack, then run `patchbay dante health` again"),
+        ));
+    } else if !dante.active {
+        issues.push(issue(
+            "error",
+            "dante_stack_inactive",
+            "dante.target",
+            "the managed Dante stack is installed but inactive",
+            Some("patchbay dante repair --start-stack"),
+        ));
+    }
+
+    if let Some(error) = scan_error {
+        issues.push(issue(
+            if dante.active { "error" } else { "warning" },
+            "dante_scan_failed",
+            "dante network",
+            error,
+            Some("verify mDNS/ARC reachability, then retry `patchbay dante health`"),
+        ));
+        return;
+    }
+
+    let device_names: Vec<&str> = devices.iter().map(|d| d.name.as_str()).collect();
+    for device in devices {
+        if device.unreachable {
+            issues.push(issue(
+                "error",
+                "dante_device_unreachable",
+                &device.name,
+                format!(
+                    "{} is visible by mDNS at {} but did not answer ARC",
+                    device.name, device.ip
+                ),
+                Some("check network/VLAN reachability and the device's Dante control service"),
+            ));
+        }
+        for subscription in &device.subscriptions {
+            if subscription.status != 1 {
+                issues.push(issue(
+                    "error",
+                    "dante_subscription_unhealthy",
+                    format!("{}:rx{}", device.name, subscription.rx_channel),
+                    format!(
+                        "subscription to {}@{} has ARC status {} (1 is healthy)",
+                        subscription.tx_channel, subscription.tx_device, subscription.status
+                    ),
+                    Some("compare with the saved snapshot, then run `patchbay dante repair --apply-config`"),
+                ));
+            }
+            if !subscription.tx_device.is_empty()
+                && !device_names.contains(&subscription.tx_device.as_str())
+            {
+                issues.push(issue(
+                    "warning",
+                    "dante_source_not_discovered",
+                    format!("{}:rx{}", device.name, subscription.rx_channel),
+                    format!(
+                        "source device '{}' was not discovered in this scan",
+                        subscription.tx_device
+                    ),
+                    Some("check the source device's network/VLAN and repeat the scan"),
+                ));
+            }
+        }
+    }
+}
+
+async fn collect_health(c: &PatchbayServiceClient) -> eyre::Result<HealthReport> {
+    let (graph, clock, dante, services, network) = tokio::join!(
+        c.graph(),
+        c.clock(),
+        c.dante_status(),
+        c.services(),
+        c.dante_network(),
+    );
+    let graph = ok_or_msg(graph)?;
+    let clock = ok_or_msg(clock)?;
+    let dante = ok_or_msg(dante)?;
+    let services = ok_or_msg(services)?;
+
+    let (dante_devices, dante_scan_error) = match network {
+        Ok(devices) => (devices, None),
+        Err(error) => (Vec::new(), Some(error.to_string())),
+    };
+
+    let mut issues = Vec::new();
+    for service in &services {
+        if service.unit == "dante.target" {
+            continue;
+        }
+        let critical = matches!(
+            service.unit.as_str(),
+            "pipewire.service" | "wireplumber.service" | "pipewire-pulse.service"
+        );
+        if !service.present {
+            issues.push(issue(
+                if critical { "error" } else { "warning" },
+                "managed_service_missing",
+                &service.unit,
+                format!("{} is not installed", service.label),
+                Some("deploy the managed audio stack or remove this optional service from the rig"),
+            ));
+        } else if service.state != "active" {
+            issues.push(issue(
+                if critical { "error" } else { "warning" },
+                "managed_service_unhealthy",
+                &service.unit,
+                format!(
+                    "{} is {}/{}",
+                    service.label, service.state, service.sub_state
+                ),
+                Some("inspect `patchbay services --json`, then restart the affected managed unit"),
+            ));
+        }
+    }
+    add_dante_issues(
+        &dante,
+        &dante_devices,
+        dante_scan_error.as_deref(),
+        &mut issues,
+    );
+
+    let report = HealthReport {
+        ok: !issues.iter().any(|finding| finding.severity == "error"),
+        graph: GraphHealth {
+            nodes: graph.nodes.len(),
+            ports: graph.ports.len(),
+            links: graph.links.len(),
+            active_links: graph.links.iter().filter(|link| link.active).count(),
+        },
+        clock,
+        dante,
+        services,
+        dante_devices,
+        dante_scan_error,
+        issues,
+    };
+    Ok(report)
+}
+
+fn print_health(report: &HealthReport, json: bool) -> eyre::Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+    println!(
+        "health: {}",
+        if report.ok {
+            "ok"
+        } else {
+            "attention required"
+        }
+    );
+    println!(
+        "graph: {} nodes / {} ports / {} links ({} active)",
+        report.graph.nodes, report.graph.ports, report.graph.links, report.graph.active_links
+    );
+    println!(
+        "clock: {} Hz, quantum {} (force {})",
+        report.clock.rate, report.clock.quantum, report.clock.force_quantum
+    );
+    println!(
+        "dante: stack {} / {} device(s) / {} subscription(s)",
+        if report.dante.active {
+            "active"
+        } else {
+            "inactive"
+        },
+        report.dante_devices.len(),
+        report
+            .dante_devices
+            .iter()
+            .map(|device| device.subscriptions.len())
+            .sum::<usize>()
+    );
+    for finding in &report.issues {
+        println!(
+            "  [{}] {}: {} — {}",
+            finding.severity, finding.target, finding.code, finding.detail
+        );
+    }
+    if report.issues.is_empty() {
+        println!("  no findings");
+    }
+    Ok(())
+}
+
+fn print_dante_health(
+    dante: &DanteStatus,
+    devices: &[DanteDevice],
+    scan_error: Option<&str>,
+    issues: &[HealthIssue],
+    json: bool,
+) -> eyre::Result<()> {
+    let ok = !issues.iter().any(|finding| finding.severity == "error");
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "ok": ok,
+                "dante": dante,
+                "devices": devices,
+                "scan_error": scan_error,
+                "issues": issues,
+            }))?
+        );
+        return Ok(());
+    }
+    println!(
+        "dante health: {} (stack {}, {} device(s))",
+        if ok { "ok" } else { "attention required" },
+        if dante.active { "active" } else { "inactive" },
+        devices.len()
+    );
+    if let Some(error) = scan_error {
+        println!("  [error] network scan failed: {error}");
+    }
+    for device in devices {
+        let unhealthy = device
+            .subscriptions
+            .iter()
+            .filter(|subscription| subscription.status != 1)
+            .count();
+        println!(
+            "  {} @ {} — {} tx / {} rx / {} sub(s), {} unhealthy{}",
+            device.name,
+            device.ip,
+            device.tx.len(),
+            device.rx.len(),
+            device.subscriptions.len(),
+            unhealthy,
+            if device.unreachable {
+                " [ARC unreachable]"
+            } else {
+                ""
+            }
+        );
+    }
+    for finding in issues {
+        println!(
+            "  [{}] {}: {} — {}",
+            finding.severity, finding.target, finding.code, finding.detail
+        );
+    }
+    Ok(())
+}
+
 // One arm per subcommand: a flat dispatch table is the clearest shape
 // for a CLI, and splitting it into 30 one-call helpers would only move
 // the length around.
@@ -390,6 +729,34 @@ async fn main() -> eyre::Result<()> {
                     "dante stack: {}",
                     if dante.active { "active" } else { "inactive" }
                 );
+            }
+        }
+        Cmd::Graph => {
+            let graph = ok_or_msg(c.graph().await)?;
+            let aliases = alias_map(ok_or_msg(c.aliases().await)?);
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "graph": graph,
+                        "aliases": aliases,
+                    }))?
+                );
+            } else {
+                println!(
+                    "graph: {} nodes / {} ports / {} links",
+                    graph.nodes.len(),
+                    graph.ports.len(),
+                    graph.links.len()
+                );
+                println!("use `patchbay nodes`, `patchbay ports <node>`, or `patchbay links`");
+            }
+        }
+        Cmd::Health { strict } => {
+            let report = collect_health(&c).await?;
+            print_health(&report, cli.json)?;
+            if strict && !report.ok {
+                eyre::bail!("health check has error-level findings");
             }
         }
         Cmd::Nodes => {
@@ -696,7 +1063,7 @@ async fn main() -> eyre::Result<()> {
             }
         },
         Cmd::Services { action, unit } => match (action.as_deref(), unit) {
-            (None, _) => {
+            (None, _) | (Some("status"), None) => {
                 let services = ok_or_msg(c.services().await)?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&services)?);
@@ -761,6 +1128,74 @@ async fn main() -> eyre::Result<()> {
                             "   rx {:>3} {:<26} <- {}@{}  status={}",
                             s.rx_channel, rx_name, s.tx_channel, s.tx_device, s.status
                         );
+                    }
+                }
+            }
+            DanteCmd::Health { strict } => {
+                let dante = ok_or_msg(c.dante_status().await)?;
+                let network = c.dante_network().await;
+                let (devices, scan_error) = match network {
+                    Ok(devices) => (devices, None),
+                    Err(error) => (Vec::new(), Some(error.to_string())),
+                };
+                let mut issues = Vec::new();
+                add_dante_issues(&dante, &devices, scan_error.as_deref(), &mut issues);
+                print_dante_health(&dante, &devices, scan_error.as_deref(), &issues, cli.json)?;
+                if strict && issues.iter().any(|finding| finding.severity == "error") {
+                    eyre::bail!("Dante health has error-level findings");
+                }
+            }
+            DanteCmd::Repair {
+                start_stack,
+                restart_failed,
+                apply_config,
+                all,
+            } => {
+                if !(all || start_stack || restart_failed || apply_config) {
+                    eyre::bail!(
+                        "choose at least one repair action: --start-stack, --restart-failed, --apply-config, or --all"
+                    );
+                }
+                let mut actions = Vec::new();
+                let dante = ok_or_msg(c.dante_status().await)?;
+                if (all || start_stack) && dante.installed && !dante.active {
+                    ok_or_msg(c.set_dante(true).await)?;
+                    actions.push("started dante.target".to_owned());
+                }
+                if all || restart_failed {
+                    let services = ok_or_msg(c.services().await)?;
+                    for service in services
+                        .iter()
+                        .filter(|service| service.present && service.state == "failed")
+                    {
+                        if service.unit == "dante.target" {
+                            if !actions
+                                .iter()
+                                .any(|action| action == "started dante.target")
+                            {
+                                ok_or_msg(c.set_dante(true).await)?;
+                                actions.push("started dante.target".to_owned());
+                            }
+                        } else {
+                            ok_or_msg(
+                                c.service_action(service.unit.clone(), ServiceAction::Restart)
+                                    .await,
+                            )?;
+                            actions.push(format!("restarted {}", service.unit));
+                        }
+                    }
+                }
+                if all || apply_config {
+                    let applied = ok_or_msg(c.apply_dante_config().await)?;
+                    actions.push(format!("applied {applied} saved subscription(s)"));
+                }
+                if cli.json {
+                    println!("{}", serde_json::json!({"actions": actions}));
+                } else if actions.is_empty() {
+                    println!("no Dante repair actions were needed");
+                } else {
+                    for action in actions {
+                        println!("{action}");
                     }
                 }
             }

@@ -11,9 +11,10 @@ on today" needs answering in seconds, not by reading `pw-link -l` output.
 | crate | what it is |
 |---|---|
 | `patchbay-proto` | the wire contract |
-| `patchbay` | the engine — PipeWire graph state, links, persistence |
+| `patchbay` (crate) | the engine — PipeWire graph state, links, persistence |
 | `patchbay-ui` | the Dioxus interface |
-| `fts-patchbay` | the binary (serves the router on `ws://:4046`) |
+| `fts-patchbay` | the desktop app + RPC server (`ws://:4046`) |
+| `patchbay` (binary) | the agent/script CLI for the same RPC surface |
 | `patchbay-web` | the browser remote |
 
 The engine is headless and the UI is a client, so the desktop app and the
@@ -22,10 +23,50 @@ browser remote are the same program seen through different windows.
 ## Running it
 
 ```bash
-cargo run -p fts-patchbay
+# Desktop app and local RPC server
+cargo run -p fts-patchbay --bin fts-patchbay
+
+# Agent CLI against a running app
+cargo run -p fts-patchbay --bin patchbay -- --help
+cargo run -p fts-patchbay --bin patchbay -- health --json
 ```
 
-Then open the desktop window, or point a browser at the served remote.
+The app serves the browser remote at `http://127.0.0.1:4046/` when a web
+bundle is available. The CLI connects to that app over
+`ws://127.0.0.1:4046/vox`; use `--url ws://host:4046/vox` for another rig.
+Use `--local` only for an intentional private/headless engine:
+
+```bash
+cargo run -p fts-patchbay --bin patchbay -- --local graph --json
+```
+
+The RPC endpoint is currently unauthenticated. Keep it on loopback
+(`PATCHBAY_ADDR=127.0.0.1:4046`) or an isolated trusted studio network until
+authentication/TLS is added; anyone who can reach it can change routing.
+
+The installed names are `patchbay` for the CLI and `patchbay-app` for the
+desktop app. The CLI is designed for agents: use `--json`, stable node/port
+names or aliases, and explicit mutations. Typical workflows are:
+
+```bash
+patchbay health --json
+patchbay health --json --strict   # non-zero exit when an error is found
+patchbay graph --json
+patchbay nodes --json
+patchbay ports "Inferno source" --json
+patchbay route bank inferno-to-reaper "Inferno source" REAPER
+patchbay dante health --json
+patchbay dante list --json
+patchbay dante subscribe "Galaxy32" 1 "Inferno" "TX 1"
+patchbay dante save
+patchbay dante repair --apply-config
+```
+
+`health`/`dante health` are read-only scans. `dante repair` only performs
+actions explicitly requested (`--start-stack`, `--restart-failed`, and/or
+`--apply-config`; `--all` enables all three), so an agent cannot silently
+rewrite Dante hardware routing. `dante save` snapshots the live routing and
+`dante apply` restores that saved snapshot non-destructively.
 
 ## Where it came from
 

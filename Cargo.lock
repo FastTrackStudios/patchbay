@@ -2344,6 +2344,7 @@ dependencies = [
  "patchbay",
  "patchbay-proto",
  "patchbay-ui",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
