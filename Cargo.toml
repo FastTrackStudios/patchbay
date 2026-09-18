@@ -20,6 +20,7 @@ members = [
     "crates/proto",
     "crates/ui",
     "crates/device",
+    "crates/driver",
     "crates/adapters/antelope",
     "crates/adapters/yamaha",
     "crates/adapters/dante",

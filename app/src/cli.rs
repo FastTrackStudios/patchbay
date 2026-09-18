@@ -8,6 +8,7 @@
 // into REAPER in 3" works without knowing `capture_23`.
 
 mod cli_device;
+mod cli_mix;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -149,6 +150,19 @@ enum Cmd {
     /// macOS privacy permissions of the running app (System Audio
     /// Recording, Microphone, Local Network). `permissions request` asks
     /// the app to show the system prompts / System Settings alert again.
+    /// Loopback / OBS-style host audio mixes (macOS): apps, inputs and
+    /// system audio summed into outputs like the "Broadcast" virtual mic.
+    /// See `patchbay mix --help`.
+    Mix {
+        #[command(subcommand)]
+        cmd: cli_mix::MixCmd,
+    },
+    /// Patchbay's virtual audio devices (macOS, `Patchbay.driver`):
+    /// loopbacks created, renamed and removed at runtime.
+    Virtual {
+        #[command(subcommand)]
+        cmd: cli_mix::VirtualCmd,
+    },
     Permissions {
         #[command(subcommand)]
         cmd: Option<PermissionsCmd>,
@@ -828,6 +842,12 @@ async fn main() -> eyre::Result<()> {
                 );
                 println!("use `patchbay nodes`, `patchbay ports <node>`, or `patchbay links`");
             }
+        }
+        Cmd::Mix { cmd } => {
+            Box::pin(cli_mix::run(&c, cmd, cli.json)).await?;
+        }
+        Cmd::Virtual { cmd } => {
+            Box::pin(cli_mix::run_virtual(&c, cmd, cli.json)).await?;
         }
         Cmd::Permissions { cmd } => {
             let status = match cmd.unwrap_or(PermissionsCmd::Status) {

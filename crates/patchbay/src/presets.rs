@@ -16,7 +16,7 @@ use facet::Facet;
 use parking_lot::Mutex;
 use patchbay_proto::{
     AliasEntry, CanvasView, ColorEntry, DanteDeviceConfig, DeviceConfig, DeviceSettingSnapshot,
-    NamedRoute, PresetLink, RoutingPreset, VirtualSink,
+    MixConfig, NamedRoute, PresetLink, RoutingPreset, VirtualSink,
 };
 
 /// The whole patchbay config, one styx document. Every list defaults to
@@ -59,6 +59,10 @@ struct FileFormat {
     #[serde(default)]
     #[facet(default)]
     device_snapshots: Vec<DeviceSettingSnapshot>,
+    /// Host audio mixes (Loopback / OBS-style; macOS).
+    #[serde(default)]
+    #[facet(default)]
+    mixes: Vec<MixConfig>,
 }
 
 /// First-run channel names for a stock REAPER JACK client: the main
@@ -416,6 +420,26 @@ impl PresetStore {
         self.persist(&data);
     }
 
+    pub fn mixes(&self) -> Vec<MixConfig> {
+        self.data.lock().mixes.clone()
+    }
+
+    /// Upsert a mix (by `name`).
+    pub fn save_mix(&self, mix: MixConfig) {
+        let mut data = self.data.lock();
+        upsert_by(&mut data.mixes, |m| m.name.clone(), mix);
+        self.persist(&data);
+    }
+
+    pub fn delete_mix(&self, name: &str) -> bool {
+        let mut data = self.data.lock();
+        let removed = remove_where(&mut data.mixes, |m| m.name == name);
+        if removed {
+            self.persist(&data);
+        }
+        removed
+    }
+
     pub fn delete_device_snapshot(&self, name: &str) -> bool {
         let mut data = self.data.lock();
         let removed = remove_where(&mut data.device_snapshots, |s| s.name == name);
@@ -706,6 +730,35 @@ mod styx_roundtrip {
                         source: String::new(),
                     },
                 ],
+            }],
+            mixes: vec![MixConfig {
+                name: "Discord".into(),
+                channels: 2,
+                sources: vec![
+                    patchbay_proto::MixSourceConfig {
+                        kind: "app".into(),
+                        target: "com.cockos.reaper".into(),
+                        device: "com.antelope.4202524000109".into(),
+                        map: "32:0,33:1".into(),
+                        gain_db: -6.0,
+                        muted: false,
+                    },
+                    patchbay_proto::MixSourceConfig {
+                        kind: "input".into(),
+                        target: "com.antelope.4202524000109".into(),
+                        device: String::new(),
+                        map: "32:0,33:1".into(),
+                        gain_db: 0.0,
+                        muted: true,
+                    },
+                ],
+                outputs: vec![patchbay_proto::MixOutputConfig {
+                    device: "Broadcast_UID".into(),
+                    map: "0:0,1:1".into(),
+                    gain_db: 0.0,
+                    muted: false,
+                }],
+                enabled: None,
             }],
         };
 

@@ -50,6 +50,8 @@ pub enum View {
     Dante,
     /// External hardware (device adapters).
     Devices,
+    /// Host audio mixes (Loopback / OBS style, macOS).
+    Mixes,
 }
 pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Patchbay);
 
@@ -376,6 +378,14 @@ pub async fn sleep_secs(secs: u64) {
         let ms = u32::try_from(secs.saturating_mul(1000)).unwrap_or(u32::MAX);
         gloo_timers::future::TimeoutFuture::new(ms).await;
     }
+}
+
+/// Portable async sleep in milliseconds (meter polling).
+pub async fn sleep_ms(ms: u32) {
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio::time::sleep(std::time::Duration::from_millis(u64::from(ms))).await;
+    #[cfg(target_arch = "wasm32")]
+    gloo_timers::future::TimeoutFuture::new(ms).await;
 }
 
 /// The user-pickable cable/port color palette.

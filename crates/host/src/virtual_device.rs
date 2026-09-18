@@ -105,6 +105,30 @@ impl ChannelMap {
     }
 }
 
+/// Whether process bundle id `bundle` belongs to app `app`.
+///
+/// That is the app itself or one of its helper sub-bundles
+/// (`com.brave.Browser` owns `com.brave.Browser.helper` and
+/// `com.brave.Browser.helper.plugin` — browsers and Electron apps play
+/// audio from helper processes).
+#[must_use]
+pub fn bundle_matches(app: &str, bundle: &str) -> bool {
+    bundle == app
+        || bundle
+            .strip_prefix(app)
+            .is_some_and(|rest| rest.starts_with('.'))
+}
+
+/// The app a process bundle id belongs to: helper sub-bundles
+/// (`….helper`, `….helper.renderer`, …) collapse to their parent.
+#[must_use]
+pub fn parent_bundle(bundle: &str) -> &str {
+    bundle
+        .find(".helper")
+        .and_then(|i| bundle.get(..i))
+        .unwrap_or(bundle)
+}
+
 /// Which application(s) an app source captures.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -127,7 +151,10 @@ impl AppSelector {
     #[must_use]
     pub fn matches(&self, app: &AppInfo) -> bool {
         match self {
-            Self::BundleId(id) => app.bundle_id.as_deref() == Some(id.as_str()),
+            Self::BundleId(id) => app
+                .bundle_id
+                .as_deref()
+                .is_some_and(|b| bundle_matches(id, b)),
             Self::Pid(pid) => app.pid == *pid,
         }
     }
@@ -141,6 +168,16 @@ pub enum SourceKind {
     App {
         /// Which app.
         app: AppSelector,
+    },
+    /// What one application sends to one output device — every channel,
+    /// unmixed (a process tap per output stream of the device). E.g.
+    /// REAPER's outputs on a 64-channel interface, of which a channel map
+    /// picks the pair to use; the app keeps playing to the device.
+    AppOnDevice {
+        /// Which app.
+        app: AppSelector,
+        /// The output device it plays to (Core Audio `DeviceUID`).
+        device_uid: String,
     },
     /// An input device's capture channels.
     InputDevice {
@@ -410,5 +447,33 @@ mod tests {
         assert_eq!(json["sources"][0]["channel_map"][1]["dst"], 1);
         let back: VirtualDeviceSpec = serde_json::from_value(json).unwrap();
         assert_eq!(back, spec());
+    }
+}
+
+#[cfg(test)]
+mod bundle_tests {
+    use super::{bundle_matches, parent_bundle};
+
+    #[test]
+    fn helpers_belong_to_their_app() {
+        assert!(bundle_matches("com.brave.Browser", "com.brave.Browser"));
+        assert!(bundle_matches(
+            "com.brave.Browser",
+            "com.brave.Browser.helper"
+        ));
+        assert!(bundle_matches(
+            "com.brave.Browser",
+            "com.brave.Browser.helper.plugin"
+        ));
+        assert!(!bundle_matches(
+            "com.brave.Browser",
+            "com.brave.BrowserBeta"
+        ));
+        assert!(!bundle_matches("com.brave.Browser", "com.brave"));
+        assert_eq!(
+            parent_bundle("com.brave.Browser.helper.plugin"),
+            "com.brave.Browser"
+        );
+        assert_eq!(parent_bundle("com.cockos.reaper"), "com.cockos.reaper");
     }
 }

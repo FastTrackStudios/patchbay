@@ -12,6 +12,10 @@ use crate::devices::{
     DeviceChannel, DeviceCrosspoint, DeviceEventWire, DeviceParamValue, DeviceRestoreReport,
     DeviceSnapshotInfo, DeviceSummary, DeviceView, ParamView,
 };
+use crate::mixes::{
+    AggregateView, HostTargets, MixConfig, MixMeters, MixView, VirtualDeviceView,
+    VirtualDevicesStatus,
+};
 use crate::types::{
     AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
     DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule,
@@ -377,6 +381,84 @@ pub mod patchbay_service {
         /// subscriptions (re)applied. This writes to the Dante hardware
         /// over ARC — an explicit, on-demand restore, never automatic.
         async fn apply_dante_config(&self) -> Result<u32, PatchbayError>;
+
+        // ── Mixes (Loopback / OBS-style host audio) ─────────────────
+        //
+        // Sources (apps, input devices, system audio) summed into outputs
+        // (e.g. the "Broadcast" virtual mic). Needs macOS; elsewhere
+        // `host_targets().supported` is false and mixes stay stopped.
+
+        /// Every saved mix with its live state.
+        async fn list_mixes(&self) -> Result<Vec<MixView>, PatchbayError>;
+
+        /// Create or replace a mix (by name) and (re)start it.
+        async fn save_mix(&self, mix: MixConfig) -> Result<MixView, PatchbayError>;
+
+        /// Stop and delete a mix.
+        async fn delete_mix(&self, name: String) -> Result<(), PatchbayError>;
+
+        /// Change a source's gain / mute live (and save it).
+        async fn set_mix_source(
+            &self,
+            name: String,
+            index: u32,
+            gain_db: f64,
+            muted: bool,
+        ) -> Result<(), PatchbayError>;
+
+        /// Change an output's gain / mute live (and save it).
+        async fn set_mix_output(
+            &self,
+            name: String,
+            index: u32,
+            gain_db: f64,
+            muted: bool,
+        ) -> Result<(), PatchbayError>;
+
+        /// Peak levels of every running mix since the previous call.
+        async fn mix_meters(&self) -> Result<Vec<MixMeters>, PatchbayError>;
+
+        /// Apps and devices a mix can use on this host.
+        async fn host_targets(&self) -> Result<HostTargets, PatchbayError>;
+
+        // ── Virtual devices (Patchbay.driver, macOS) ─────────────────
+        //
+        // Loopback devices managed at runtime — no coreaudiod restart.
+        // `device` accepts the uid or the display name.
+
+        /// Whether the driver is loaded, and the devices it publishes.
+        async fn virtual_devices(&self) -> Result<VirtualDevicesStatus, PatchbayError>;
+
+        /// Create a virtual device (`channels` 1–64).
+        async fn create_virtual_device(
+            &self,
+            name: String,
+            channels: u32,
+        ) -> Result<VirtualDeviceView, PatchbayError>;
+
+        /// Rename a virtual device (its uid — and apps' selection — stays).
+        async fn rename_virtual_device(
+            &self,
+            device: String,
+            name: String,
+        ) -> Result<(), PatchbayError>;
+
+        /// Remove a virtual device.
+        async fn remove_virtual_device(&self, device: String) -> Result<(), PatchbayError>;
+
+        /// Public aggregate devices Patchbay made.
+        async fn aggregates(&self) -> Result<Vec<AggregateView>, PatchbayError>;
+
+        /// Create a public aggregate of `devices` (uids; the first clocks
+        /// it), e.g. Galaxy32 + Patchbay for a DAW.
+        async fn create_aggregate(
+            &self,
+            name: String,
+            devices: Vec<String>,
+        ) -> Result<AggregateView, PatchbayError>;
+
+        /// Remove an aggregate Patchbay made (by uid).
+        async fn remove_aggregate(&self, uid: String) -> Result<(), PatchbayError>;
 
         // ── External devices (hardware adapters) ─────────────────────
         //

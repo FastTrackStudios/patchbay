@@ -20,6 +20,7 @@ mod enrich;
 mod icons;
 mod latency;
 mod meters;
+mod mixes;
 pub mod permissions;
 /// Pure decision logic — graph + config in, engine commands out.
 mod plan;

@@ -138,6 +138,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a00a8f02b994f454d9703dd6a8b6075ba778320550d699198faff1882594c0f7"
 
 [[package]]
+name = "arc-swap"
+version = "1.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "architect"
 version = "0.1.0"
 source = "git+https://github.com/FastTrackStudios/architect?tag=v0.2.0#a3a10e94d53467caf704713571303d08d95e38a2"
@@ -4739,6 +4748,18 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
+]
+
+[[package]]
+name = "patchbay-driver"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "once_cell",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

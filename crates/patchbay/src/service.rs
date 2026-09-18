@@ -12,9 +12,10 @@ use patchbay_proto::{
     AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
     DanteDevice, DanteDeviceConfig, DanteStatus, DeviceChannel, DeviceCrosspoint, DeviceEventWire,
     DeviceParamValue, DeviceRestoreReport, DeviceSnapshotInfo, DeviceSummary, DeviceView,
-    GraphEvent, GraphSnapshot, IconEntry, LatencyRule, MeterLevel, NamedRoute, ParamView,
-    PatchbayError, PatchbayService, PermissionsStatus, PresetLink, RoutingPreset, ServiceAction,
-    ServiceStatus, VirtualSink, patchbay_service_service_descriptor, serve_patchbay_service,
+    GraphEvent, GraphSnapshot, HostTargets, IconEntry, LatencyRule, MeterLevel, MixConfig,
+    MixMeters, MixView, NamedRoute, ParamView, PatchbayError, PatchbayService, PermissionsStatus,
+    PresetLink, RoutingPreset, ServiceAction, ServiceStatus, VirtualSink,
+    patchbay_service_service_descriptor, serve_patchbay_service,
 };
 
 use crate::engine::{self, Command, EngineHandle};
@@ -53,6 +54,8 @@ struct Inner {
     /// engine: works on hosts without one, and a device being offline
     /// never affects the graph.
     devices: crate::devices::DeviceHub,
+    /// Host audio mixes (Loopback / OBS-style; macOS).
+    mixes: crate::mixes::MixHub,
     /// Registered by the hosting app (`Patchbay.app`); see
     /// [`crate::permissions`].
     permissions: std::sync::OnceLock<Arc<dyn crate::permissions::PermissionProvider>>,
@@ -129,6 +132,8 @@ impl PatchbayBackend {
         }
 
         let devices = crate::devices::DeviceHub::start(presets.clone(), store.clone());
+        let mixes = crate::mixes::MixHub::new(presets.clone());
+        mixes.start();
 
         Self {
             inner: Arc::new(Inner {
@@ -136,6 +141,7 @@ impl PatchbayBackend {
                 engine,
                 events_hub,
                 devices,
+                mixes,
                 presets,
                 dante: crate::dante_net::DanteEndpoints::default(),
                 icons: crate::icons::IconCache::default(),
@@ -1230,6 +1236,92 @@ impl PatchbayService for PatchbayBackend {
         let mut status = provider.status();
         status.requesting = true;
         Ok(status)
+    }
+
+    async fn list_mixes(&self) -> Result<Vec<MixView>, PatchbayError> {
+        Ok(self.inner.mixes.views())
+    }
+
+    async fn save_mix(&self, mix: MixConfig) -> Result<MixView, PatchbayError> {
+        self.inner.mixes.save(mix).await
+    }
+
+    async fn delete_mix(&self, name: String) -> Result<(), PatchbayError> {
+        self.inner.mixes.delete(&name).await
+    }
+
+    async fn set_mix_source(
+        &self,
+        name: String,
+        index: u32,
+        gain_db: f64,
+        muted: bool,
+    ) -> Result<(), PatchbayError> {
+        self.inner
+            .mixes
+            .set_level(&name, index, gain_db, muted, false)
+            .await
+    }
+
+    async fn set_mix_output(
+        &self,
+        name: String,
+        index: u32,
+        gain_db: f64,
+        muted: bool,
+    ) -> Result<(), PatchbayError> {
+        self.inner
+            .mixes
+            .set_level(&name, index, gain_db, muted, true)
+            .await
+    }
+
+    async fn mix_meters(&self) -> Result<Vec<MixMeters>, PatchbayError> {
+        Ok(self.inner.mixes.meters())
+    }
+
+    async fn host_targets(&self) -> Result<HostTargets, PatchbayError> {
+        Ok(self.inner.mixes.targets().await)
+    }
+
+    async fn virtual_devices(&self) -> Result<patchbay_proto::VirtualDevicesStatus, PatchbayError> {
+        Ok(self.inner.mixes.virtual_devices().await)
+    }
+
+    async fn create_virtual_device(
+        &self,
+        name: String,
+        channels: u32,
+    ) -> Result<patchbay_proto::VirtualDeviceView, PatchbayError> {
+        self.inner.mixes.create_virtual_device(name, channels).await
+    }
+
+    async fn rename_virtual_device(
+        &self,
+        device: String,
+        name: String,
+    ) -> Result<(), PatchbayError> {
+        self.inner.mixes.rename_virtual_device(device, name).await
+    }
+
+    async fn remove_virtual_device(&self, device: String) -> Result<(), PatchbayError> {
+        self.inner.mixes.remove_virtual_device(device).await
+    }
+
+    async fn aggregates(&self) -> Result<Vec<patchbay_proto::AggregateView>, PatchbayError> {
+        Ok(self.inner.mixes.aggregates().await)
+    }
+
+    async fn create_aggregate(
+        &self,
+        name: String,
+        devices: Vec<String>,
+    ) -> Result<patchbay_proto::AggregateView, PatchbayError> {
+        self.inner.mixes.create_aggregate(name, devices).await
+    }
+
+    async fn remove_aggregate(&self, uid: String) -> Result<(), PatchbayError> {
+        self.inner.mixes.remove_aggregate(uid).await
     }
 
     async fn list_devices(&self) -> Result<Vec<DeviceSummary>, PatchbayError> {

@@ -10,8 +10,9 @@ use objc2_core_audio::{
     CATapMuteBehavior, kAudioAggregateDeviceIsPrivateKey, kAudioAggregateDeviceIsStackedKey,
     kAudioAggregateDeviceMainSubDeviceKey, kAudioAggregateDeviceNameKey,
     kAudioAggregateDeviceSubDeviceListKey, kAudioAggregateDeviceTapAutoStartKey,
-    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey, kAudioSubDeviceUIDKey,
-    kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey, kAudioTapPropertyFormat,
+    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey,
+    kAudioSubDeviceDriftCompensationKey, kAudioSubDeviceUIDKey, kAudioSubTapDriftCompensationKey,
+    kAudioSubTapUIDKey, kAudioTapPropertyFormat,
 };
 use objc2_core_audio_types::AudioStreamBasicDescription;
 use objc2_core_foundation::{CFArray, CFBoolean, CFDictionary, CFRetained, CFString, CFType};
@@ -53,6 +54,37 @@ impl ProcessTap {
         // ids, which is the documented element type.
         let desc = unsafe {
             CATapDescription::initStereoMixdownOfProcesses(CATapDescription::alloc(), &array)
+        };
+        Self::create_from(&desc, mute, name)
+    }
+
+    /// Create a **private**, non-mixdown tap of what `processes` send to
+    /// output stream `stream` of device `device_uid` — every channel of
+    /// that stream, in the stream's own format (so a DAW's outputs 33–34
+    /// on a 64-channel interface stay channels 33–34).
+    pub(crate) fn create_device_stream(
+        processes: &[ObjectId],
+        device_uid: &str,
+        stream: usize,
+        mute: Mute,
+        name: &str,
+    ) -> Result<Self, HostError> {
+        let numbers: Vec<Retained<NSNumber>> =
+            processes.iter().map(|p| NSNumber::new_u32(*p)).collect();
+        let array = NSArray::from_retained_slice(&numbers);
+        let stream = objc2_foundation::NSInteger::try_from(stream)
+            .map_err(|_| HostError::InvalidSpec(format!("stream index {stream} out of range")))?;
+        // SAFETY: `alloc` + designated initializer; `array` holds
+        // `NSNumber`s of process object ids to include, `device_uid` a
+        // device UID string and `stream` an output stream index — the
+        // documented argument types.
+        let desc = unsafe {
+            CATapDescription::initWithProcesses_andDeviceUID_withStream(
+                CATapDescription::alloc(),
+                &array,
+                &NSString::from_str(device_uid),
+                stream,
+            )
         };
         Self::create_from(&desc, mute, name)
     }
@@ -165,17 +197,63 @@ impl AggregateDevice {
         main_subdevice_uid: Option<&str>,
         tap_uid: &str,
     ) -> Result<Self, HostError> {
+        let subdevices: Vec<&str> = main_subdevice_uid.into_iter().collect();
+        Self::create_private_multi(name, uid, &subdevices, &[tap_uid])
+    }
+
+    /// Create a **private**, unstacked aggregate of `subdevice_uids`
+    /// (the first is the main subdevice — the clock) and `tap_uids`.
+    /// Every other subdevice and every tap is drift compensated against
+    /// the main one. The `IOProc` sees input buffers in subdevice order,
+    /// then tap order; output buffers in subdevice order.
+    pub(crate) fn create_private_multi(
+        name: &str,
+        uid: &str,
+        subdevice_uids: &[&str],
+        tap_uids: &[&str],
+    ) -> Result<Self, HostError> {
+        let id = Self::create_raw(name, uid, subdevice_uids, tap_uids, true)?;
+        Ok(Self { id })
+    }
+
+    /// Create a **public**, persistent aggregate (listed to every app, like
+    /// one made in Audio MIDI Setup) of `subdevice_uids` — the first is the
+    /// clock, the rest drift compensated. Not destroyed on drop: returns
+    /// the HAL object id; remove it with [`destroy_public`].
+    pub(crate) fn create_public(
+        name: &str,
+        uid: &str,
+        subdevice_uids: &[&str],
+    ) -> Result<ObjectId, HostError> {
+        Self::create_raw(name, uid, subdevice_uids, &[], false)
+    }
+
+    fn create_raw(
+        name: &str,
+        uid: &str,
+        subdevice_uids: &[&str],
+        tap_uids: &[&str],
+        private: bool,
+    ) -> Result<ObjectId, HostError> {
         let yes = CFBoolean::new(true);
         let no = CFBoolean::new(false);
 
         let tap_uid_key = cf_key(kAudioSubTapUIDKey);
         let drift_key = cf_key(kAudioSubTapDriftCompensationKey);
-        let tap_uid_cf = CFString::from_str(tap_uid);
-        let tap_entry = CFDictionary::<CFString, CFType>::from_slices(
-            &[&*tap_uid_key, &*drift_key],
-            &[as_type(&tap_uid_cf), as_type(&yes)],
-        );
-        let taps = CFArray::<CFDictionary<CFString, CFType>>::from_objects(&[&*tap_entry]);
+        let tap_uid_cfs: Vec<CFRetained<CFString>> =
+            tap_uids.iter().map(|t| CFString::from_str(t)).collect();
+        let tap_entries: Vec<CFRetained<CFDictionary<CFString, CFType>>> = tap_uid_cfs
+            .iter()
+            .map(|t| {
+                CFDictionary::<CFString, CFType>::from_slices(
+                    &[&*tap_uid_key, &*drift_key],
+                    &[as_type(t), as_type(&yes)],
+                )
+            })
+            .collect();
+        let tap_refs: Vec<&CFDictionary<CFString, CFType>> =
+            tap_entries.iter().map(|e| &**e).collect();
+        let taps = CFArray::<CFDictionary<CFString, CFType>>::from_objects(&tap_refs);
 
         let mut keys: Vec<CFRetained<CFString>> = vec![
             cf_key(kAudioAggregateDeviceNameKey),
@@ -187,28 +265,43 @@ impl AggregateDevice {
         ];
         let name_cf = CFString::from_str(name);
         let uid_cf = CFString::from_str(uid);
+        let private_cf = if private { &yes } else { &no };
         let mut values: Vec<&CFType> = vec![
             as_type(&name_cf),
             as_type(&uid_cf),
-            as_type(&yes),
+            as_type(private_cf),
             as_type(&no),
             as_type(&yes),
             as_type(&taps),
         ];
 
-        let sub_uid_cf = main_subdevice_uid.map(CFString::from_str);
         let sub_key = cf_key(kAudioSubDeviceUIDKey);
-        let sub_entry = sub_uid_cf
-            .as_ref()
-            .map(|s| CFDictionary::<CFString, CFType>::from_slices(&[&*sub_key], &[as_type(s)]));
-        let subs = sub_entry
-            .as_ref()
-            .map(|e| CFArray::<CFDictionary<CFString, CFType>>::from_objects(&[&**e]));
-        if let (Some(sub_uid), Some(subs)) = (sub_uid_cf.as_ref(), subs.as_ref()) {
+        let sub_drift_key = cf_key(kAudioSubDeviceDriftCompensationKey);
+        let sub_uid_cfs: Vec<CFRetained<CFString>> = subdevice_uids
+            .iter()
+            .map(|s| CFString::from_str(s))
+            .collect();
+        let sub_entries: Vec<CFRetained<CFDictionary<CFString, CFType>>> = sub_uid_cfs
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                // The main subdevice (first) is the clock; everything else
+                // is resampled onto it.
+                let drift = if i == 0 { &no } else { &yes };
+                CFDictionary::<CFString, CFType>::from_slices(
+                    &[&*sub_key, &*sub_drift_key],
+                    &[as_type(s), as_type(drift)],
+                )
+            })
+            .collect();
+        let sub_refs: Vec<&CFDictionary<CFString, CFType>> =
+            sub_entries.iter().map(|e| &**e).collect();
+        let subs = CFArray::<CFDictionary<CFString, CFType>>::from_objects(&sub_refs);
+        if let Some(main) = sub_uid_cfs.first() {
             keys.push(cf_key(kAudioAggregateDeviceMainSubDeviceKey));
-            values.push(as_type(sub_uid));
+            values.push(as_type(main));
             keys.push(cf_key(kAudioAggregateDeviceSubDeviceListKey));
-            values.push(as_type(subs));
+            values.push(as_type(&subs));
         }
 
         let key_refs: Vec<&CFString> = keys.iter().map(|k| &**k).collect();
@@ -220,13 +313,20 @@ impl AggregateDevice {
             AudioHardwareCreateAggregateDevice(description.as_opaque(), NonNull::from(&mut id))
         };
         check("AudioHardwareCreateAggregateDevice", status)?;
-        Ok(Self { id })
+        Ok(id)
     }
 
     /// HAL object id of the aggregate.
     pub(crate) const fn id(&self) -> ObjectId {
         self.id
     }
+}
+
+/// Destroy a public aggregate made by [`AggregateDevice::create_public`].
+pub(crate) fn destroy_public(id: ObjectId) -> Result<(), HostError> {
+    // SAFETY: `id` is an aggregate device object id.
+    let status = unsafe { AudioHardwareDestroyAggregateDevice(id) };
+    check("AudioHardwareDestroyAggregateDevice", status)
 }
 
 impl Drop for AggregateDevice {

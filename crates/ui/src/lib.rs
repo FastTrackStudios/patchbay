@@ -10,6 +10,7 @@ mod canvas;
 mod dante_grid;
 mod devices;
 mod layout;
+mod mixes;
 mod panels;
 mod state;
 

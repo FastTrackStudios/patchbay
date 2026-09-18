@@ -46,4 +46,5 @@ pub use plan::{diff_nodes, validate_link};
 pub use snapshot::HostSnapshot;
 pub use virtual_device::{
     AppSelector, ChannelMap, ChannelPair, MonitorSpec, SourceKind, SourceSpec, VirtualDeviceSpec,
+    bundle_matches, parent_bundle,
 };

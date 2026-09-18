@@ -15,6 +15,7 @@
 //! - [`sys`]      — libc / TCC odds and ends.
 #![allow(unsafe_code)]
 
+pub(crate) mod driver;
 pub(crate) mod hal;
 pub(crate) mod ioproc;
 pub(crate) mod listener;

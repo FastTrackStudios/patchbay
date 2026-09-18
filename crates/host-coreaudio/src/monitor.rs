@@ -107,7 +107,11 @@ fn resolve(app: &AppSelector) -> Result<Vec<ProcessFacts>, HostError> {
         AppSelector::BundleId(bundle) => hal::process_ids()?
             .into_iter()
             .filter_map(|obj| hal::process(obj).ok())
-            .filter(|p| p.bundle_id.as_deref() == Some(bundle.as_str()))
+            .filter(|p| {
+                p.bundle_id
+                    .as_deref()
+                    .is_some_and(|b| patchbay_host::bundle_matches(bundle, b))
+            })
             .collect(),
     };
     let found: Vec<ProcessFacts> = found.into_iter().filter(|p| p.pid != own_pid).collect();

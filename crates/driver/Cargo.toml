@@ -1,0 +1,29 @@
+[package]
+name = "patchbay-driver"
+description = "Patchbay's AudioServerPlugIn: loopback virtual audio devices created, renamed and removed at runtime (forked from MARS mars-hal, MIT)."
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later AND MIT"
+repository.workspace = true
+
+# FFI-heavy vendored code (a COM vtable for coreaudiod): it keeps its own,
+# looser lint set instead of the workspace's strict one.
+[lints.rust]
+unsafe_code = "allow"
+unused_must_use = "deny"
+
+[lints.clippy]
+panic = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+arc-swap = "1.7"
+once_cell = "1.20"
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

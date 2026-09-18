@@ -33,9 +33,13 @@ mod enumerate;
 #[cfg(target_os = "macos")]
 mod ffi;
 #[cfg(target_os = "macos")]
+mod mix;
+#[cfg(target_os = "macos")]
 mod monitor;
 #[cfg(target_os = "macos")]
 mod permissions;
+#[cfg(target_os = "macos")]
+pub mod virtual_devices;
 
 #[cfg(not(target_os = "macos"))]
 mod unsupported;
@@ -44,6 +48,10 @@ pub use config::{CapturePermission, MicrophonePermission, TapMonitorConfig, TapM
 
 #[cfg(target_os = "macos")]
 pub use backend::CoreAudioBackend;
+#[cfg(target_os = "macos")]
+pub use mix::{
+    Mix, MixDevice, MixInfo, MixMonitorState, MixSourceState, audio_devices, audio_processes,
+};
 #[cfg(target_os = "macos")]
 pub use monitor::{TapMonitor, TapMonitorInfo, capture_permission};
 #[cfg(target_os = "macos")]
