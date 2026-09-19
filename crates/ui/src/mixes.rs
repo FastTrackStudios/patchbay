@@ -1164,6 +1164,7 @@ mod tests {
                 bundle_id: "com.cockos.reaper".into(),
                 name: "REAPER".into(),
                 playing: true,
+                ..HostApp::default()
             }],
             devices: vec![
                 HostDevice {
@@ -1171,12 +1172,14 @@ mod tests {
                     name: "Galaxy32".into(),
                     input_channels: 64,
                     output_channels: 64,
+                    ..HostDevice::default()
                 },
                 HostDevice {
                     uid: "Broadcast_UID".into(),
                     name: "Broadcast".into(),
                     input_channels: 2,
                     output_channels: 2,
+                    ..HostDevice::default()
                 },
             ],
         }

@@ -147,9 +147,6 @@ enum Cmd {
         #[command(subcommand)]
         cmd: cli_device::DeviceCmd,
     },
-    /// macOS privacy permissions of the running app (System Audio
-    /// Recording, Microphone, Local Network). `permissions request` asks
-    /// the app to show the system prompts / System Settings alert again.
     /// Loopback / OBS-style host audio mixes (macOS): apps, inputs and
     /// system audio summed into outputs like the "Broadcast" virtual mic.
     /// See `patchbay mix --help`.
@@ -157,12 +154,28 @@ enum Cmd {
         #[command(subcommand)]
         cmd: cli_mix::MixCmd,
     },
+    /// What is making sound on this machine right now: every app with
+    /// audio and the device it plays to, the devices, the mixes, and
+    /// anything that needs attention. The dashboard, as text.
+    Now {
+        /// Include apps that hold an audio client but aren't playing.
+        #[arg(long)]
+        all: bool,
+        /// Follow live app levels for this many seconds instead of
+        /// printing once. Metering taps exist only while something is
+        /// watching, so the first reading takes a moment to appear.
+        #[arg(long, value_name = "SECONDS")]
+        watch: Option<u64>,
+    },
     /// Patchbay's virtual audio devices (macOS, `Patchbay.driver`):
     /// loopbacks created, renamed and removed at runtime.
     Virtual {
         #[command(subcommand)]
         cmd: cli_mix::VirtualCmd,
     },
+    /// macOS privacy permissions of the running app (System Audio
+    /// Recording, Microphone, Local Network). `permissions request` asks
+    /// the app to show the system prompts / System Settings alert again.
     Permissions {
         #[command(subcommand)]
         cmd: Option<PermissionsCmd>,
@@ -849,6 +862,10 @@ async fn main() -> eyre::Result<()> {
         Cmd::Virtual { cmd } => {
             Box::pin(cli_mix::run_virtual(&c, cmd, cli.json)).await?;
         }
+        Cmd::Now { all, watch } => match watch {
+            Some(secs) => Box::pin(cli_mix::watch_now(&c, all, secs)).await?,
+            None => Box::pin(cli_mix::run_now(&c, all, cli.json)).await?,
+        },
         Cmd::Permissions { cmd } => {
             let status = match cmd.unwrap_or(PermissionsCmd::Status) {
                 PermissionsCmd::Status => ok_or_msg(c.permissions().await)?,

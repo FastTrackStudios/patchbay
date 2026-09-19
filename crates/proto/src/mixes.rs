@@ -165,21 +165,114 @@ pub struct MixMeters {
 }
 
 /// An application that can be a mix source.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, Facet)]
 pub struct HostApp {
     pub bundle_id: String,
     pub name: String,
     /// Producing audio right now.
     pub playing: bool,
+    /// Recording right now.
+    #[serde(default)]
+    #[facet(default)]
+    pub recording: bool,
+    /// Every process behind the app (a browser is many). Unstable —
+    /// address an app by `bundle_id`, never by a pid.
+    #[serde(default)]
+    #[facet(default)]
+    pub pids: Vec<i32>,
+    /// UIDs of the devices it is playing to.
+    #[serde(default)]
+    #[facet(default)]
+    pub output_devices: Vec<String>,
+    /// UIDs of the devices it is recording from.
+    #[serde(default)]
+    #[facet(default)]
+    pub input_devices: Vec<String>,
 }
 
 /// An audio device that can be a mix source (inputs) or output.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, Facet)]
 pub struct HostDevice {
     pub uid: String,
     pub name: String,
     pub input_channels: u32,
     pub output_channels: u32,
+    /// `hardware`, `virtual` or `aggregate`.
+    #[serde(default)]
+    #[facet(default)]
+    pub kind: String,
+    /// Four-char transport code (`bltn`, `usb `, `virt`, `grup`, …).
+    #[serde(default)]
+    #[facet(default)]
+    pub transport: String,
+    /// Nominal rate in Hz, 0 when the device doesn't report one.
+    #[serde(default)]
+    #[facet(default)]
+    pub sample_rate: f64,
+    /// `output`, `input`, `both` or `none` — which system default it is.
+    #[serde(default)]
+    #[facet(default)]
+    pub default_role: String,
+    /// Some process has it running.
+    #[serde(default)]
+    #[facet(default)]
+    pub in_use: bool,
+}
+
+impl HostDevice {
+    /// The system plays here by default.
+    #[must_use]
+    pub fn is_default_output(&self) -> bool {
+        matches!(self.default_role.as_str(), "output" | "both")
+    }
+
+    /// The system records from here by default.
+    #[must_use]
+    pub fn is_default_input(&self) -> bool {
+        matches!(self.default_role.as_str(), "input" | "both")
+    }
+}
+
+/// Something about the host that needs the user's attention, with the
+/// action that resolves it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Facet)]
+pub struct HostProblem {
+    /// `warn` (degraded) or `error` (that feature cannot work).
+    pub severity: String,
+    /// One line: what is wrong.
+    pub summary: String,
+    /// What it means in practice.
+    #[serde(default)]
+    #[facet(default)]
+    pub detail: String,
+    /// A stable tag for the fix, so a UI can offer the right button and
+    /// an agent can act on it: `request_permissions`, `install_driver`,
+    /// `device_offline`, `mix_failed`.
+    #[serde(default)]
+    #[facet(default)]
+    pub fix: String,
+}
+
+/// Everything the "Now" dashboard shows, in one read.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, Facet)]
+pub struct HostOverview {
+    /// Host audio works here (macOS with Core Audio).
+    pub supported: bool,
+    /// Apps with an audio client, playing first.
+    pub apps: Vec<HostApp>,
+    pub devices: Vec<HostDevice>,
+    pub virtual_devices: VirtualDevicesStatus,
+    pub aggregates: Vec<AggregateView>,
+    pub mixes: Vec<MixView>,
+    pub problems: Vec<HostProblem>,
+}
+
+/// One app's peak since the previous read (linear, 0..1+), keyed by
+/// bundle id. Only apps the metering probe covers appear.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
+pub struct AppMeter {
+    pub bundle_id: String,
+    pub peak: f32,
 }
 
 /// What mixes can be built from on this host.

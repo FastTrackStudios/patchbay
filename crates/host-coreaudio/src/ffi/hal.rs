@@ -9,9 +9,9 @@ use objc2_core_audio::{
     kAudioHardwarePropertyDefaultInputDevice, kAudioHardwarePropertyDefaultOutputDevice,
     kAudioHardwarePropertyDevices, kAudioHardwarePropertyProcessObjectList,
     kAudioHardwarePropertyTranslatePIDToProcessObject, kAudioObjectPropertyManufacturer,
-    kAudioObjectPropertyName, kAudioProcessPropertyBundleID, kAudioProcessPropertyIsRunning,
-    kAudioProcessPropertyIsRunningInput, kAudioProcessPropertyIsRunningOutput,
-    kAudioProcessPropertyPID,
+    kAudioObjectPropertyName, kAudioProcessPropertyBundleID, kAudioProcessPropertyDevices,
+    kAudioProcessPropertyIsRunning, kAudioProcessPropertyIsRunningInput,
+    kAudioProcessPropertyIsRunningOutput, kAudioProcessPropertyPID,
 };
 use patchbay_host::HostError;
 
@@ -73,6 +73,10 @@ pub(crate) struct ProcessFacts {
     pub running: bool,
     pub running_output: bool,
     pub running_input: bool,
+    /// UIDs of the devices this process plays to.
+    pub output_devices: Vec<String>,
+    /// UIDs of the devices it records from.
+    pub input_devices: Vec<String>,
 }
 
 /// All device object ids.
@@ -175,6 +179,21 @@ pub(crate) fn device(object: ObjectId) -> Result<DeviceFacts, HostError> {
     })
 }
 
+/// Devices a process is using on one side, by UID.
+///
+/// `kAudioProcessPropertyDevices` is scoped: the input scope answers
+/// what it records from, the output scope what it plays to. A process
+/// that has opened nothing answers an empty list, and the read is
+/// allowed to fail (the property arrived in macOS 14.2) — either way the
+/// caller just sees no devices.
+fn process_devices(object: ObjectId, scope: Scope) -> Vec<String> {
+    property::get_object_list(object, kAudioProcessPropertyDevices, scope)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|d| property::get_string(d, kAudioDevicePropertyDeviceUID, Scope::Global).ok())
+        .collect()
+}
+
 /// Facts about one process object.
 pub(crate) fn process(object: ObjectId) -> Result<ProcessFacts, HostError> {
     let pid: i32 = property::get_plain(object, kAudioProcessPropertyPID, Scope::Global)?;
@@ -192,6 +211,8 @@ pub(crate) fn process(object: ObjectId) -> Result<ProcessFacts, HostError> {
         running: flag(object, kAudioProcessPropertyIsRunning),
         running_output: flag(object, kAudioProcessPropertyIsRunningOutput),
         running_input: flag(object, kAudioProcessPropertyIsRunningInput),
+        output_devices: process_devices(object, Scope::Output),
+        input_devices: process_devices(object, Scope::Input),
     })
 }
 

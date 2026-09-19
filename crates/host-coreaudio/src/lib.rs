@@ -25,6 +25,7 @@
 #![deny(unsafe_code)]
 
 mod config;
+pub mod survey;
 
 #[cfg(target_os = "macos")]
 mod backend;
@@ -38,6 +39,8 @@ mod mix;
 mod monitor;
 #[cfg(target_os = "macos")]
 mod permissions;
+#[cfg(target_os = "macos")]
+mod probe;
 #[cfg(target_os = "macos")]
 pub mod virtual_devices;
 
@@ -59,6 +62,8 @@ pub use permissions::{
     microphone_permission, open_capture_settings, open_microphone_settings, permission_alert,
     request_capture_permission, request_microphone_permission,
 };
+#[cfg(target_os = "macos")]
+pub use probe::{AppPeak, MAX_APPS, Probe, ProbeApp};
 
 #[cfg(not(target_os = "macos"))]
 pub use unsupported::{

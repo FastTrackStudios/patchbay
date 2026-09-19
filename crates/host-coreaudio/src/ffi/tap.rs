@@ -38,6 +38,17 @@ pub(crate) struct ProcessTap {
     uid: String,
 }
 
+impl Mute {
+    /// The tap behaviour a [`TapMute`](crate::config::TapMute) asks for.
+    pub(crate) const fn for_tap(m: crate::config::TapMute) -> Self {
+        match m {
+            crate::config::TapMute::Unmuted => Self::Unmuted,
+            crate::config::TapMute::Muted => Self::Muted,
+            crate::config::TapMute::MutedWhenTapped => Self::MutedWhenTapped,
+        }
+    }
+}
+
 impl ProcessTap {
     /// Create a **private**, stereo-mixdown tap of `processes` (HAL
     /// process object ids).

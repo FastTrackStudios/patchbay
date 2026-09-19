@@ -1284,6 +1284,43 @@ impl PatchbayService for PatchbayBackend {
         Ok(self.inner.mixes.targets().await)
     }
 
+    async fn host_overview(&self) -> Result<patchbay_proto::HostOverview, PatchbayError> {
+        let mut problems = Vec::new();
+        let perms = self
+            .inner
+            .permissions
+            .get()
+            .map_or_else(crate::permissions::fallback_status, |p| p.status());
+        // A denied tap grant isn't an error anywhere in the stack: taps
+        // are created and deliver digital silence. Say so here, or every
+        // meter reads zero for no visible reason.
+        if perms.platform == "macos" && perms.system_audio_recording != "granted" {
+            problems.push(patchbay_proto::HostProblem {
+                severity: "error".to_owned(),
+                summary: "System Audio Recording isn't granted".to_owned(),
+                detail: "Patchbay can still create taps, but they deliver silence — app \
+                         meters read zero and mixes carry nothing."
+                    .to_owned(),
+                fix: "request_permissions".to_owned(),
+            });
+        }
+        for d in self.inner.devices.list() {
+            if d.state == patchbay_proto::DeviceLinkState::Offline {
+                problems.push(patchbay_proto::HostProblem {
+                    severity: "warn".to_owned(),
+                    summary: format!("{} is offline", d.name),
+                    detail: d.error.clone(),
+                    fix: "device_offline".to_owned(),
+                });
+            }
+        }
+        Ok(self.inner.mixes.overview(problems).await)
+    }
+
+    async fn app_meters(&self) -> Result<Vec<patchbay_proto::AppMeter>, PatchbayError> {
+        Ok(self.inner.mixes.app_meters().await)
+    }
+
     async fn virtual_devices(&self) -> Result<patchbay_proto::VirtualDevicesStatus, PatchbayError> {
         Ok(self.inner.mixes.virtual_devices().await)
     }

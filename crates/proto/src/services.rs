@@ -13,8 +13,8 @@ use crate::devices::{
     DeviceSnapshotInfo, DeviceSummary, DeviceView, ParamView,
 };
 use crate::mixes::{
-    AggregateView, HostTargets, MixConfig, MixMeters, MixView, VirtualDeviceView,
-    VirtualDevicesStatus,
+    AggregateView, AppMeter, HostOverview, HostTargets, MixConfig, MixMeters, MixView,
+    VirtualDeviceView, VirtualDevicesStatus,
 };
 use crate::types::{
     AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
@@ -420,6 +420,21 @@ pub mod patchbay_service {
 
         /// Apps and devices a mix can use on this host.
         async fn host_targets(&self) -> Result<HostTargets, PatchbayError>;
+
+        /// Everything the dashboard shows — apps with the devices they
+        /// are playing to, devices, virtual devices, aggregates, mixes
+        /// and anything wrong — in one read, so a live view costs one
+        /// round-trip rather than ten.
+        async fn host_overview(&self) -> Result<HostOverview, PatchbayError>;
+
+        /// Peak level of every app the metering probe covers, since the
+        /// previous call.
+        ///
+        /// Metering an app costs a process tap, so the probe follows
+        /// what is actually playing and is capped; an app that isn't
+        /// covered simply has no entry. Taps here never mute — this
+        /// only reads.
+        async fn app_meters(&self) -> Result<Vec<AppMeter>, PatchbayError>;
 
         // ── Virtual devices (Patchbay.driver, macOS) ─────────────────
         //

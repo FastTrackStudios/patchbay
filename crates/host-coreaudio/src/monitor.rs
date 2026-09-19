@@ -18,7 +18,7 @@ use std::time::Duration;
 use patchbay_host::{AppInfo, AppSelector, Gain, HostError};
 use serde::Serialize;
 
-use crate::config::{CapturePermission, TapMonitorConfig, TapMute};
+use crate::config::{CapturePermission, TapMonitorConfig};
 use crate::ffi::hal::{self, ProcessFacts};
 use crate::ffi::ioproc::{Buffers, BuffersMut, IoProc, Render};
 use crate::ffi::sys::{self, Preflight};
@@ -88,14 +88,6 @@ impl std::fmt::Debug for TapMonitor {
     }
 }
 
-const fn to_mute(m: TapMute) -> Mute {
-    match m {
-        TapMute::Unmuted => Mute::Unmuted,
-        TapMute::Muted => Mute::Muted,
-        TapMute::MutedWhenTapped => Mute::MutedWhenTapped,
-    }
-}
-
 /// Resolve an [`AppSelector`] to HAL process objects (never ourselves).
 fn resolve(app: &AppSelector) -> Result<Vec<ProcessFacts>, HostError> {
     let own_pid = i32::try_from(std::process::id()).unwrap_or(-1);
@@ -144,7 +136,7 @@ impl TapMonitor {
         }
 
         let objects: Vec<u32> = processes.iter().map(|p| p.object).collect();
-        let tap = ProcessTap::create(&objects, to_mute(config.mute), "patchbay monitor")?;
+        let tap = ProcessTap::create(&objects, Mute::for_tap(config.mute), "patchbay monitor")?;
         let format = hal::summarize(&tap.format()?);
         if !format.float32 {
             return Err(HostError::InvalidSpec(format!(

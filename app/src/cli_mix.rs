@@ -15,6 +15,9 @@
 //! Agent contract: `--json` prints one JSON document; writes answer
 //! with the engine's view after the change.
 
+use std::fmt::Write as _;
+use std::io::Write as _;
+
 use clap::Subcommand;
 use patchbay_proto::{
     HostTargets, MixConfig, MixMeters, MixOutputConfig, MixSourceConfig, MixView,
@@ -688,5 +691,150 @@ async fn run_aggregate(
             println!("removed aggregate '{aggregate}'");
         }
     }
+    Ok(())
+}
+
+/// `patchbay now` — the dashboard as text.
+///
+/// # Errors
+/// When the RPC fails.
+pub async fn run_now(c: &PatchbayServiceClient, all: bool, json: bool) -> eyre::Result<()> {
+    let o = ok_or_msg(c.host_overview().await)?;
+    if json {
+        return print_json(&o);
+    }
+    if !o.supported {
+        println!("host audio needs macOS (on Linux the PipeWire graph is the router)");
+        return Ok(());
+    }
+    for p in &o.problems {
+        let mark = if p.severity == "error" { "!!" } else { " !" };
+        println!("{mark} {}", p.summary);
+        if !p.detail.is_empty() {
+            println!("   {}", p.detail);
+        }
+    }
+    if !o.problems.is_empty() {
+        println!();
+    }
+
+    let name_of = |uid: &str| {
+        o.devices
+            .iter()
+            .find(|d| d.uid == uid)
+            .map_or_else(|| uid.to_owned(), |d| d.name.clone())
+    };
+    let shown: Vec<&patchbay_proto::HostApp> = o
+        .apps
+        .iter()
+        .filter(|a| all || a.playing || a.recording)
+        .collect();
+    println!("APPS");
+    if shown.is_empty() {
+        println!("  (nothing is playing — `--all` lists apps holding an audio client)");
+    }
+    for a in shown {
+        let mark = if a.playing { "*" } else { " " };
+        let mut where_to: Vec<String> = a.output_devices.iter().map(|u| name_of(u)).collect();
+        for uid in &a.input_devices {
+            where_to.push(format!("<- {}", name_of(uid)));
+        }
+        let dest = if where_to.is_empty() {
+            String::new()
+        } else {
+            format!("  -> {}", where_to.join(", "))
+        };
+        println!("  {mark} {}{dest}", a.name);
+    }
+
+    println!("\nDEVICES");
+    for d in &o.devices {
+        let mut tags = Vec::new();
+        if d.is_default_output() {
+            tags.push("default out");
+        }
+        if d.is_default_input() {
+            tags.push("default in");
+        }
+        if d.in_use {
+            tags.push("in use");
+        }
+        let tags = if tags.is_empty() {
+            String::new()
+        } else {
+            format!("  [{}]", tags.join(", "))
+        };
+        println!(
+            "  {}  {} in / {} out  {}{tags}",
+            d.name, d.input_channels, d.output_channels, d.kind
+        );
+    }
+
+    if !o.virtual_devices.devices.is_empty() {
+        println!("\nVIRTUAL DEVICES (Patchbay.driver)");
+        for v in &o.virtual_devices.devices {
+            println!("  {}  {} ch", v.name, v.channels);
+        }
+    }
+    if !o.aggregates.is_empty() {
+        println!("\nAGGREGATES");
+        for a in &o.aggregates {
+            println!(
+                "  {}  {} in / {} out",
+                a.name, a.input_channels, a.output_channels
+            );
+        }
+    }
+
+    println!("\nMIXES");
+    if o.mixes.is_empty() {
+        println!("  (none — `patchbay mix new <name>`)");
+    }
+    for m in &o.mixes {
+        print_mix(m, None);
+    }
+    Ok(())
+}
+
+/// `patchbay now --watch` — live app levels.
+///
+/// # Errors
+/// When the RPC fails.
+pub async fn watch_now(c: &PatchbayServiceClient, all: bool, seconds: u64) -> eyre::Result<()> {
+    const TICK_MS: u64 = 250;
+    /// Matches the UI's meter floor.
+    const FLOOR_DB: f64 = -60.0;
+    let ticks = seconds
+        .saturating_mul(1000)
+        .checked_div(TICK_MS)
+        .unwrap_or(0);
+    for _ in 0..ticks.max(1) {
+        let (o, meters) = (
+            ok_or_msg(c.host_overview().await)?,
+            ok_or_msg(c.app_meters().await)?,
+        );
+        let mut line = String::new();
+        for a in o.apps.iter().filter(|a| all || a.playing || a.recording) {
+            let peak = meters
+                .iter()
+                .find(|m| m.bundle_id == a.bundle_id)
+                .map_or(0.0, |m| m.peak);
+            // Below the meter floor is silence, not a number worth
+            // reading: a tap that is running but idle reports a
+            // denormal, which would print as "-168.6".
+            let db = f64::from(peak).log10() * 20.0;
+            let db = if peak > 0.0 && db > FLOOR_DB {
+                format!("{db:6.1}")
+            } else {
+                "     -".to_owned()
+            };
+            let _ = write!(line, "{} {db}  ", a.name);
+        }
+        // One rewritten line: a watcher reads levels, not a scrollback.
+        print!("\r\x1b[2K{line}");
+        let _ = std::io::stdout().flush();
+        tokio::time::sleep(std::time::Duration::from_millis(TICK_MS)).await;
+    }
+    println!();
     Ok(())
 }

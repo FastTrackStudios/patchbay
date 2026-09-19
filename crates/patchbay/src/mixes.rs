@@ -13,11 +13,13 @@
 //! Gains and mutes change live and are saved.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use patchbay_proto::{HostTargets, MixConfig, MixMeters, MixView, PatchbayError};
+use patchbay_host_coreaudio::survey::{DefaultRole, DeviceKind, Survey};
+use patchbay_proto::{HostOverview, HostTargets, MixConfig, MixMeters, MixView, PatchbayError};
 
 use crate::presets::PresetStore;
 
@@ -41,6 +43,7 @@ mod platform {
     use patchbay_host::{
         AppSelector, ChannelMap, HostError, MonitorSpec, SourceKind, SourceSpec, VirtualDeviceSpec,
     };
+    use patchbay_host_coreaudio::survey::Survey;
     use patchbay_proto::{MixConfig, source_kind};
 
     pub(super) use patchbay_host_coreaudio::Mix as Running;
@@ -115,37 +118,32 @@ mod platform {
     /// What a mix's app sources currently resolve to (sorted pids per
     /// source) plus which input/output devices are present — when this
     /// changes, the mix is rebuilt.
-    pub(super) fn signature(
-        cfg: &MixConfig,
-        apps: &[(patchbay_host::AppInfo, bool)],
-        devices: &[patchbay_host_coreaudio::MixDevice],
-    ) -> String {
+    pub(super) fn signature(cfg: &MixConfig, host: &Survey) -> String {
+        let present = |uid: &str| host.devices.iter().any(|d| d.uid == uid);
         let mut sig = String::new();
         for s in &cfg.sources {
             if s.kind == source_kind::APP {
-                let mut pids: Vec<i32> = apps
+                let mut pids: Vec<i32> = host
+                    .processes
                     .iter()
-                    .filter(|(a, _)| {
-                        a.bundle_id
+                    .filter(|p| {
+                        p.bundle_id
                             .as_deref()
                             .is_some_and(|b| patchbay_host::bundle_matches(&s.target, b))
                     })
-                    .map(|(a, _)| a.pid)
+                    .map(|p| p.pid)
                     .collect();
                 pids.sort_unstable();
                 if !s.device.is_empty() {
-                    let here = devices.iter().any(|d| d.uid == s.device);
-                    let _ = write!(sig, "{}={here};", s.device);
+                    let _ = write!(sig, "{}={};", s.device, present(&s.device));
                 }
                 let _ = write!(sig, "{}={pids:?};", s.target);
             } else if s.kind == source_kind::INPUT {
-                let here = devices.iter().any(|d| d.uid == s.target);
-                let _ = write!(sig, "{}={here};", s.target);
+                let _ = write!(sig, "{}={};", s.target, present(&s.target));
             }
         }
         for o in &cfg.outputs {
-            let here = devices.iter().any(|d| d.uid == o.device);
-            let _ = write!(sig, "{}={here};", o.device);
+            let _ = write!(sig, "{}={};", o.device, present(&o.device));
         }
         sig
     }
@@ -181,19 +179,39 @@ mod platform {
         )
     }
 
-    pub(super) fn snapshot() -> (
-        Vec<(patchbay_host::AppInfo, bool)>,
-        Vec<patchbay_host_coreaudio::MixDevice>,
-    ) {
-        (
-            patchbay_host_coreaudio::audio_processes(),
-            patchbay_host_coreaudio::audio_devices(),
-        )
+    pub(super) fn snapshot() -> Survey {
+        patchbay_host_coreaudio::survey::survey()
+    }
+
+    pub(super) use patchbay_host_coreaudio::MAX_APPS;
+    pub(super) use patchbay_host_coreaudio::Probe as Meters;
+
+    /// Start metering `apps` (bundle id → its pids).
+    pub(super) fn start_meters(apps: &[(String, Vec<i32>)]) -> Result<Meters, String> {
+        let apps: Vec<patchbay_host_coreaudio::ProbeApp> = apps
+            .iter()
+            .map(|(key, pids)| patchbay_host_coreaudio::ProbeApp {
+                key: key.clone(),
+                pids: pids.clone(),
+            })
+            .collect();
+        Meters::start(&apps).map_err(|e| e.to_string())
+    }
+
+    pub(super) fn meter_peaks(m: &Meters) -> Vec<patchbay_proto::AppMeter> {
+        m.take_peaks()
+            .into_iter()
+            .map(|p| patchbay_proto::AppMeter {
+                bundle_id: p.key,
+                peak: p.peak,
+            })
+            .collect()
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 mod platform {
+    use patchbay_host_coreaudio::survey::Survey;
     use patchbay_proto::MixConfig;
 
     /// Never constructed off macOS.
@@ -229,12 +247,25 @@ mod platform {
         Err("mixes need macOS (on Linux the PipeWire graph is the router)".to_owned())
     }
 
-    pub(super) fn signature(_: &MixConfig, _: &[()], _: &[()]) -> String {
+    pub(super) fn signature(_: &MixConfig, _: &Survey) -> String {
         String::new()
     }
 
-    pub(super) fn snapshot() -> (Vec<()>, Vec<()>) {
-        (Vec::new(), Vec::new())
+    pub(super) fn snapshot() -> Survey {
+        Survey::default()
+    }
+
+    /// Never constructed off macOS.
+    pub(super) enum Meters {}
+
+    pub(super) const MAX_APPS: usize = 0;
+
+    pub(super) fn start_meters(_: &[(String, Vec<i32>)]) -> Result<Meters, String> {
+        Err("app metering needs macOS".to_owned())
+    }
+
+    pub(super) fn meter_peaks(m: &Meters) -> Vec<patchbay_proto::AppMeter> {
+        match *m {}
     }
 }
 
@@ -247,12 +278,35 @@ struct Slot {
     built_for: String,
 }
 
+/// The app-metering probe and what it was built for.
+///
+/// Taps make macOS show Patchbay as recording, so the probe only exists
+/// while something is actually reading meters: `app_meters` stamps
+/// `last_poll`, and the supervisor drops the probe once nobody has asked
+/// for [`METER_IDLE`].
+#[derive(Default)]
+struct ProbeSlot {
+    running: Option<platform::Meters>,
+    /// `meter_signature` it was built for.
+    built_for: String,
+    last_poll: Option<Instant>,
+    /// When we last tried to build one (failed builds aren't retried in
+    /// a tight loop).
+    last_try: Option<Instant>,
+}
+
+/// How long the metering probe outlives the last `app_meters` call.
+const METER_IDLE: Duration = Duration::from_secs(3);
+/// Shortest gap between attempts to build the probe.
+const METER_RETRY: Duration = Duration::from_secs(1);
+
 /// Owns every running mix.
 pub(crate) struct MixHub {
     presets: Arc<PresetStore>,
     slots: Arc<Mutex<BTreeMap<String, Slot>>>,
     /// Serializes (re)builds so a save and the supervisor never race.
     build: Arc<tokio::sync::Mutex<()>>,
+    probe: Arc<Mutex<ProbeSlot>>,
 }
 
 impl MixHub {
@@ -261,6 +315,7 @@ impl MixHub {
             presets,
             slots: Arc::default(),
             build: Arc::default(),
+            probe: Arc::default(),
         }
     }
 
@@ -269,14 +324,32 @@ impl MixHub {
         if !platform::SUPPORTED {
             return;
         }
-        let (presets, slots, build) = (
+        let (presets, slots, build, probe) = (
             Arc::clone(&self.presets),
             Arc::clone(&self.slots),
             Arc::clone(&self.build),
+            Arc::clone(&self.probe),
         );
         tokio::spawn(async move {
+            let hub = Self {
+                presets,
+                slots,
+                build,
+                probe,
+            };
             loop {
-                supervise(&presets, &slots, &build, false).await;
+                supervise(&hub.presets, &hub.slots, &hub.build, false).await;
+                // Follow what is playing, and let the taps go when
+                // nobody is watching the meters.
+                let watching = hub
+                    .probe
+                    .lock()
+                    .last_poll
+                    .is_some_and(|t| t.elapsed() < METER_IDLE);
+                if watching || hub.probe.lock().running.is_some() {
+                    let host = hub.host().await;
+                    hub.rebuild_meters(&host).await;
+                }
                 tokio::time::sleep(TICK).await;
             }
         });
@@ -409,60 +482,240 @@ impl MixHub {
     }
 
     pub(crate) async fn targets(&self) -> HostTargets {
-        #[cfg(target_os = "macos")]
-        {
-            let (apps, devices) = tokio::task::spawn_blocking(platform::snapshot)
-                .await
-                .unwrap_or_default();
-            let mut by_bundle: BTreeMap<String, patchbay_proto::HostApp> = BTreeMap::new();
-            for (app, playing) in apps {
-                let Some(bundle) = app.bundle_id else {
-                    continue;
-                };
-                // Helpers (`….helper…`) collapse into their app.
-                let parent = patchbay_host::parent_bundle(&bundle).to_owned();
-                let is_parent = parent == bundle;
-                let name = if is_parent {
-                    app.name.clone()
-                } else {
-                    app.name
-                        .find(" Helper")
-                        .and_then(|i| app.name.get(..i))
-                        .unwrap_or(&app.name)
-                        .to_owned()
-                };
-                let e =
-                    by_bundle
-                        .entry(parent.clone())
-                        .or_insert_with(|| patchbay_proto::HostApp {
-                            bundle_id: parent,
-                            name: name.clone(),
-                            playing: false,
-                        });
-                if is_parent {
-                    e.name = name;
-                }
-                e.playing |= playing;
-            }
-            HostTargets {
-                supported: true,
-                apps: by_bundle.into_values().collect(),
-                devices: devices
-                    .into_iter()
-                    .map(|d| patchbay_proto::HostDevice {
-                        uid: d.uid,
-                        name: d.name,
-                        input_channels: d.input_channels,
-                        output_channels: d.output_channels,
-                    })
-                    .collect(),
-            }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            HostTargets::default()
+        let host = self.host().await;
+        HostTargets {
+            supported: platform::SUPPORTED,
+            apps: host_apps(&host),
+            devices: host_devices(&host),
         }
     }
+
+    /// One read of the host, off the async threads.
+    async fn host(&self) -> Survey {
+        tokio::task::spawn_blocking(platform::snapshot)
+            .await
+            .unwrap_or_default()
+    }
+
+    /// Everything the dashboard shows, in one pass.
+    pub(crate) async fn overview(&self, extra: Vec<patchbay_proto::HostProblem>) -> HostOverview {
+        let (host, vdevs, aggregates) =
+            tokio::join!(self.host(), self.virtual_devices(), self.aggregates());
+        let mixes = self.views();
+        let mut problems = extra;
+        if !vdevs.driver_loaded {
+            problems.push(patchbay_proto::HostProblem {
+                severity: "warn".to_owned(),
+                summary: "Patchbay.driver isn't loaded".to_owned(),
+                detail: "Without it there are no Patchbay virtual devices, so apps have \
+                         nothing to play into and mixes have nothing to be heard through."
+                    .to_owned(),
+                fix: "install_driver".to_owned(),
+            });
+        }
+        for m in &mixes {
+            if !m.error.is_empty() {
+                problems.push(patchbay_proto::HostProblem {
+                    severity: "error".to_owned(),
+                    summary: format!("mix `{}` isn't running", m.config.name),
+                    detail: m.error.clone(),
+                    fix: "mix_failed".to_owned(),
+                });
+            }
+        }
+        // Playing first, then recording, then by name: the dashboard
+        // shows what is making sound without the user hunting for it.
+        let mut apps = host_apps(&host);
+        apps.sort_by(|a, b| {
+            b.playing
+                .cmp(&a.playing)
+                .then_with(|| b.recording.cmp(&a.recording))
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        HostOverview {
+            supported: platform::SUPPORTED,
+            apps,
+            devices: host_devices(&host),
+            virtual_devices: vdevs,
+            aggregates,
+            mixes,
+            problems,
+        }
+    }
+
+    /// Peaks for every app the probe covers, and keep it alive.
+    ///
+    /// Building the probe costs a tap per app, so it is created on the
+    /// first call and dropped once nobody has called for
+    /// [`METER_IDLE`] — the meters exist while someone is watching them.
+    pub(crate) async fn app_meters(&self) -> Vec<patchbay_proto::AppMeter> {
+        let needs_build = {
+            let mut p = self.probe.lock();
+            p.last_poll = Some(Instant::now());
+            p.running.is_none() && p.last_try.is_none_or(|t| t.elapsed() >= METER_RETRY)
+        };
+        if needs_build {
+            let host = self.host().await;
+            self.rebuild_meters(&host).await;
+        }
+        let p = self.probe.lock();
+        p.running
+            .as_ref()
+            .map(platform::meter_peaks)
+            .unwrap_or_default()
+    }
+
+    /// (Re)build the probe for what is playing now, if anyone is watching.
+    async fn rebuild_meters(&self, host: &Survey) {
+        let watching = self
+            .probe
+            .lock()
+            .last_poll
+            .is_some_and(|t| t.elapsed() < METER_IDLE);
+        if !watching {
+            // Nobody is looking: drop the taps (and the recording
+            // indicator that comes with them).
+            let mut p = self.probe.lock();
+            p.running = None;
+            p.built_for.clear();
+            return;
+        }
+        let wanted = meter_apps(host);
+        let sig = meter_signature(&wanted);
+        {
+            let mut p = self.probe.lock();
+            if p.running.is_some() && p.built_for == sig {
+                return;
+            }
+            // Drop the old taps before making new ones.
+            p.running = None;
+            p.last_try = Some(Instant::now());
+        }
+        if wanted.is_empty() {
+            self.probe.lock().built_for = sig;
+            return;
+        }
+        let built = tokio::task::spawn_blocking(move || platform::start_meters(&wanted))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+        let mut p = self.probe.lock();
+        p.built_for = sig;
+        match built {
+            Ok(m) => p.running = Some(m),
+            Err(e) => tracing::debug!("app meters unavailable: {e}"),
+        }
+    }
+}
+
+/// Core Audio processes folded into the apps a person would name.
+///
+/// A browser is a dozen processes and a helper is not a separate app, so
+/// everything collapses onto its parent bundle id — which is also what a
+/// mix source addresses, so what is listed here can be routed.
+fn host_apps(host: &Survey) -> Vec<patchbay_proto::HostApp> {
+    let mut by_bundle: BTreeMap<String, patchbay_proto::HostApp> = BTreeMap::new();
+    for p in &host.processes {
+        let Some(bundle) = p.bundle_id.as_deref() else {
+            continue;
+        };
+        // Helpers (`….helper…`) collapse into their app.
+        let parent = patchbay_host::parent_bundle(bundle).to_owned();
+        let is_parent = parent == bundle;
+        let name = if is_parent {
+            p.name.clone()
+        } else {
+            p.name
+                .find(" Helper")
+                .and_then(|i| p.name.get(..i))
+                .unwrap_or(&p.name)
+                .to_owned()
+        };
+        let e = by_bundle
+            .entry(parent.clone())
+            .or_insert_with(|| patchbay_proto::HostApp {
+                bundle_id: parent,
+                name: name.clone(),
+                playing: false,
+                recording: false,
+                pids: Vec::new(),
+                output_devices: Vec::new(),
+                input_devices: Vec::new(),
+            });
+        if is_parent {
+            e.name = name;
+        }
+        e.playing |= p.running_output;
+        e.recording |= p.running_input;
+        e.pids.push(p.pid);
+        for uid in &p.output_devices {
+            if !e.output_devices.contains(uid) {
+                e.output_devices.push(uid.clone());
+            }
+        }
+        for uid in &p.input_devices {
+            if !e.input_devices.contains(uid) {
+                e.input_devices.push(uid.clone());
+            }
+        }
+    }
+    for app in by_bundle.values_mut() {
+        app.pids.sort_unstable();
+    }
+    by_bundle.into_values().collect()
+}
+
+fn host_devices(host: &Survey) -> Vec<patchbay_proto::HostDevice> {
+    host.devices
+        .iter()
+        .map(|d| patchbay_proto::HostDevice {
+            uid: d.uid.clone(),
+            name: d.name.clone(),
+            input_channels: d.input_channels,
+            output_channels: d.output_channels,
+            kind: match d.kind {
+                DeviceKind::Hardware => "hardware",
+                DeviceKind::Virtual => "virtual",
+                DeviceKind::Aggregate => "aggregate",
+            }
+            .to_owned(),
+            transport: d.transport.clone(),
+            sample_rate: d.sample_rate,
+            default_role: match d.default_role {
+                DefaultRole::None => "none",
+                DefaultRole::Output => "output",
+                DefaultRole::Input => "input",
+                DefaultRole::Both => "both",
+            }
+            .to_owned(),
+            in_use: d.in_use,
+        })
+        .collect()
+}
+
+/// Which apps are worth a meter tap: the ones actually playing, capped.
+///
+/// Recording-only apps are left out — tapping an app reads what it
+/// *plays*, so a meter for one would always read silence.
+fn meter_apps(host: &Survey) -> Vec<(String, Vec<i32>)> {
+    let mut apps: Vec<(String, Vec<i32>)> = host_apps(host)
+        .into_iter()
+        .filter(|a| a.playing && !a.pids.is_empty())
+        .map(|a| (a.bundle_id, a.pids))
+        .collect();
+    apps.sort_by(|a, b| a.0.cmp(&b.0));
+    apps.truncate(platform::MAX_APPS);
+    apps
+}
+
+/// What the probe was built for: the apps and their pids. A launch, a
+/// quit or a helper coming and going changes it, and the probe is
+/// rebuilt so its taps still point at real processes.
+fn meter_signature(apps: &[(String, Vec<i32>)]) -> String {
+    let mut sig = String::new();
+    for (key, pids) in apps {
+        let _ = write!(sig, "{key}={pids:?};");
+    }
+    sig
 }
 
 /// One supervisor pass: start what should run, rebuild what changed,
@@ -475,7 +728,7 @@ async fn supervise(
 ) {
     let _one_at_a_time = build.lock().await;
     let configs = presets.mixes();
-    let Ok((apps, devices)) = tokio::task::spawn_blocking(platform::snapshot).await else {
+    let Ok(host) = tokio::task::spawn_blocking(platform::snapshot).await else {
         return;
     };
     {
@@ -483,7 +736,7 @@ async fn supervise(
         s.retain(|name, _| configs.iter().any(|c| &c.name == name && c.is_enabled()));
     }
     for cfg in configs.into_iter().filter(MixConfig::is_enabled) {
-        let sig = platform::signature(&cfg, &apps, &devices);
+        let sig = platform::signature(&cfg, &host);
         let needs_build = {
             let s = slots.lock();
             match s.get(&cfg.name) {
