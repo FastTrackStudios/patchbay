@@ -233,6 +233,53 @@ share. `PATCHBAY_NOTARY_PROFILE` overrides the profile name.
 The desktop window and the RPC still work, but `http://127.0.0.1:4046/`
 serves no web UI.
 
+## Mixes and virtual devices (macOS)
+
+A **mix** sums sources — an app's audio, one app's output to one device
+with every channel unmixed, an input device's channels, all system audio
+— into outputs, with per-source and per-output gain, mute and meters.
+Mixes run inside Patchbay.app (which holds the System Audio Recording
+grant), are saved in the config, and are rebuilt automatically when an
+app they tap starts or quits.
+
+`Patchbay.driver` publishes the **virtual devices** mixes send to, and
+Patchbay creates, renames and removes them **at runtime** — no coreaudiod
+restart, and a rename keeps the uid so apps keep their selection. Each
+device is a loopback: what an app plays into it comes back out of its
+input. Out of the box:
+
+| device | channels | for |
+|---|---|---|
+| **Patchbay** | 16 | apps pick it as their **output**; Patchbay takes that audio |
+| **Broadcast** | 2 | apps pick it as their **input/mic** (Discord, `FaceTime`, Zoom) |
+
+```bash
+packaging/macos/install-driver.sh     # once (admin; restarts coreaudiod)
+# optional: no password for later driver reloads (see the script's header)
+sudo packaging/macos/allow-driver-reload.sh
+
+patchbay mix targets                  # apps and devices a mix can use
+patchbay mix create Discord --source 'app:REAPER:Galaxy32@0:0,1:1' --output Broadcast
+patchbay mix meters --watch           # live levels
+patchbay mix level Discord 1 -6       # source 1 to -6 dB (or `mute` / `unmute`)
+
+patchbay virtual create "Stream Mix" --channels 2
+patchbay virtual rename "Stream Mix" "OBS Feed"
+patchbay virtual aggregate create "REAPER I/O" Galaxy32 Patchbay
+```
+
+A source is `app:<name|bundle>[@map]` (the app's stereo mixdown),
+`app:<name>:<output device>[@map]` (what it plays to that device, every
+channel — e.g. REAPER's outs 33–34 on a 64-channel interface with
+`@32:0,33:1`), `input:<device>[@map]` or `system[@map]`. Maps are
+0-based `src:dst` pairs; the default is `0:0,1:1`. The **Mixes** tab in
+the app and browser remote has the same controls as channel strips.
+
+Into a DAW that opens one device, either point it at a Patchbay
+**aggregate** (`Galaxy32 + Patchbay`, so app audio arrives as extra
+inputs after the interface's own), or loop spare interface playback
+channels back to its inputs with the device's own router.
+
 ## Where it came from
 
 Extracted from the [FastTrackStudio

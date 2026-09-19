@@ -579,5 +579,8 @@ input.vfader {
 
 /* virtual devices panel (mixes view) */
 .vdev-panel { margin-top: 18px; border-top: 1px solid var(--border, #333); padding-top: 10px; }
-.vdev-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
-.vdev-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* name on its own line: the panel is too narrow for name + buttons */
+.vdev-row { display: flex; flex-direction: column; gap: 2px; padding: 5px 0; }
+.vdev-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vdev-actions { display: flex; align-items: center; gap: 6px; }
+.vdev-actions .dim-note { flex: 1; }

@@ -285,7 +285,29 @@ These need no driver.
 - `meters`: expose `TapMonitor::take_peaks` through a `HostEvent::Meters` or a separate polling API.
 - `set_volume(Node)` means device main volume (`kAudioDevicePropertyVolumeScalar`, main element when settable). Only do it on explicit request.
 
-## Milestone 4: the HAL AudioServerPlugIn (named virtual devices and pass-thru)
+## Milestone 4: the HAL AudioServerPlugIn — DONE (`crates/driver`)
+
+Shipped as `Patchbay.driver`, forked from MARS `mars-hal` (MIT) with the
+shared-memory transport replaced by an in-driver loopback ring and the
+device list persisted in coreaudiod's plug-in storage. See
+`crates/driver/README.md`. Three bugs cost a day of hardware debugging
+and are each pinned by a test now:
+
+- `kAudioServerPlugInIOOperationWriteMix` is **`'rite'`**, not `'wmix'`
+  (the fork's value). Answering `WillDoIOOperation` about the wrong code
+  means the HAL never asks the driver to write: the device enumerates,
+  starts IO and polls the clock, but not one frame is written, and every
+  read correctly returns silence.
+- `AudioServerPlugInIOCycleInfo` is `{counter, nominal size,
+  **current**, input, output}` — the current timestamp comes first.
+- `StopIO` arrives per client: stopping the device (and re-anchoring the
+  clock) when one of several clients stops moves the device's timeline
+  backwards and wedges the HAL's IO engine.
+
+The `'pbrs'` property exposes IO counters (writes, reads, silent reads,
+`WillDo`/`Begin`/`AddClient`); they are what found all three.
+
+### The original plan (kept for context)
 
 Loopback's "pass-thru" source and devices that other apps can pick as their
 output or input need a **HAL AudioServerPlugIn**. It is a bundle in

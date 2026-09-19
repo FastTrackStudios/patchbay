@@ -1456,19 +1456,21 @@ fn VirtualDevicesPanel() -> Element {
                                 }
                                 button { class: "chip", onclick: move |_| vdev_rename(h2.clone()), "save" }
                             } else {
-                                span { class: "vdev-name", "{d.name}" }
-                                span { class: "dim-note", "{d.channels} ch" }
-                                button {
-                                    class: "chip",
-                                    title: "Rename (apps keep their selection)",
-                                    onclick: move |_| *VRENAME.write() = Some((uid_edit.clone(), name.clone())),
-                                    "rename"
-                                }
-                                button {
-                                    class: "chip danger",
-                                    title: "Remove this virtual device",
-                                    onclick: move |_| vdev_remove(h3.clone(), uid_rm.clone()),
-                                    "remove"
+                                div { class: "vdev-name", "{d.name}" }
+                                div { class: "vdev-actions",
+                                    span { class: "dim-note", "{d.channels} ch" }
+                                    button {
+                                        class: "chip",
+                                        title: "Rename (apps keep their selection)",
+                                        onclick: move |_| *VRENAME.write() = Some((uid_edit.clone(), name.clone())),
+                                        "rename"
+                                    }
+                                    button {
+                                        class: "chip danger",
+                                        title: "Remove this virtual device",
+                                        onclick: move |_| vdev_remove(h3.clone(), uid_rm.clone()),
+                                        "remove"
+                                    }
                                 }
                             }
                         }
