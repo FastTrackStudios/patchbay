@@ -838,3 +838,52 @@ pub async fn watch_now(c: &PatchbayServiceClient, all: bool, seconds: u64) -> ey
     println!();
     Ok(())
 }
+
+/// `patchbay listen` — where the RPC and the browser remote listen.
+///
+/// # Errors
+/// When the RPC fails, or the address doesn't parse.
+pub async fn run_listen(
+    c: &PatchbayServiceClient,
+    to: Option<String>,
+    json: bool,
+) -> eyre::Result<()> {
+    let listen = match to.as_deref() {
+        None => ok_or_msg(c.listen_address().await)?,
+        Some(to) => {
+            let bind = match to {
+                "lan" | "all" => "0.0.0.0:4046".to_owned(),
+                "local" | "loopback" => "127.0.0.1:4046".to_owned(),
+                other => other.to_owned(),
+            };
+            ok_or_msg(c.set_listen_address(bind).await)?
+        }
+    };
+    if json {
+        return print_json(&listen);
+    }
+    println!("listening on: {}", listen.current);
+    if listen.configured != listen.current {
+        println!(
+            "next start:   {}  (restart Patchbay to apply)",
+            listen.configured
+        );
+    }
+    if !listen.web_note.is_empty() {
+        println!("note: {}", listen.web_note);
+    }
+    if listen.lan {
+        println!("\nreachable from other machines on this network:");
+        for u in &listen.urls {
+            println!("  {u}");
+        }
+        println!(
+            "\nThe RPC is unauthenticated — anything that can reach these can re-route\n\
+             this machine's audio and write to the consoles Patchbay is connected to.\n\
+             Close it again with `patchbay listen local`."
+        );
+    } else {
+        println!("\nthis machine only — `patchbay listen lan` opens it to the network");
+    }
+    Ok(())
+}

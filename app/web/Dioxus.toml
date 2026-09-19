@@ -5,3 +5,7 @@
 [bundle]
 identifier = "app.fasttrackstudio.patchbay"
 publisher = "FastTrackStudio"
+
+[web.app]
+title = "Patchbay"
+

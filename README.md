@@ -280,6 +280,30 @@ Into a DAW that opens one device, either point it at a Patchbay
 inputs after the interface's own), or loop spare interface playback
 channels back to its inputs with the device's own router.
 
+## Opening it to the network
+
+The app serves the same UI to a browser at `http://<host>:4046/`, so a
+laptop or tablet on the same network can drive the rig. It is off by
+default:
+
+```
+patchbay listen            # where it listens now, and the URLs to use
+patchbay listen lan        # every interface (restart Patchbay to apply)
+patchbay listen local      # back to this machine only
+```
+
+`patchbay listen lan` prints every address that will answer, including
+the `.local` name (`http://airlock.local:4046/`). Apple devices resolve
+that directly; Windows and Android may need the IP.
+
+**The RPC is unauthenticated.** Anything that can reach that port can
+re-route this machine's audio and write to the consoles Patchbay is
+connected to — the Galaxy 32's router and the TF-1's faders included.
+That is reasonable on a studio network you control and not on a shared
+one. `PATCHBAY_ADDR` still overrides the saved setting, and the browser
+remote needs a build with `dx` installed (`cargo install dioxus-cli`),
+which `packaging/macos/build-app.sh` embeds automatically.
+
 ## Where it came from
 
 Extracted from the [FastTrackStudio

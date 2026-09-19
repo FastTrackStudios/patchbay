@@ -601,3 +601,23 @@ pub struct PermissionsStatus {
     /// What to do next, for humans and agents.
     pub note: String,
 }
+
+/// Where the RPC and the browser remote listen.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Facet)]
+pub struct ListenAddress {
+    /// What the running process actually bound.
+    pub current: String,
+    /// What it will bind next start (`current` until changed).
+    pub configured: String,
+    /// Reachable from other machines (not a loopback address).
+    pub lan: bool,
+    /// URLs to open the browser remote, best first — the `.local`
+    /// hostname, then the IP addresses that are actually up.
+    #[serde(default)]
+    #[facet(default)]
+    pub urls: Vec<String>,
+    /// Empty when the remote is embedded; otherwise why it isn't served.
+    #[serde(default)]
+    #[facet(default)]
+    pub web_note: String,
+}

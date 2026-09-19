@@ -19,8 +19,8 @@ use crate::mixes::{
 use crate::types::{
     AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
     DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule,
-    MeterLevel, NamedRoute, PermissionsStatus, RoutingPreset, ServiceAction, ServiceStatus,
-    VirtualSink,
+    ListenAddress, MeterLevel, NamedRoute, PermissionsStatus, RoutingPreset, ServiceAction,
+    ServiceStatus, VirtualSink,
 };
 
 // `Facet`'s derive for a `#[repr(C)]` enum generates discriminant
@@ -555,6 +555,23 @@ pub mod patchbay_service {
             dry_run: bool,
             allow_disruptive: bool,
         ) -> Result<DeviceRestoreReport, PatchbayError>;
+
+        // ── Network ──────────────────────────────────────────────────
+
+        /// Where the RPC and the browser remote listen, and where they
+        /// will listen next start.
+        async fn listen_address(&self) -> Result<ListenAddress, PatchbayError>;
+
+        /// Set the listen address (`127.0.0.1:4046` for this machine
+        /// only, `0.0.0.0:4046` for the LAN). Saved; it takes effect
+        /// when Patchbay next starts, because rebinding a live server
+        /// would drop every connected remote.
+        ///
+        /// **The RPC is unauthenticated.** Anything that can reach it
+        /// can re-route this machine's audio and write to the consoles
+        /// the device adapters are connected to, so only open it on a
+        /// network you control.
+        async fn set_listen_address(&self, bind: String) -> Result<ListenAddress, PatchbayError>;
 
         // ── Host privacy permissions (macOS) ─────────────────────────
 

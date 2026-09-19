@@ -26,8 +26,10 @@
    scale and a cover hides everything above the level, so a channel at
    -30 dBFS is green whatever the bar's pixel width happens to be. */
 .levelbar {
-  position: relative; height: 8px; flex: 1 1 auto; min-width: 48px;
+  position: relative; height: 9px; flex: 1 1 auto; min-width: 48px;
   border-radius: var(--r1); overflow: hidden;
+  /* An empty meter still has to read as a meter, not as a hairline. */
+  border: 1px solid var(--border);
   /* -60..0 dBFS: green to -20 (66.7%), yellow to -6 (90%), red above. */
   background: linear-gradient(to right,
     var(--ok-2) 0%, var(--ok) 66.7%, var(--warn) 66.7%,

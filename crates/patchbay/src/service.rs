@@ -1218,6 +1218,24 @@ impl PatchbayService for PatchbayBackend {
 
     // ── External devices ─────────────────────────────────────────────
 
+    async fn listen_address(&self) -> Result<patchbay_proto::ListenAddress, PatchbayError> {
+        Ok(crate::net::listen_address(self.inner.presets.bind()))
+    }
+
+    async fn set_listen_address(
+        &self,
+        bind: String,
+    ) -> Result<patchbay_proto::ListenAddress, PatchbayError> {
+        let bind = bind.trim().to_owned();
+        if !bind.is_empty() && bind.parse::<std::net::SocketAddr>().is_err() {
+            return Err(PatchbayError::Internal(format!(
+                "`{bind}` isn't a host:port address (try `127.0.0.1:4046` or `0.0.0.0:4046`)"
+            )));
+        }
+        self.inner.presets.set_bind(bind);
+        Ok(crate::net::listen_address(self.inner.presets.bind()))
+    }
+
     async fn permissions(&self) -> Result<PermissionsStatus, PatchbayError> {
         Ok(self
             .inner

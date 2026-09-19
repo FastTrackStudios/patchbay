@@ -46,6 +46,8 @@ pub static DANTE_ERROR: GlobalSignal<String> = Signal::global(String::new);
 /// Which main view is showing.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
+    /// What is making sound right now — the front door.
+    Now,
     /// Host audio mixes (Loopback / OBS style, macOS).
     Mixes,
     /// External hardware (device adapters).
@@ -58,7 +60,13 @@ pub enum View {
 
 impl View {
     /// Rail order, top to bottom.
-    pub const ALL: [Self; 4] = [Self::Mixes, Self::Devices, Self::Network, Self::Graph];
+    pub const ALL: [Self; 5] = [
+        Self::Now,
+        Self::Mixes,
+        Self::Devices,
+        Self::Network,
+        Self::Graph,
+    ];
 
     /// Rail glyph — deliberately geometric: the webviews this runs in
     /// (`WKWebView`, `WebKitGTK`) render emoji at wildly different
@@ -66,6 +74,7 @@ impl View {
     #[must_use]
     pub const fn glyph(self) -> &'static str {
         match self {
+            Self::Now => "◉",
             Self::Mixes => "⇶",
             Self::Devices => "▤",
             Self::Network => "⊞",
@@ -76,6 +85,7 @@ impl View {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Now => "Now",
             Self::Mixes => "Mixes",
             Self::Devices => "Devices",
             Self::Network => "Network",
@@ -87,6 +97,7 @@ impl View {
     #[must_use]
     pub const fn hint(self) -> &'static str {
         match self {
+            Self::Now => "What is making sound on this machine right now",
             Self::Mixes => "Host audio mixes: apps and inputs summed into virtual devices",
             Self::Devices => "Hardware: Galaxy 32, Yamaha TF, Core Audio",
             Self::Network => "Dante subscriptions",
@@ -95,7 +106,7 @@ impl View {
     }
 }
 
-pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Mixes);
+pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Now);
 
 // ─── View state ─────────────────────────────────────────────────────────
 

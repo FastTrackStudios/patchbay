@@ -87,11 +87,16 @@ fn bootstrapped() -> Option<&'static Engine> {
 
 fn bind_addr() -> String {
     // Patchbay.app defaults to loopback (the RPC is unauthenticated).
+    // `PATCHBAY_ADDR` wins, then the saved `network.bind` (set with
+    // `patchbay listen lan`), then the default.
     #[cfg(target_os = "macos")]
     let default = macos::default_addr(DEFAULT_ADDR);
     #[cfg(not(target_os = "macos"))]
     let default = DEFAULT_ADDR;
-    std::env::var("PATCHBAY_ADDR").unwrap_or_else(|_| default.to_string())
+    std::env::var("PATCHBAY_ADDR")
+        .ok()
+        .or_else(patchbay::configured_bind)
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// Bring up the backend + serving before the UI launches. The runtime
@@ -129,11 +134,21 @@ fn bootstrap_blocking() -> eyre::Result<()> {
         // Network serving for future remotes (browser/tablet). Spawned,
         // not awaited — serve() never returns.
         let router = backend.router();
+        let addr = bind_addr();
+        let web = web_bundle();
+        // Record what we're serving so `patchbay listen` can report it
+        // (and tell the user which URLs would actually answer).
+        patchbay::record_bound(
+            &addr,
+            if web.is_some() {
+                ""
+            } else {
+                "no browser remote in this build (install `dx` and rebuild, \
+                 or set PATCHBAY_WEB_DIST) — /health and /vox still work"
+            },
+        );
         tokio::spawn(async move {
-            EngineHost::new(router, bind_addr())
-                .web(web_bundle())
-                .serve()
-                .await;
+            EngineHost::new(router, addr).web(web).serve().await;
         });
 
         ENGINE

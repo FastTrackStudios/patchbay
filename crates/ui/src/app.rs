@@ -11,6 +11,7 @@ use crate::canvas::GraphCanvas;
 use crate::dante_grid::DanteGrid;
 use crate::devices::DevicesView;
 use crate::mixes::MixesView;
+use crate::now::NowView;
 use crate::panels::{SidePanel, StatusBar, Toolbar};
 use crate::state::{ARMED_OUTPUTS, VIEW, View};
 
@@ -53,6 +54,7 @@ pub fn PatchbayApp() -> Element {
                 Rail { current: view }
                 div { class: "view-outlet",
                     match view {
+                        View::Now => rsx! { NowView {} },
                         View::Graph => rsx! {
                             div { class: "topbar", Toolbar {} }
                             div { class: "main-split",

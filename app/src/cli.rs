@@ -173,6 +173,19 @@ enum Cmd {
         #[command(subcommand)]
         cmd: cli_mix::VirtualCmd,
     },
+    /// Where the RPC and the browser remote listen. With no argument,
+    /// show it and the URLs other machines would use.
+    ///
+    /// The RPC is UNAUTHENTICATED: anything that can reach it can
+    /// re-route this machine's audio and write to the consoles the
+    /// device adapters are connected to. Only open it on a network you
+    /// control.
+    Listen {
+        /// `lan` (every interface), `local` (this machine only), or an
+        /// explicit `host:port`. Saved; takes effect on the next start.
+        #[arg(value_name = "lan|local|HOST:PORT")]
+        to: Option<String>,
+    },
     /// macOS privacy permissions of the running app (System Audio
     /// Recording, Microphone, Local Network). `permissions request` asks
     /// the app to show the system prompts / System Settings alert again.
@@ -866,6 +879,9 @@ async fn main() -> eyre::Result<()> {
             Some(secs) => Box::pin(cli_mix::watch_now(&c, all, secs)).await?,
             None => Box::pin(cli_mix::run_now(&c, all, cli.json)).await?,
         },
+        Cmd::Listen { to } => {
+            Box::pin(cli_mix::run_listen(&c, to, cli.json)).await?;
+        }
         Cmd::Permissions { cmd } => {
             let status = match cmd.unwrap_or(PermissionsCmd::Status) {
                 PermissionsCmd::Status => ok_or_msg(c.permissions().await)?,

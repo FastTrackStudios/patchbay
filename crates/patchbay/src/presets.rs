@@ -63,6 +63,26 @@ struct FileFormat {
     #[serde(default)]
     #[facet(default)]
     mixes: Vec<MixConfig>,
+    /// Where the RPC and the browser remote listen.
+    #[serde(default)]
+    #[facet(default)]
+    network: NetworkConfig,
+}
+
+/// Listening address for the RPC + browser remote.
+///
+/// The bundled app binds loopback unless this says otherwise, because
+/// the RPC is unauthenticated: anyone who can reach it can re-route this
+/// machine's audio and write to the consoles the device adapters are
+/// connected to. `0.0.0.0:4046` opens it to the LAN — appropriate for a
+/// studio network you control, not for a shared or public one.
+#[derive(Debug, Default, Clone, Facet, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkConfig {
+    /// `host:port`. Empty = the built-in default (loopback for the
+    /// bundled app). `PATCHBAY_ADDR` still wins over this.
+    #[serde(default)]
+    #[facet(default)]
+    pub bind: String,
 }
 
 /// First-run channel names for a stock REAPER JACK client: the main
@@ -424,6 +444,19 @@ impl PresetStore {
         self.data.lock().mixes.clone()
     }
 
+    /// The configured listen address (empty = the built-in default).
+    pub fn bind(&self) -> String {
+        self.data.lock().network.bind.clone()
+    }
+
+    /// Set the listen address. Takes effect when the app next starts —
+    /// rebinding a live server would drop every connected remote.
+    pub fn set_bind(&self, bind: String) {
+        let mut data = self.data.lock();
+        data.network.bind = bind;
+        self.persist(&data);
+    }
+
     /// Upsert a mix (by `name`).
     pub fn save_mix(&self, mix: MixConfig) {
         let mut data = self.data.lock();
@@ -600,6 +633,7 @@ mod styx_roundtrip {
     #[allow(clippy::too_many_lines)]
     fn full_config_survives_styx_roundtrip() {
         let original = FileFormat {
+            network: NetworkConfig::default(),
             presets: vec![RoutingPreset {
                 name: "FOH".into(),
                 description: "front of house".into(),

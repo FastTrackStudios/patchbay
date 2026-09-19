@@ -21,6 +21,7 @@ mod icons;
 mod latency;
 mod meters;
 mod mixes;
+mod net;
 pub mod permissions;
 /// Pure decision logic — graph + config in, engine commands out.
 mod plan;
@@ -34,3 +35,16 @@ mod units;
 
 pub use patchbay_proto as proto;
 pub use service::PatchbayBackend;
+
+pub use net::record_bound;
+
+/// The listen address saved in the config, if any.
+///
+/// Read before the engine starts, so the shell knows where to bind
+/// without constructing a backend first. Empty/absent = use the
+/// built-in default.
+#[must_use]
+pub fn configured_bind() -> Option<String> {
+    let bind = presets::PresetStore::open().bind();
+    (!bind.trim().is_empty()).then_some(bind)
+}

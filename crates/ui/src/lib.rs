@@ -11,6 +11,7 @@ mod dante_grid;
 mod devices;
 mod layout;
 mod mixes;
+mod now;
 mod panels;
 mod state;
 mod theme;

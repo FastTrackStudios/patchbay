@@ -66,6 +66,12 @@ static CONFIRM_DELETE: GlobalSignal<Option<String>> = Signal::global(|| None);
 static LEVEL_TX: GlobalSignal<HashMap<LevelKey, Option<(f64, bool)>>> =
     Signal::global(HashMap::new);
 
+/// Open `name` in the Mixes view — the way other views hand off to it.
+pub(crate) fn open(name: &str) {
+    *SELECTED.write() = Some(name.to_owned());
+    *crate::state::VIEW.write() = crate::state::View::Mixes;
+}
+
 /// `(mix name, is output, index)`.
 type LevelKey = (String, bool, usize);
 
