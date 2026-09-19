@@ -117,6 +117,7 @@ pub const K_AUDIO_DEVICE_PROPERTY_STREAMS: UInt32 = fourcc(b"stm#");
 pub const K_AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE: UInt32 = fourcc(b"nsrt");
 pub const K_AUDIO_DEVICE_PROPERTY_AVAILABLE_NOMINAL_SAMPLE_RATES: UInt32 = fourcc(b"nsr#");
 pub const K_AUDIO_DEVICE_PROPERTY_ZERO_TIME_STAMP_PERIOD: UInt32 = fourcc(b"ring");
+pub const K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE: UInt32 = fourcc(b"fsiz");
 pub const K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE_RANGE: UInt32 = fourcc(b"fsz#");
 pub const K_AUDIO_DEVICE_PROPERTY_SAFETY_OFFSET: UInt32 = fourcc(b"saft");
 pub const K_AUDIO_DEVICE_PROPERTY_CLOCK_DOMAIN: UInt32 = fourcc(b"clkd");
@@ -598,7 +599,10 @@ unsafe impl Sync for AudioServerPlugInDriverInterface {}
 pub type AudioServerPlugInDriverRef = *mut *const AudioServerPlugInDriverInterface;
 
 // IO operation IDs
-pub const K_AUDIO_SERVER_PLUG_IN_IO_OPERATION_WRITE_MIX: UInt32 = fourcc(b"wmix");
+// AudioServerPlugIn.h: `kAudioServerPlugInIOOperationWriteMix = 'rite'`
+// (NOT 'wmix' — a wrong code here means the HAL asks about an operation
+// the driver says it won't do, and no audio is ever written).
+pub const K_AUDIO_SERVER_PLUG_IN_IO_OPERATION_WRITE_MIX: UInt32 = fourcc(b"rite");
 // AudioServerPlugIn.h: kAudioServerPlugInIOOperationReadInput = 'read'.
 // (Was mistyped as 'rdin', so WillDoIOOperation rejected input cycles and
 // HAL virtual inputs never produced audio — caught by the issue #41 harness.)
@@ -614,6 +618,19 @@ pub const PATCHBAY_DRIVER_BUNDLE_ID: &str = "app.fasttrackstudio.patchbay.driver
 mod tests {
     use super::*;
     use std::mem;
+
+    #[test]
+    fn io_operation_codes_match_apple_header() {
+        // AudioServerPlugIn.h, `kAudioServerPlugInIOOperation*`.
+        assert_eq!(
+            K_AUDIO_SERVER_PLUG_IN_IO_OPERATION_READ_INPUT,
+            fourcc(b"read")
+        );
+        assert_eq!(
+            K_AUDIO_SERVER_PLUG_IN_IO_OPERATION_WRITE_MIX,
+            fourcc(b"rite")
+        );
+    }
 
     #[test]
     fn io_cycle_info_matches_apple_layout() {

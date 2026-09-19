@@ -500,6 +500,9 @@ unsafe extern "C" fn plugin_add_device_client(
     _device_object_id: AudioObjectID,
     _client_info: *const AudioServerPlugInClientInfo,
 ) -> OSStatus {
+    RUNTIME_STATS
+        .add_client_count
+        .fetch_add(1, Ordering::Relaxed);
     K_AUDIO_HARDWARE_NO_ERROR
 }
 
@@ -798,6 +801,7 @@ fn device_has_property_for(object_id: AudioObjectID, addr: &AudioObjectPropertyA
             | K_AUDIO_DEVICE_PROPERTY_CLOCK_DOMAIN
             | K_AUDIO_DEVICE_PROPERTY_IS_ALIVE
             | K_AUDIO_DEVICE_PROPERTY_IS_RUNNING
+            | K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE
             | K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE_RANGE
             | K_AUDIO_DEVICE_PROPERTY_PREFERRED_CHANNELS_FOR_STEREO
     )
@@ -897,7 +901,8 @@ unsafe extern "C" fn plugin_is_property_settable(
     let settable = match resolved {
         Some(ObjectType::Plugin) => addr.m_selector == K_PB_PROPERTY_DESIRED_STATE,
         Some(ObjectType::Device) => {
-            addr.m_selector == K_AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE
+            addr.m_selector == K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE
+                || addr.m_selector == K_AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE
                 || (matches!(
                     addr.m_selector,
                     K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR | K_AUDIO_DEVICE_PROPERTY_VOLUME_DECIBELS
@@ -1163,6 +1168,24 @@ unsafe fn device_set_property(
     // configuration), so a set is accepted only as a no-op for that rate.
     // External producers (issue #48) depend on clients being unable to move
     // the device to a different rate.
+    if addr.m_selector == K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE {
+        // Clients pick their own IO size; the ring is indexed by sample
+        // time, so any size within the advertised range works.
+        if (data_size as usize) < size_of::<UInt32>() {
+            return K_AUDIO_HARDWARE_ILLEGAL_OPERATION_ERROR;
+        }
+        // SAFETY: size checked above; caller guarantees readability.
+        let requested = unsafe { core::ptr::read_unaligned(data.cast::<UInt32>()) };
+        let max = {
+            let state = DRIVER_STATE.lock();
+            state.applied_state.buffer_frames.saturating_mul(4)
+        };
+        return if requested > 0 && requested <= max {
+            K_AUDIO_HARDWARE_NO_ERROR
+        } else {
+            K_AUDIO_HARDWARE_ILLEGAL_OPERATION_ERROR
+        };
+    }
     if addr.m_selector == K_AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE {
         if (data_size as usize) < size_of::<Float64>() {
             return K_AUDIO_HARDWARE_ILLEGAL_OPERATION_ERROR;
@@ -1352,6 +1375,22 @@ unsafe extern "C" fn plugin_will_do_io_operation(
     if will_do.is_null() || will_do_in_place.is_null() {
         return K_AUDIO_HARDWARE_ILLEGAL_OPERATION_ERROR;
     }
+    RUNTIME_STATS
+        .last_will_op
+        .store(u64::from(operation_id), Ordering::Relaxed);
+    if operation_id == K_AUDIO_SERVER_PLUG_IN_IO_OPERATION_WRITE_MIX {
+        RUNTIME_STATS
+            .will_write_count
+            .fetch_add(1, Ordering::Relaxed);
+    } else if operation_id == K_AUDIO_SERVER_PLUG_IN_IO_OPERATION_READ_INPUT {
+        RUNTIME_STATS
+            .will_read_count
+            .fetch_add(1, Ordering::Relaxed);
+    } else {
+        RUNTIME_STATS
+            .will_other_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
     // SAFETY: output pointers are non-null.
     unsafe {
         *will_do = if operation_id == K_AUDIO_SERVER_PLUG_IN_IO_OPERATION_WRITE_MIX
@@ -1374,6 +1413,7 @@ unsafe extern "C" fn plugin_begin_io_operation(
     _io_buffer_frame_size: UInt32,
     _io_cycle_info: *const AudioServerPlugInIOCycleInfo,
 ) -> OSStatus {
+    RUNTIME_STATS.begin_io_count.fetch_add(1, Ordering::Relaxed);
     K_AUDIO_HARDWARE_NO_ERROR
 }
 
@@ -1673,6 +1713,7 @@ fn device_property_data_size(
         K_AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE => size_of::<Float64>() as UInt32,
         K_AUDIO_DEVICE_PROPERTY_AVAILABLE_NOMINAL_SAMPLE_RATES
         | K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE_RANGE => size_of::<AudioValueRange>() as UInt32,
+        K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE => size_of::<UInt32>() as UInt32,
         K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR
         | K_AUDIO_DEVICE_PROPERTY_VOLUME_DECIBELS
         | K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR_TO_DECIBELS
@@ -1828,6 +1869,9 @@ unsafe fn device_get_property(
                 out_data_size,
                 data,
             )
+        },
+        K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE => unsafe {
+            write_val::<UInt32>(buffer_frames, data_size, out_data_size, data)
         },
         K_AUDIO_DEVICE_PROPERTY_BUFFER_FRAME_SIZE_RANGE => {
             // Clients may use any IO size up to a quarter of the ring (the

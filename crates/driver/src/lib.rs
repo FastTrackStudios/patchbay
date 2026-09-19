@@ -85,6 +85,25 @@ pub struct RuntimeStats {
     /// Diagnostic: input sample time of the last ReadInput.
     #[serde(default)]
     pub last_read_time: f64,
+    /// Diagnostic: `WillDoIOOperation` asked about ReadInput.
+    #[serde(default)]
+    pub will_read_count: u64,
+    /// Diagnostic: `WillDoIOOperation` asked about WriteMix.
+    #[serde(default)]
+    pub will_write_count: u64,
+    /// Diagnostic: `WillDoIOOperation` asked about anything else.
+    #[serde(default)]
+    pub will_other_count: u64,
+    /// Diagnostic: the last operation id `WillDoIOOperation` was asked
+    /// about (four-char code as a number).
+    #[serde(default)]
+    pub last_will_op: u64,
+    /// Diagnostic: `BeginIOOperation` calls.
+    #[serde(default)]
+    pub begin_io_count: u64,
+    /// Diagnostic: `AddDeviceClient` calls.
+    #[serde(default)]
+    pub add_client_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -249,6 +268,12 @@ pub(crate) struct AtomicRuntimeStats {
     pub(crate) silent_read_count: AtomicU64,
     pub(crate) last_write_time_bits: AtomicU64,
     pub(crate) last_read_time_bits: AtomicU64,
+    pub(crate) will_read_count: AtomicU64,
+    pub(crate) will_write_count: AtomicU64,
+    pub(crate) will_other_count: AtomicU64,
+    pub(crate) last_will_op: AtomicU64,
+    pub(crate) begin_io_count: AtomicU64,
+    pub(crate) add_client_count: AtomicU64,
 }
 
 impl AtomicRuntimeStats {
@@ -267,6 +292,12 @@ impl AtomicRuntimeStats {
             silent_read_count: self.silent_read_count.load(Ordering::Relaxed),
             last_write_time: f64::from_bits(self.last_write_time_bits.load(Ordering::Relaxed)),
             last_read_time: f64::from_bits(self.last_read_time_bits.load(Ordering::Relaxed)),
+            will_read_count: self.will_read_count.load(Ordering::Relaxed),
+            will_write_count: self.will_write_count.load(Ordering::Relaxed),
+            will_other_count: self.will_other_count.load(Ordering::Relaxed),
+            last_will_op: self.last_will_op.load(Ordering::Relaxed),
+            begin_io_count: self.begin_io_count.load(Ordering::Relaxed),
+            add_client_count: self.add_client_count.load(Ordering::Relaxed),
         }
     }
 }
@@ -285,6 +316,12 @@ pub(crate) static RUNTIME_STATS: AtomicRuntimeStats = AtomicRuntimeStats {
     silent_read_count: AtomicU64::new(0),
     last_write_time_bits: AtomicU64::new(0),
     last_read_time_bits: AtomicU64::new(0),
+    will_read_count: AtomicU64::new(0),
+    will_write_count: AtomicU64::new(0),
+    will_other_count: AtomicU64::new(0),
+    last_will_op: AtomicU64::new(0),
+    begin_io_count: AtomicU64::new(0),
+    add_client_count: AtomicU64::new(0),
 };
 
 impl Default for DriverState {

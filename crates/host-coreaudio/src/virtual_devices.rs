@@ -272,7 +272,9 @@ pub fn create_aggregate(name: &str, device_uids: &[String]) -> Result<AggregateI
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    Err(HostError::NotFound(format!("aggregate `{uid}` after creation")))
+    Err(HostError::NotFound(format!(
+        "aggregate `{uid}` after creation"
+    )))
 }
 
 /// Remove an aggregate Patchbay created.
