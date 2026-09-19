@@ -46,14 +46,56 @@ pub static DANTE_ERROR: GlobalSignal<String> = Signal::global(String::new);
 /// Which main view is showing.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
-    Patchbay,
-    Dante,
-    /// External hardware (device adapters).
-    Devices,
     /// Host audio mixes (Loopback / OBS style, macOS).
     Mixes,
+    /// External hardware (device adapters).
+    Devices,
+    /// Dante subscriptions over ARC.
+    Network,
+    /// The `PipeWire` node graph.
+    Graph,
 }
-pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Patchbay);
+
+impl View {
+    /// Rail order, top to bottom.
+    pub const ALL: [Self; 4] = [Self::Mixes, Self::Devices, Self::Network, Self::Graph];
+
+    /// Rail glyph — deliberately geometric: the webviews this runs in
+    /// (`WKWebView`, `WebKitGTK`) render emoji at wildly different
+    /// weights, these stay consistent.
+    #[must_use]
+    pub const fn glyph(self) -> &'static str {
+        match self {
+            Self::Mixes => "⇶",
+            Self::Devices => "▤",
+            Self::Network => "⊞",
+            Self::Graph => "⋔",
+        }
+    }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Mixes => "Mixes",
+            Self::Devices => "Devices",
+            Self::Network => "Network",
+            Self::Graph => "Graph",
+        }
+    }
+
+    /// What the view is for, on hover.
+    #[must_use]
+    pub const fn hint(self) -> &'static str {
+        match self {
+            Self::Mixes => "Host audio mixes: apps and inputs summed into virtual devices",
+            Self::Devices => "Hardware: Galaxy 32, Yamaha TF, Core Audio",
+            Self::Network => "Dante subscriptions",
+            Self::Graph => "The PipeWire node graph",
+        }
+    }
+}
+
+pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Mixes);
 
 // ─── View state ─────────────────────────────────────────────────────────
 

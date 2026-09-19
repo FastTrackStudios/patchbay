@@ -1,0 +1,79 @@
+/* Reset, native-control theming, and the app shell: icon rail on the
+   left, one view in the outlet, status bar underneath. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+.patchbay-root {
+  display: flex; flex-direction: column;
+  width: 100vw; height: 100vh; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-3);
+}
+
+/* Native controls follow the theme (webkit defaults to light). */
+select, option, input, textarea, button {
+  font-family: inherit;
+}
+select, option, input, textarea {
+  background: var(--sunken); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r3);
+  accent-color: var(--accent); color-scheme: dark;
+}
+select { padding: var(--s1) var(--s3); font-size: var(--fs-2); }
+option { background: var(--surface); }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { filter: invert(0.85); }
+
+/* ── shell ───────────────────────────────────────────────────────── */
+.shell { display: flex; flex: 1; min-height: 0; }
+
+.rail {
+  width: var(--rail-w); flex: 0 0 auto;
+  background: var(--surface); border-right: 1px solid var(--divider);
+  display: flex; flex-direction: column; align-items: stretch;
+  padding: var(--s3) 0; gap: var(--s1);
+  overflow-y: auto;
+}
+.rail-brand {
+  font-weight: 600; font-size: var(--fs-1); letter-spacing: var(--track);
+  text-transform: uppercase; color: var(--muted);
+  text-align: center; padding: var(--s2) 0 var(--s5);
+}
+.rail-item {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); padding: var(--s3) var(--s1);
+  display: flex; flex-direction: column; align-items: center; gap: var(--s1);
+  border-left: 2px solid transparent;
+  font-size: var(--fs-sm); letter-spacing: 0.02em;
+}
+.rail-item:hover { color: var(--text); background: var(--raised-hover); }
+.rail-item.on { color: var(--text); border-left-color: var(--accent); background: var(--accent-a10); }
+.rail-glyph { font-size: var(--fs-5); line-height: 1; }
+.rail-spacer { flex: 1; }
+/* A view with something wrong in it wears a dot on its rail button. */
+.rail-item { position: relative; }
+.rail-badge {
+  position: absolute; top: var(--s3); right: var(--s5);
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--warn); box-shadow: var(--dot-ring);
+}
+.rail-badge.bad { background: var(--danger); }
+
+.view-outlet { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* ── shared view furniture ───────────────────────────────────────── */
+.view-head {
+  display: flex; align-items: center; gap: var(--s6);
+  padding: var(--s5) var(--s8) var(--s4);
+  border-bottom: 1px solid var(--divider); flex: 0 0 auto;
+}
+.view-title { font-size: var(--fs-5); font-weight: 600; }
+.view-sub { color: var(--muted); font-size: var(--fs-2); }
+.view-head-actions { margin-left: auto; display: flex; align-items: center; gap: var(--s3); }
+.view-body { flex: 1; min-height: 0; overflow: auto; }
+
+.section-label {
+  font-size: var(--fs-1); text-transform: uppercase;
+  letter-spacing: var(--track); color: var(--muted); font-weight: 600;
+}

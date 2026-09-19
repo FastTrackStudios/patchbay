@@ -25,7 +25,9 @@ keychain="${PATCHBAY_KEYCHAIN:-fts-build.keychain}"
 keychain_path="$HOME/Library/Keychains/${keychain}-db"
 kc_args=()
 if [[ -f "$keychain_path" ]]; then
-    if [[ -n "${PATCHBAY_KEYCHAIN_PW:-}" ]]; then
+    if security show-keychain-info "$keychain" 2>/dev/null; then
+        : # already unlocked (`security unlock-keychain` would still prompt)
+    elif [[ -n "${PATCHBAY_KEYCHAIN_PW:-}" ]]; then
         security unlock-keychain -p "$PATCHBAY_KEYCHAIN_PW" "$keychain"
     else
         # No password in the environment: macOS asks once (and the

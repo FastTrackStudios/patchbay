@@ -13,6 +13,8 @@ mod layout;
 mod mixes;
 mod panels;
 mod state;
+mod theme;
+mod ui;
 
 pub use app::PatchbayApp;
 pub use devices::apply_device_event;

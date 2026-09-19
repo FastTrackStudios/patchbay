@@ -1,0 +1,133 @@
+/* Design tokens — the only place a literal colour, size or duration is
+   allowed to appear. Everything else in the UI refers to these.
+
+   The palette is the one the app already used, named: it was previously
+   spread across ~270 rules as raw hex, which is why nothing could be
+   restyled without a find-and-replace. */
+
+:root {
+  color-scheme: dark;
+
+  /* ── surfaces, back to front ─────────────────────────────────── */
+  --bg: #14171c;          /* window background */
+  --surface: #1b1f26;     /* bars, side panels, sticky headers */
+  --raised: #1d222b;      /* cards, strips, node bodies */
+  --raised-2: #232933;    /* chips, node headers, hover fills */
+  --raised-hover: #1f242c;
+  --row-hover: #262d38;   /* a port row under the cursor */
+  --sink: #1b2029;        /* output / destination strips */
+  --sunken: #10131a;      /* inputs, meter troughs, code */
+  --row-alt: #191d24;     /* alternating / grouping rows */
+  --surface-a90: rgba(27, 31, 38, 0.9); /* floating tool clusters */
+
+  /* ── lines ───────────────────────────────────────────────────── */
+  --border: #2b323d;      /* control and card borders */
+  --divider: #262c35;     /* structural rules between regions */
+  --line: #232933;        /* list-row separators */
+  --line-2: #1f242c;      /* the faintest separator */
+  --edge: #3a4656;        /* dashed placeholders, empty slots */
+  --sink-border: #2d3848;
+
+  /* ── text ────────────────────────────────────────────────────── */
+  --text-hi: #e6ecf3;     /* the brightest text: a hovered row */
+  --text: #d7dde5;        /* primary */
+  --text-2: #aab4c0;      /* secondary (port names, values) */
+  --text-3: #8fa3bb;      /* tertiary (reports, clock info) */
+  --muted: #7a8494;       /* labels, captions */
+  --muted-2: #5c6673;     /* disabled, notes, scale ticks */
+  --muted-3: #3a424e;     /* inert dots */
+  --dot-off: #333a44;     /* a dot for something that exists but is silent */
+  --dot-suspended: #4a525e;
+  --hi: #ffffff;          /* the one pure-white accent: a chosen swatch */
+
+  /* ── accent ──────────────────────────────────────────────────── */
+  --accent: #4a90d9;
+  --accent-2: #7cc4ff;    /* informational / links */
+  --accent-bg: #2b4a6f;
+  --accent-bg-2: #38618f; /* the pulse peak of an armed row */
+  --accent-text: #cfe6ff;
+  --accent-a06: rgba(74, 144, 217, 0.06);
+  --accent-a07: rgba(74, 144, 217, 0.07);
+  --accent-a10: rgba(74, 144, 217, 0.10);
+  --accent-a12: rgba(74, 144, 217, 0.12);
+  --accent-a25: rgba(74, 144, 217, 0.25);
+  --accent-a35: rgba(74, 144, 217, 0.35);
+  --accent2-a10: rgba(124, 196, 255, 0.10);
+  --accent2-a45: rgba(124, 196, 255, 0.45);
+
+  /* ── status ──────────────────────────────────────────────────── */
+  --ok: #58d68d;
+  --ok-2: #2fbf71;        /* the bottom of the meter gradient */
+  --ok-a12: rgba(88, 214, 141, 0.12);
+  --ok-a18: rgba(88, 214, 141, 0.18);
+  --ok-line: rgba(88, 214, 141, 0.5);
+  --ok-glow: rgba(88, 214, 141, 0.6);
+  --ok-glow-2: rgba(88, 214, 141, 0.8);
+  --ok-glow-3: rgba(88, 214, 141, 0.85);
+
+  --warn: #ffd479;
+  --warn-2: #ffb454;
+  --warn-a10: rgba(255, 212, 121, 0.10);
+  --warn-a20: rgba(255, 212, 121, 0.2);
+  --warn-line: rgba(255, 212, 121, 0.45);
+  --warn2-glow: rgba(255, 180, 84, 0.55);
+
+  --danger: #e05c52;
+  --danger-2: #d9534a;    /* borders on destructive controls */
+  --danger-text: #ffb4ad;
+  --danger-a12: rgba(224, 92, 82, 0.12);
+  --danger-a15: rgba(224, 92, 82, 0.15);
+  --danger-a20: rgba(224, 92, 82, 0.2);
+  --danger-line: rgba(224, 92, 82, 0.4);
+  --danger-line-2: rgba(224, 92, 82, 0.55);
+  --danger-glow: rgba(224, 92, 82, 0.6);
+
+  --alias: #ffd479;       /* a port carrying a human-given name */
+
+  /* ── depth ───────────────────────────────────────────────────── */
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --inset-hairline: 0 0 0 1px rgba(0, 0, 0, 0.35) inset;
+  --dot-ring: 0 0 4px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  /* ── space ───────────────────────────────────────────────────── */
+  --s1: 2px;
+  --s2: 4px;
+  --s3: 6px;
+  --s4: 8px;
+  --s5: 10px;
+  --s6: 12px;
+  --s7: 14px;
+  --s8: 16px;
+  --s9: 24px;
+  --s10: 32px;
+
+  /* ── radii ───────────────────────────────────────────────────── */
+  --r1: 3px;
+  --r2: 4px;
+  --r3: 6px;
+  --r4: 8px;
+  --r-pill: 999px;
+
+  /* ── type ────────────────────────────────────────────────────── */
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --fs-xs: 9px;
+  --fs-sm: 10px;
+  --fs-1: 11px;
+  --fs-2: 12px;
+  --fs-3: 13px;
+  --fs-4: 15px;
+  --fs-5: 16px;
+  --fs-6: 20px;
+  --track: 0.08em;        /* uppercase section labels */
+
+  /* ── motion ──────────────────────────────────────────────────── */
+  --dur-fast: 0.09s;
+  --dur: 0.15s;
+
+  /* ── layout ──────────────────────────────────────────────────── */
+  --rail-w: 72px;
+  --panel-w: 280px;
+}

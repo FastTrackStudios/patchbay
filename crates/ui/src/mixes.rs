@@ -25,23 +25,11 @@ use patchbay_proto::{
 };
 
 use crate::state::{self, PatchbayHandle};
+use crate::ui::level::{SILENT_DB, fall, fmt_db, peak_db};
+use crate::ui::{Fader, Meter, MeterScale};
 
-// ─── Scales ─────────────────────────────────────────────────────────────
+// ─── Poll cadences ──────────────────────────────────────────────────────
 
-/// Lowest fader position with a finite value.
-const FADER_MIN_DB: f64 = -60.0;
-const FADER_MAX_DB: f64 = 12.0;
-/// The slot below [`FADER_MIN_DB`] — "-∞" (off).
-const FADER_OFF_SLOT: f64 = -61.0;
-/// What "-∞" sends: finite (it rides the wire), far below audibility.
-const OFF_DB: f64 = -144.0;
-/// Meter scale bottom (dBFS); the top is 0.
-const METER_FLOOR_DB: f64 = -60.0;
-/// Where the meter turns yellow / red (dBFS).
-const METER_WARN_DB: f64 = -20.0;
-const METER_HOT_DB: f64 = -6.0;
-/// Meter fall per poll (≈ 30 dB/s at 10 Hz) — peaks jump, decay smooth.
-const METER_FALL_DB: f64 = 3.0;
 const METER_POLL_MS: u32 = 100;
 /// Mix list / host targets refresh cadence, in meter polls.
 const LIST_EVERY: u32 = 20;
@@ -95,54 +83,6 @@ struct MeterLevels {
 }
 
 // ─── Pure helpers ───────────────────────────────────────────────────────
-
-/// Loudest channel of a peak set, in dBFS (floored well below the scale).
-fn peak_db(peaks: &[f32]) -> f64 {
-    let p = f64::from(peaks.iter().copied().fold(0.0_f32, f32::max));
-    if p > 0.0 {
-        (20.0 * p.log10()).max(METER_FLOOR_DB - 1.0)
-    } else {
-        METER_FLOOR_DB - 1.0
-    }
-}
-
-/// Ballistics: jump up to a new peak, fall at most [`METER_FALL_DB`].
-fn fall(prev: Option<f64>, new: f64) -> f64 {
-    prev.map_or(new, |p| new.max(p - METER_FALL_DB))
-}
-
-/// Height of a dBFS value on the meter scale, in percent.
-fn meter_pct(db: f64) -> f64 {
-    ((db - METER_FLOOR_DB) / -METER_FLOOR_DB).clamp(0.0, 1.0) * 100.0
-}
-
-/// Fader position for a gain.
-fn fader_slot(gain_db: f64) -> f64 {
-    if gain_db < FADER_MIN_DB {
-        FADER_OFF_SLOT
-    } else {
-        gain_db.min(FADER_MAX_DB)
-    }
-}
-
-/// Gain for a fader position (the bottom slot is off).
-fn slot_db(slot: f64) -> f64 {
-    if slot < FADER_MIN_DB - 0.25 {
-        OFF_DB
-    } else {
-        slot.clamp(FADER_MIN_DB, FADER_MAX_DB)
-    }
-}
-
-fn fmt_db(gain_db: f64) -> String {
-    if gain_db < FADER_MIN_DB {
-        "-∞ dB".to_owned()
-    } else if gain_db.abs() < 0.05 {
-        "0.0 dB".to_owned()
-    } else {
-        format!("{gain_db:+.1} dB")
-    }
-}
 
 /// Stereo quick picks over a device's channels: `(label, map)`, where a
 /// source map takes device channels N,N+1 into mix L/R and an output map
@@ -727,10 +667,10 @@ fn MixEditor(view: MixView) -> Element {
     }
 }
 
-/// Vertical peak meter for one strip (reads [`METERS`] itself, so only
-/// meters re-render at the poll rate).
+/// One strip's meter: reads [`METERS`] itself, so the poll rate only
+/// re-renders meters and never the strip around them.
 #[component]
-fn Meter(mix: String, output: bool, index: usize) -> Element {
+fn StripMeter(mix: String, output: bool, index: usize) -> Element {
     let db = METERS
         .read()
         .get(&mix)
@@ -742,63 +682,8 @@ fn Meter(mix: String, output: bool, index: usize) -> Element {
             }
         })
         .copied()
-        .unwrap_or(METER_FLOOR_DB - 1.0);
-    // The gradient is fixed to the scale; a cover hides what's above the level.
-    let cover = 100.0 - meter_pct(db);
-    let hot = db > METER_HOT_DB;
-    let title = if db < METER_FLOOR_DB {
-        "silent".to_owned()
-    } else {
-        format!("peak {db:.1} dBFS")
-    };
-    rsx! {
-        div { class: if hot { "meter hot" } else { "meter" }, title: "{title}",
-            div { class: "meter-cover", style: "height: {cover:.1}%;" }
-        }
-    }
-}
-
-/// dB ticks next to the meter.
-#[component]
-fn MeterScale() -> Element {
-    let ticks: [(f64, &str); 5] = [
-        (0.0, "0"),
-        (METER_HOT_DB, "6"),
-        (METER_WARN_DB, "20"),
-        (-40.0, "40"),
-        (METER_FLOOR_DB, "60"),
-    ];
-    rsx! {
-        div { class: "meter-scale",
-            for (db, label) in ticks {
-                span { style: "bottom: {meter_pct(db):.1}%;", "{label}" }
-            }
-        }
-    }
-}
-
-/// Vertical fader + readout (double-click → 0 dB).
-#[component]
-fn Fader(gain_db: f64, muted: bool, on_level: EventHandler<(f64, bool)>) -> Element {
-    let slot = fader_slot(gain_db);
-    let text = fmt_db(gain_db);
-    rsx! {
-        input {
-            r#type: "range",
-            class: "vfader",
-            min: "{FADER_OFF_SLOT}",
-            max: "{FADER_MAX_DB}",
-            step: "0.5",
-            value: "{slot}",
-            title: "{text} — double-click for 0 dB",
-            oninput: move |e| {
-                if let Ok(x) = e.value().parse::<f64>() {
-                    on_level.call((slot_db(x), muted));
-                }
-            },
-            ondoubleclick: move |_| on_level.call((0.0, muted)),
-        }
-    }
+        .unwrap_or(SILENT_DB);
+    rsx! { Meter { db } }
 }
 
 #[component]
@@ -902,7 +787,7 @@ fn SourceStrip(
             }
             div { class: "strip-body",
                 MeterScale {}
-                Meter { mix, output: false, index }
+                StripMeter { mix, output: false, index }
                 Fader { gain_db: gain, muted, on_level }
             }
             div { class: "strip-db", "{fmt_db(gain)}" }
@@ -1012,7 +897,7 @@ fn OutputStrip(
             }
             div { class: "strip-body",
                 MeterScale {}
-                Meter { mix, output: true, index }
+                StripMeter { mix, output: true, index }
                 Fader { gain_db: gain, muted, on_level }
             }
             div { class: "strip-db", "{fmt_db(gain)}" }
@@ -1306,29 +1191,6 @@ mod tests {
             gain_db: 0.0,
             muted: false,
         }
-    }
-
-    #[test]
-    fn fader_round_trips_and_bottom_is_off() {
-        assert!((fader_slot(-6.0) - -6.0).abs() < 1e-9);
-        assert!((fader_slot(40.0) - FADER_MAX_DB).abs() < 1e-9);
-        assert!((fader_slot(OFF_DB) - FADER_OFF_SLOT).abs() < 1e-9);
-        assert!((slot_db(FADER_OFF_SLOT) - OFF_DB).abs() < 1e-9);
-        assert!((slot_db(-60.0) - -60.0).abs() < 1e-9);
-        assert_eq!(fmt_db(OFF_DB), "-∞ dB");
-        assert_eq!(fmt_db(0.0), "0.0 dB");
-        assert_eq!(fmt_db(-6.0), "-6.0 dB");
-    }
-
-    #[test]
-    fn meters_scale_and_fall() {
-        assert!((peak_db(&[0.0, 1.0]) - 0.0).abs() < 1e-6);
-        assert!((peak_db(&[0.5]) - -6.02).abs() < 0.01);
-        assert!(peak_db(&[]) < METER_FLOOR_DB);
-        assert!((meter_pct(0.0) - 100.0).abs() < 1e-9);
-        assert!((meter_pct(-120.0)).abs() < 1e-9);
-        assert!((fall(Some(-10.0), -60.0) - -13.0).abs() < 1e-9);
-        assert!((fall(Some(-10.0), -3.0) - -3.0).abs() < 1e-9);
     }
 
     #[test]

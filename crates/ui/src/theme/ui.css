@@ -1,0 +1,82 @@
+/* Shared widgets (crates/ui/src/ui). */
+
+/* ── section ─────────────────────────────────────────────────────── */
+.section { border: 1px solid var(--divider); border-radius: var(--r3); }
+.section-head {
+  width: 100%; display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s2) var(--s5); background: var(--surface);
+  border: none; border-radius: var(--r3); color: var(--text);
+  cursor: pointer; user-select: none; text-align: left;
+}
+.section-head:hover { color: var(--accent-2); }
+.section-caret { color: var(--muted); font-size: var(--fs-sm); flex: 0 0 auto; }
+.section-note { color: var(--muted); font-size: var(--fs-1); margin-left: auto; }
+.section-body { border-top: 1px solid var(--line-2); }
+
+/* ── text field ──────────────────────────────────────────────────── */
+.textfield {
+  min-width: 0; background: var(--sunken); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r3);
+  padding: var(--s1) var(--s4); outline: none; font-size: var(--fs-2);
+}
+.textfield:focus { border-color: var(--accent); }
+
+/* ── horizontal meter (list rows) ────────────────────────────────── */
+/* Same construction as the vertical meter: the gradient is pinned to the
+   scale and a cover hides everything above the level, so a channel at
+   -30 dBFS is green whatever the bar's pixel width happens to be. */
+.levelbar {
+  position: relative; height: 8px; flex: 1 1 auto; min-width: 48px;
+  border-radius: var(--r1); overflow: hidden;
+  /* -60..0 dBFS: green to -20 (66.7%), yellow to -6 (90%), red above. */
+  background: linear-gradient(to right,
+    var(--ok-2) 0%, var(--ok) 66.7%, var(--warn) 66.7%,
+    var(--warn-2) 90%, var(--danger) 90%, var(--danger) 100%);
+  box-shadow: var(--inset-hairline);
+}
+.levelbar-cover {
+  position: absolute; right: 0; top: 0; bottom: 0;
+  background: var(--sunken); transition: width var(--dur-fast) linear;
+}
+.levelbar.hot { box-shadow: 0 0 6px var(--danger-glow); }
+
+/* ── error bar ───────────────────────────────────────────────────── */
+.error-bar {
+  display: flex; align-items: center; gap: var(--s5);
+  padding: var(--s3) var(--s7);
+  background: var(--danger-a12); border-bottom: 1px solid var(--danger-line);
+  color: var(--danger-text); font-size: var(--fs-2);
+}
+.error-bar span { flex: 1; word-break: break-word; }
+
+/* ── empty state ─────────────────────────────────────────────────── */
+.empty-state {
+  padding: var(--s10); max-width: 560px;
+  display: flex; flex-direction: column; gap: var(--s5); line-height: 1.5;
+  color: var(--text-3);
+}
+.empty-state h3 { font-size: var(--fs-4); color: var(--text); }
+
+/* ── vertical fader ──────────────────────────────────────────────── */
+/* Drawn explicitly rather than left to the webview: a default range
+   input fills the travelled part with the accent colour, which on a
+   channel strip reads as a level meter rather than a fader position. */
+input.vfader {
+  writing-mode: vertical-lr; direction: rtl;
+  -webkit-appearance: none; appearance: none;
+  width: 22px; height: 100%; margin: 0 0 0 var(--s3);
+  background: transparent; border: none; cursor: ns-resize; outline: none;
+}
+input.vfader::-webkit-slider-runnable-track {
+  width: 4px; height: 100%;
+  background: var(--sunken); border-radius: var(--r1);
+  box-shadow: var(--inset-hairline);
+}
+input.vfader::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 11px; margin-left: -8px;
+  background: var(--text-2); border: 1px solid var(--sunken);
+  border-radius: var(--r1); box-shadow: var(--shadow-card);
+}
+input.vfader:hover::-webkit-slider-thumb { background: var(--text); }
+input.vfader:focus::-webkit-slider-thumb { border-color: var(--accent); }

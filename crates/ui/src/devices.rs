@@ -22,6 +22,7 @@ use patchbay_proto::{
 };
 
 use crate::state::{self, PatchbayHandle};
+use crate::ui::{Status, StatusDot};
 
 // ─── State ──────────────────────────────────────────────────────────────
 
@@ -313,11 +314,11 @@ pub fn DevicesView() -> Element {
                     {
                         let key = device_key(d);
                         let on = selected.as_deref() == Some(key.as_str());
-                        let dot = match d.state {
-                            DeviceLinkState::Online => "svc-dot on",
-                            DeviceLinkState::Connecting | DeviceLinkState::Searching => "svc-dot busy",
-                            DeviceLinkState::Offline => "svc-dot failed",
-                            DeviceLinkState::Disabled | DeviceLinkState::NotFound => "svc-dot missing",
+                        let status = match d.state {
+                            DeviceLinkState::Online => Status::Ok,
+                            DeviceLinkState::Connecting | DeviceLinkState::Searching => Status::Busy,
+                            DeviceLinkState::Offline => Status::Bad,
+                            DeviceLinkState::Disabled | DeviceLinkState::NotFound => Status::Missing,
                         };
                         let title = format!("{} — {}{}{}", d.name, state_label(d.state), if d.transport.is_empty() { String::new() } else { format!(" — {}", d.transport) }, if d.error.is_empty() { String::new() } else { format!(" — {}", d.error) });
                         let label = if d.model.is_empty() { d.name.clone() } else { format!("{} ({})", d.model, d.name) };
@@ -335,7 +336,7 @@ pub fn DevicesView() -> Element {
                                     let handle = handle.clone();
                                     spawn(async move { load_selected(&handle).await });
                                 },
-                                span { class: "{dot}" }
+                                StatusDot { status, title: "{title}" }
                                 " {label}"
                             }
                         }

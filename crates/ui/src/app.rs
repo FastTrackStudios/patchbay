@@ -1,4 +1,4 @@
-//! Root component: toolbar + canvas + side panel + status bar.
+//! Root component: icon rail + view outlet + status bar.
 //!
 //! Takes no props — the shell provides a [`crate::PatchbayHandle`] via
 //! context and feeds [`crate::apply_graph_event`] from the subscribe
@@ -14,15 +14,13 @@ use crate::mixes::MixesView;
 use crate::panels::{SidePanel, StatusBar, Toolbar};
 use crate::state::{ARMED_OUTPUTS, VIEW, View};
 
-static CSS: &str = include_str!("style.css");
-
 #[component]
 pub fn PatchbayApp() -> Element {
     let view = *VIEW.read();
     let handle = crate::state::use_patchbay();
 
     // Pre-scan the Dante network in the background right after launch,
-    // so the Dante tab opens populated instead of blank-then-scanning.
+    // so the Network view opens populated instead of blank-then-scanning.
     let prescan = handle.clone();
     use_future(move || {
         let handle = prescan.clone();
@@ -35,7 +33,7 @@ pub fn PatchbayApp() -> Element {
         }
     });
     rsx! {
-        document::Style { {CSS} }
+        document::Style { {crate::theme::CSS} }
         div {
             class: "patchbay-root",
             tabindex: "0",
@@ -51,52 +49,44 @@ pub fn PatchbayApp() -> Element {
                     crate::state::undo_last(handle.clone());
                 }
             },
-            div { class: "topbar",
-                span { class: "app-title", "Patchbay" }
-                div { class: "view-tabs",
-                    button {
-                        class: if view == View::Patchbay { "tab on" } else { "tab" },
-                        onclick: move |_| *VIEW.write() = View::Patchbay,
-                        "Patchbay"
-                    }
-                    button {
-                        class: if view == View::Dante { "tab on" } else { "tab" },
-                        onclick: move |_| *VIEW.write() = View::Dante,
-                        "Dante"
-                    }
-                    button {
-                        class: if view == View::Devices { "tab on" } else { "tab" },
-                        onclick: move |_| *VIEW.write() = View::Devices,
-                        "Devices"
-                    }
-                    button {
-                        class: if view == View::Mixes { "tab on" } else { "tab" },
-                        onclick: move |_| *VIEW.write() = View::Mixes,
-                        "Mixes"
+            div { class: "shell",
+                Rail { current: view }
+                div { class: "view-outlet",
+                    match view {
+                        View::Graph => rsx! {
+                            div { class: "topbar", Toolbar {} }
+                            div { class: "main-split",
+                                GraphCanvas {}
+                                SidePanel {}
+                            }
+                        },
+                        View::Network => rsx! { DanteGrid {} },
+                        View::Devices => rsx! { DevicesView {} },
+                        View::Mixes => rsx! { MixesView {} },
                     }
                 }
-                if view == View::Patchbay {
-                    Toolbar {}
-                }
-            }
-            match view {
-                View::Patchbay => rsx! {
-                    div { class: "main-split",
-                        GraphCanvas {}
-                        SidePanel {}
-                    }
-                },
-                View::Dante => rsx! {
-                    DanteGrid {}
-                },
-                View::Devices => rsx! {
-                    DevicesView {}
-                },
-                View::Mixes => rsx! {
-                    MixesView {}
-                },
             }
             StatusBar {}
+        }
+    }
+}
+
+/// The view switcher down the left edge.
+#[component]
+fn Rail(current: View) -> Element {
+    rsx! {
+        nav { class: "rail",
+            div { class: "rail-brand", "Patchbay" }
+            for view in View::ALL {
+                button {
+                    key: "{view.label()}",
+                    class: if view == current { "rail-item on" } else { "rail-item" },
+                    title: "{view.hint()}",
+                    onclick: move |_| *VIEW.write() = view,
+                    span { class: "rail-glyph", "{view.glyph()}" }
+                    span { "{view.label()}" }
+                }
+            }
         }
     }
 }

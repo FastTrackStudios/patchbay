@@ -7,6 +7,7 @@ use crate::state::{
     self, ALIASES, CLOCK, DANTE, GRAPH, HIDE_UNCONNECTED, LAST_REPORT, MEDIA_TAB, PRESETS, SEARCH,
     SELECTED_NODE,
 };
+use crate::ui::{Status, StatusDot};
 
 #[component]
 pub fn Toolbar() -> Element {
@@ -69,6 +70,13 @@ pub fn StatusBar() -> Element {
         0.0
     };
     let forced = clock.force_quantum != 0;
+    // No graph clock means no PipeWire (macOS, or the daemon is down):
+    // quantum controls would be inert, so don't offer them. With nothing
+    // else to say, the bar itself goes away rather than sitting empty.
+    let has_clock = clock.rate > 0;
+    if !has_clock && !dante.installed {
+        return rsx! {};
+    }
 
     let quantum_btn = |frames: u32| {
         let handle = handle.clone();
@@ -104,21 +112,23 @@ pub fn StatusBar() -> Element {
 
     rsx! {
         div { class: "statusbar",
-            span { class: "clock-info",
-                "{clock.rate} Hz · {clock.quantum} frames · {ms:.2} ms"
-                if forced { span { class: "forced-tag", " (forced)" } }
+            if has_clock {
+                span { class: "clock-info",
+                    "{clock.rate} Hz · {clock.quantum} frames · {ms:.2} ms"
+                    if forced { span { class: "forced-tag", " (forced)" } }
+                }
+                span { class: "spacer" }
+                span { class: "label", "quantum:" }
+                {quantum_btn(0)}
+                {quantum_btn(32)}
+                {quantum_btn(64)}
+                {quantum_btn(128)}
+                {quantum_btn(256)}
+                {quantum_btn(512)}
+                {quantum_btn(1024)}
+                {quantum_btn(2048)}
+                span { class: "spacer" }
             }
-            span { class: "spacer" }
-            span { class: "label", "quantum:" }
-            {quantum_btn(0)}
-            {quantum_btn(32)}
-            {quantum_btn(64)}
-            {quantum_btn(128)}
-            {quantum_btn(256)}
-            {quantum_btn(512)}
-            {quantum_btn(1024)}
-            {quantum_btn(2048)}
-            span { class: "spacer" }
             if dante.installed {
                 span {
                     class: if dante_on { "dante-dot on" } else { "dante-dot" },
@@ -317,7 +327,10 @@ fn VirtualSinksPanel() -> Element {
                     };
                     rsx! {
                         div { class: "service-row", key: "{sink.name}",
-                            span { class: if is_live { "svc-dot on" } else { "svc-dot" } }
+                            StatusDot {
+                                status: if is_live { Status::Ok } else { Status::Idle },
+                                title: if is_live { "live" } else { "not in graph yet" },
+                            }
                             span { class: "service-name",
                                 title: if is_live { "live" } else { "not in graph yet" },
                                 "{sink.name}"
@@ -526,18 +539,18 @@ fn ServicesPanel() -> Element {
             h3 { "Services" }
             for svc in services {
                 {
-                    let dot = match (svc.present, svc.state.as_str()) {
-                        (false, _) => "svc-dot missing",
-                        (_, "active") => "svc-dot on",
-                        (_, "failed") => "svc-dot failed",
-                        (_, "activating" | "deactivating" | "reloading") => "svc-dot busy",
-                        _ => "svc-dot",
+                    let status = match (svc.present, svc.state.as_str()) {
+                        (false, _) => Status::Missing,
+                        (_, "active") => Status::Ok,
+                        (_, "failed") => Status::Bad,
+                        (_, "activating" | "deactivating" | "reloading") => Status::Busy,
+                        _ => Status::Idle,
                     };
                     let running = svc.state == "active";
                     let unit = svc.unit.clone();
                     rsx! {
                         div { class: "service-row", key: "{svc.unit}",
-                            span { class: "{dot}" }
+                            StatusDot { status, title: "{svc.unit} — {svc.state}/{svc.sub_state}" }
                             span { class: "service-name", title: "{svc.unit} — {svc.state}/{svc.sub_state}",
                                 "{svc.label}"
                             }
