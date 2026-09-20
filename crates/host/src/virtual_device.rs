@@ -197,12 +197,38 @@ pub enum SourceKind {
 pub struct SourceSpec {
     /// Where the audio comes from.
     pub kind: SourceKind,
+    /// What the tapped app hears on its own device while we take its
+    /// audio. Only meaningful for [`SourceKind::App`] /
+    /// [`SourceKind::AppOnDevice`] / [`SourceKind::SystemAudio`].
+    #[serde(default)]
+    pub mute: TapMute,
     /// Source channel → virtual-device channel.
     pub channel_map: ChannelMap,
     /// Linear gain.
     pub volume: f32,
     /// Disabled sources stay configured but pass nothing.
     pub enabled: bool,
+}
+
+/// What a tapped app hears on its own device while patchbay taps it.
+///
+/// Tapping is normally additive — the app keeps playing wherever it was
+/// and patchbay gets a copy. Muting makes it exclusive: the audio goes
+/// where it is patched instead of also to the speakers, which is what
+/// "route this app somewhere else" means on a system with no per-app
+/// output setting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TapMute {
+    /// The app keeps playing normally (default — patchbay never silences
+    /// the user's apps unless asked).
+    #[default]
+    Unmuted,
+    /// The app is silent on its own device while the tap exists (true
+    /// "route away", like Loopback's mute option).
+    Muted,
+    /// Silent only while the tap is actually being read.
+    MutedWhenTapped,
 }
 
 /// One monitor (listen-through) of a virtual device.
@@ -304,6 +330,7 @@ mod tests {
             kind: SourceKind::App {
                 app: AppSelector::BundleId(bundle.to_owned()),
             },
+            mute: TapMute::Unmuted,
             channel_map: ChannelMap::identity(2),
             volume: 1.0,
             enabled: true,
@@ -320,6 +347,7 @@ mod tests {
                     kind: SourceKind::InputDevice {
                         uid: "BuiltInMic".to_owned(),
                     },
+                    mute: TapMute::Unmuted,
                     channel_map: ChannelMap::offset(1, 2).unwrap(),
                     volume: 0.5,
                     enabled: true,
@@ -416,6 +444,7 @@ mod tests {
         assert!(!s.needs_pass_thru());
         s.sources.push(SourceSpec {
             kind: SourceKind::PassThru,
+            mute: TapMute::Unmuted,
             channel_map: ChannelMap::identity(2),
             volume: 1.0,
             enabled: true,

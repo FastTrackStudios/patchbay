@@ -70,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 sources.push(SourceSpec {
                     kind,
+                    mute: patchbay_host::TapMute::Unmuted,
                     channel_map: map(m)?,
                     volume: 1.0,
                     enabled: true,

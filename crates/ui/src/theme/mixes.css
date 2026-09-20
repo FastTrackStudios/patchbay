@@ -1,0 +1,16 @@
+/* Mixes — the exclusive toggle and the note that explains it.
+   The rest of this view's rules still live in views.css. */
+
+/* Exclusive takes an app's audio away from where it was playing, so it
+   wears the warning colour: it changes what the user hears elsewhere. */
+.chip.exclusive { padding: var(--s1) var(--s4); font-size: var(--fs-1); }
+.chip.exclusive.on {
+  background: var(--warn-a20); border-color: var(--warn-line); color: var(--warn);
+}
+.chip.exclusive.on:hover { border-color: var(--warn); }
+
+.exclusive-note {
+  max-width: 640px; line-height: 1.6; margin-top: var(--s2);
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1);
+}
+.exclusive-note .chip { pointer-events: none; }

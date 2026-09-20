@@ -275,6 +275,17 @@ channel — e.g. REAPER's outs 33–34 on a 64-channel interface with
 0-based `src:dst` pairs; the default is `0:0,1:1`. The **Mixes** tab in
 the app and browser remote has the same controls as channel strips.
 
+A source can **copy** or take **exclusive** use of an app. Copying is
+the default: the app keeps playing wherever it was and the mix gets a
+duplicate. Exclusive silences the app on its own output device while
+the mix runs, so its audio comes out of the mix instead of there — the
+way to send one app somewhere else on a system with no per-app output
+setting. Toggle it on the source strip, or:
+
+```
+patchbay mix add-source Stream app:Brave --exclusive
+```
+
 Into a DAW that opens one device, either point it at a Patchbay
 **aggregate** (`Galaxy32 + Patchbay`, so app audio arrives as extra
 inputs after the interface's own), or loop spare interface playback

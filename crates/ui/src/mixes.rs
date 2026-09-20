@@ -26,7 +26,7 @@ use patchbay_proto::{
 
 use crate::state::{self, PatchbayHandle};
 use crate::ui::level::{SILENT_DB, fall, fmt_db, peak_db};
-use crate::ui::{Fader, Meter, MeterScale};
+use crate::ui::{EmptyState, ErrorBar, Fader, Meter, MeterScale};
 
 // ─── Poll cadences ──────────────────────────────────────────────────────
 
@@ -534,20 +534,14 @@ pub fn MixesView() -> Element {
                 VirtualDevicesPanel {}
             }
             div { class: "mix-main",
-                if !error.is_empty() {
-                    div { class: "mix-error-bar",
-                        span { "{error}" }
-                        button { class: "chip", onclick: move |_| ERROR.write().clear(), "dismiss" }
-                    }
-                }
+                ErrorBar { message: error, on_dismiss: move |()| ERROR.write().clear() }
                 if let Some(v) = current {
                     MixEditor { view: v }
                 } else if !loaded {
-                    div { class: "mix-empty dim-note", "loading…" }
+                    div { class: "empty-state dim-note", "loading…" }
                 } else {
-                    div { class: "mix-empty",
-                        h3 { "No mix selected" }
-                        p { class: "dim-note",
+                    EmptyState { title: "No mix selected".to_owned(),
+                        p {
                             "A mix sums sources — an app, an input device's channels, all system audio — "
                             "into outputs, e.g. the Broadcast virtual device Discord or FaceTime pick as their microphone. "
                             "Create one on the left."
@@ -606,14 +600,14 @@ fn MixEditor(view: MixView) -> Element {
 
     rsx! {
         div { class: "mix-editor",
-            div { class: "mix-head",
-                span { class: "mix-title", "{name}" }
+            div { class: "view-head",
+                span { class: "view-title", "{name}" }
                 span { class: "{badge}", "{word}" }
-                span { class: "dim-note", "{cfg.channels} ch" }
+                span { class: "view-sub", "{cfg.channels} ch" }
                 if enabled && !view.running && !view.error.is_empty() {
                     span { class: "mix-error", "{view.error}" }
                 }
-                div { class: "mix-head-actions",
+                div { class: "view-head-actions",
                     button {
                         class: if enabled { "chip on" } else { "chip" },
                         title: if enabled { "running when possible — click to stop and keep it saved" } else { "stopped — click to start" },
@@ -629,6 +623,16 @@ fn MixEditor(view: MixView) -> Element {
             }
 
             div { class: "mix-section-h", "Sources" }
+            if cfg.sources.iter().any(|x| x.exclusive) {
+                p { class: "dim-note exclusive-note",
+                    "Sources marked "
+                    span { class: "chip exclusive on", "exclusive" }
+                    " are silent on their own output device while this mix runs — their audio "
+                    "comes out here instead of there. Switch one back to "
+                    span { class: "chip exclusive", "copy" }
+                    " to hear it in both places."
+                }
+            }
             div { class: "mix-strips",
                 for (i, s) in cfg.sources.iter().enumerate() {
                     SourceStrip {
@@ -770,6 +774,20 @@ fn SourceStrip(
         }
     };
     let set_map_pick = set_map.clone();
+    // Exclusive changes how the tap is created, so it re-saves (and the
+    // supervisor rebuilds) rather than going through the live level RPC.
+    let exclusive = s.exclusive;
+    let toggle_exclusive = {
+        let handle = handle.clone();
+        let mix = mix.clone();
+        move |_| {
+            edit(handle.clone(), &mix, |c| {
+                if let Some(x) = c.sources.get_mut(index) {
+                    x.exclusive = !exclusive;
+                }
+            });
+        }
+    };
     let remove = {
         let mix = mix.clone();
         move |_| {
@@ -819,6 +837,18 @@ fn SourceStrip(
                     for (l, m) in picks {
                         option { value: "{m}", "{l}" }
                     }
+                }
+            }
+            if s.is_app() {
+                button {
+                    class: if exclusive { "chip exclusive on" } else { "chip exclusive" },
+                    title: if exclusive {
+                        "Exclusive: this app is silent on its own output device and heard only through this mix. Click to let it keep playing there too."
+                    } else {
+                        "Copy: the app keeps playing where it was and this mix gets a copy. Click to take its audio away from its own device instead."
+                    },
+                    onclick: toggle_exclusive,
+                    if exclusive { "exclusive" } else { "copy" }
                 }
             }
             button { class: "chip danger strip-remove", title: "remove this source", onclick: remove, "remove" }
@@ -1018,14 +1048,7 @@ fn SourcePicker(mix: String, tab: PickerTab, targets: HostTargets) -> Element {
     let outs = output_devices(&targets);
     let app_source = {
         let device = device.clone();
-        move |bundle_id: String| MixSourceConfig {
-            kind: source_kind::APP.to_owned(),
-            target: bundle_id,
-            device: device.clone(),
-            map: default_map(),
-            gain_db: 0.0,
-            muted: false,
-        }
+        move |bundle_id: String| MixSourceConfig::app_on_device(bundle_id, device.clone())
     };
     let tab_btn = |t: PickerTab, label: &'static str| {
         rsx! {
@@ -1120,14 +1143,7 @@ fn SourcePicker(mix: String, tab: PickerTab, targets: HostTargets) -> Element {
                                     button {
                                         key: "{d.uid}",
                                         class: "picker-row",
-                                        onclick: move |_| add(MixSourceConfig {
-                                            kind: source_kind::INPUT.to_owned(),
-                                            target: uid.clone(),
-                                            device: String::new(),
-                                            map: default_map(),
-                                            gain_db: 0.0,
-                                            muted: false,
-                                        }),
+                                        onclick: move |_| add(MixSourceConfig::input(uid.clone())),
                                         span { class: "picker-name", "{d.name}" }
                                         span { class: "dim-note", "{d.input_channels} in" }
                                     }
@@ -1141,14 +1157,7 @@ fn SourcePicker(mix: String, tab: PickerTab, targets: HostTargets) -> Element {
                         span { class: "dim-note", "Everything the system plays, except Patchbay itself." }
                         button {
                             class: "chip on",
-                            onclick: move |_| add(MixSourceConfig {
-                                kind: source_kind::SYSTEM.to_owned(),
-                                target: String::new(),
-                                device: String::new(),
-                                map: default_map(),
-                                gain_db: 0.0,
-                                muted: false,
-                            }),
+                            onclick: move |_| add(MixSourceConfig::system()),
                             "Add system audio"
                         }
                     }
@@ -1193,12 +1202,8 @@ mod tests {
 
     fn src(kind: &str, target: &str, device: &str) -> MixSourceConfig {
         MixSourceConfig {
-            kind: kind.into(),
-            target: target.into(),
             device: device.into(),
-            map: default_map(),
-            gain_db: 0.0,
-            muted: false,
+            ..MixSourceConfig::new(kind, target)
         }
     }
 

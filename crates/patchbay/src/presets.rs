@@ -770,20 +770,18 @@ mod styx_roundtrip {
                 channels: 2,
                 sources: vec![
                     patchbay_proto::MixSourceConfig {
-                        kind: "app".into(),
-                        target: "com.cockos.reaper".into(),
-                        device: "com.antelope.4202524000109".into(),
                         map: "32:0,33:1".into(),
                         gain_db: -6.0,
-                        muted: false,
+                        exclusive: true,
+                        ..patchbay_proto::MixSourceConfig::app_on_device(
+                            "com.cockos.reaper",
+                            "com.antelope.4202524000109",
+                        )
                     },
                     patchbay_proto::MixSourceConfig {
-                        kind: "input".into(),
-                        target: "com.antelope.4202524000109".into(),
-                        device: String::new(),
                         map: "32:0,33:1".into(),
-                        gain_db: 0.0,
                         muted: true,
+                        ..patchbay_proto::MixSourceConfig::input("com.antelope.4202524000109")
                     },
                 ],
                 outputs: vec![patchbay_proto::MixOutputConfig {

@@ -1,23 +1,9 @@
 //! Platform-independent configuration types (compiled everywhere so
 //! callers can build configs without `cfg` noise).
 
+pub use patchbay_host::TapMute;
 use patchbay_host::{AppSelector, ChannelMap};
 use serde::{Deserialize, Serialize};
-
-/// What a tapped app hears on its own device while patchbay taps it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TapMute {
-    /// The app keeps playing normally (default — patchbay never silences
-    /// the user's apps unless asked).
-    #[default]
-    Unmuted,
-    /// The app is silent on its own device while the tap exists (true
-    /// "route away", like Loopback's mute option).
-    Muted,
-    /// Silent only while the tap is actually being read.
-    MutedWhenTapped,
-}
 
 /// A Loopback-style "app → output device" monitor, the first concrete
 /// piece of a virtual device without a HAL driver.

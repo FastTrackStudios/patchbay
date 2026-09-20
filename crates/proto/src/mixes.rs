@@ -60,6 +60,66 @@ pub struct MixSourceConfig {
     #[serde(default)]
     #[facet(default)]
     pub muted: bool,
+    /// Take this app's audio *away* from where it was playing instead of
+    /// copying it: while the mix runs, the app is silent on its own
+    /// output device and heard only through this mix.
+    ///
+    /// `app` sources only — the way to route one app somewhere else on a
+    /// system with no per-app output setting. Off by default: Patchbay
+    /// never silences an app unless asked.
+    #[serde(default)]
+    #[facet(default)]
+    pub exclusive: bool,
+}
+
+impl MixSourceConfig {
+    /// A source of `kind` with a stereo map, unity gain, unmuted — the
+    /// defaults every caller was spelling out.
+    #[must_use]
+    pub fn new(kind: &str, target: impl Into<String>) -> Self {
+        Self {
+            kind: kind.to_owned(),
+            target: target.into(),
+            device: String::new(),
+            map: default_map(),
+            gain_db: 0.0,
+            muted: false,
+            exclusive: false,
+        }
+    }
+
+    /// An app's stereo mixdown.
+    #[must_use]
+    pub fn app(bundle_id: impl Into<String>) -> Self {
+        Self::new(source_kind::APP, bundle_id)
+    }
+
+    /// What an app plays to one output device, every channel unmixed.
+    #[must_use]
+    pub fn app_on_device(bundle_id: impl Into<String>, device_uid: impl Into<String>) -> Self {
+        Self {
+            device: device_uid.into(),
+            ..Self::app(bundle_id)
+        }
+    }
+
+    /// An input device's capture channels.
+    #[must_use]
+    pub fn input(device_uid: impl Into<String>) -> Self {
+        Self::new(source_kind::INPUT, device_uid)
+    }
+
+    /// Everything the system plays.
+    #[must_use]
+    pub fn system() -> Self {
+        Self::new(source_kind::SYSTEM, String::new())
+    }
+
+    /// Whether this is an app tap — the only kind `exclusive` applies to.
+    #[must_use]
+    pub fn is_app(&self) -> bool {
+        self.kind == source_kind::APP
+    }
 }
 
 /// One output of a mix.
@@ -79,6 +139,19 @@ pub struct MixOutputConfig {
     #[serde(default)]
     #[facet(default)]
     pub muted: bool,
+}
+
+impl MixOutputConfig {
+    /// An output to `device_uid` with a stereo map, unity gain, unmuted.
+    #[must_use]
+    pub fn new(device_uid: impl Into<String>) -> Self {
+        Self {
+            device: device_uid.into(),
+            map: default_map(),
+            gain_db: 0.0,
+            muted: false,
+        }
+    }
 }
 
 /// A saved mix (config section `mixes`, upsert by `name`).

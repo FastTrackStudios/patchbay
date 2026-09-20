@@ -368,7 +368,7 @@ fn app_processes(app: &patchbay_host::AppSelector) -> Result<Vec<ProcessFacts>, 
     Ok(processes.into_iter().filter(|p| p.pid != own).collect())
 }
 
-fn plan_source(kind: &SourceKind, name: &str) -> Result<Planned, HostError> {
+fn plan_source(kind: &SourceKind, mute: Mute, name: &str) -> Result<Planned, HostError> {
     Ok(match kind {
         SourceKind::App { app } => {
             let processes = app_processes(app)?;
@@ -376,7 +376,7 @@ fn plan_source(kind: &SourceKind, name: &str) -> Result<Planned, HostError> {
                 return Ok(not_running());
             }
             let objects: Vec<u32> = processes.iter().map(|p| p.object).collect();
-            let tap = ProcessTap::create(&objects, Mute::Unmuted, name)?;
+            let tap = ProcessTap::create(&objects, mute, name)?;
             let format = hal::summarize(&tap.format()?);
             Planned::Tap {
                 taps: vec![tap],
@@ -401,13 +401,8 @@ fn plan_source(kind: &SourceKind, name: &str) -> Result<Planned, HostError> {
             let mut taps = Vec::with_capacity(streams.len());
             let mut layout = Vec::with_capacity(streams.len());
             for index in 0..streams.len() {
-                let tap = ProcessTap::create_device_stream(
-                    &objects,
-                    device_uid,
-                    index,
-                    Mute::Unmuted,
-                    name,
-                )?;
+                let tap =
+                    ProcessTap::create_device_stream(&objects, device_uid, index, mute, name)?;
                 layout.push(hal::summarize(&tap.format()?).channels);
                 taps.push(tap);
             }
@@ -420,7 +415,7 @@ fn plan_source(kind: &SourceKind, name: &str) -> Result<Planned, HostError> {
         SourceKind::SystemAudio => {
             // Everything but ourselves — never feed our own output back in.
             let excluded: Vec<u32> = own_process_object().into_iter().collect();
-            let tap = ProcessTap::create_global(&excluded, Mute::Unmuted, name)?;
+            let tap = ProcessTap::create_global(&excluded, mute, name)?;
             let format = hal::summarize(&tap.format()?);
             Planned::Tap {
                 taps: vec![tap],
@@ -693,7 +688,7 @@ impl Mix {
         let planned = spec
             .sources
             .iter()
-            .map(|s| plan_source(&s.kind, &tap_name))
+            .map(|s| plan_source(&s.kind, Mute::for_tap(s.mute), &tap_name))
             .collect::<Result<Vec<_>, _>>()?;
         for p in &planned {
             if let Planned::Input { device } = p

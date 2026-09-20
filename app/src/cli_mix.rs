@@ -55,6 +55,12 @@ pub enum MixCmd {
         source: String,
         #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
         gain: f64,
+        /// Take the app's audio away from where it was playing instead
+        /// of copying it: while the mix runs it is silent on its own
+        /// output device and heard only through this mix. `app` sources
+        /// only.
+        #[arg(long)]
+        exclusive: bool,
     },
     /// Add an output to a mix.
     AddOutput { name: String, output: String },
@@ -176,7 +182,12 @@ fn resolve_device(targets: &HostTargets, q: &str, output: bool) -> eyre::Result<
     }
 }
 
-fn parse_source(targets: &HostTargets, spec: &str, gain_db: f64) -> eyre::Result<MixSourceConfig> {
+fn parse_source(
+    targets: &HostTargets,
+    spec: &str,
+    gain_db: f64,
+    exclusive: bool,
+) -> eyre::Result<MixSourceConfig> {
     let (head, map) = split_map(spec);
     let (kind, rest) = head.split_once(':').unwrap_or((head, ""));
     let (kind, target) = match kind {
@@ -196,12 +207,16 @@ fn parse_source(targets: &HostTargets, spec: &str, gain_db: f64) -> eyre::Result
                 map,
                 gain_db,
                 muted: false,
+                exclusive,
             });
         }
         source_kind::INPUT => (kind, resolve_device(targets, rest, false)?),
         source_kind::SYSTEM => (kind, String::new()),
         other => eyre::bail!("source kind '{other}': use app:<name>, input:<device> or system"),
     };
+    if exclusive {
+        eyre::bail!("--exclusive only applies to `app:` sources (a device isn't ours to silence)");
+    }
     Ok(MixSourceConfig {
         kind: kind.to_owned(),
         target,
@@ -209,6 +224,7 @@ fn parse_source(targets: &HostTargets, spec: &str, gain_db: f64) -> eyre::Result
         map,
         gain_db,
         muted: false,
+        exclusive: false,
     })
 }
 
@@ -274,7 +290,7 @@ fn print_mix(v: &MixView, targets: Option<&HostTargets>) {
             None => String::new(),
         };
         println!(
-            "  source {}: {:<6} {:<28} @{:<12} {:>6.1} dB{}  {live}",
+            "  source {}: {:<6} {:<28} @{:<12} {:>6.1} dB{}{}  {live}",
             i.saturating_add(1),
             s.kind,
             if s.device.is_empty() {
@@ -289,6 +305,8 @@ fn print_mix(v: &MixView, targets: Option<&HostTargets>) {
             s.map,
             s.gain_db,
             if s.muted { " MUTED" } else { "" },
+            // Worth saying out loud: it silences the app elsewhere.
+            if s.exclusive { " EXCLUSIVE" } else { "" },
         );
     }
     for (i, o) in v.config.outputs.iter().enumerate() {
@@ -404,7 +422,7 @@ pub async fn run(c: &PatchbayServiceClient, cmd: MixCmd, json: bool) -> eyre::Re
                 channels,
                 sources: sources
                     .iter()
-                    .map(|s| parse_source(&t, s, 0.0))
+                    .map(|s| parse_source(&t, s, 0.0, false))
                     .collect::<eyre::Result<_>>()?,
                 outputs: outputs
                     .iter()
@@ -414,10 +432,16 @@ pub async fn run(c: &PatchbayServiceClient, cmd: MixCmd, json: bool) -> eyre::Re
             };
             save(c, cfg, json, Some(&t)).await?;
         }
-        MixCmd::AddSource { name, source, gain } => {
+        MixCmd::AddSource {
+            name,
+            source,
+            gain,
+            exclusive,
+        } => {
             let t = targets().await?;
             let mut cfg = find(c, &name).await?.config;
-            cfg.sources.push(parse_source(&t, &source, gain)?);
+            cfg.sources
+                .push(parse_source(&t, &source, gain, exclusive)?);
             save(c, cfg, json, Some(&t)).await?;
         }
         MixCmd::AddOutput { name, output } => {

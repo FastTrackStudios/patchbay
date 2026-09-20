@@ -19,7 +19,6 @@ use dioxus::core::spawn_forever;
 use dioxus::prelude::*;
 use patchbay_proto::{
     HostApp, HostDevice, HostOverview, HostProblem, MixConfig, MixSourceConfig, MixView,
-    default_map, source_kind,
 };
 
 use crate::state::{self, PatchbayHandle};
@@ -84,19 +83,12 @@ fn capture_into(handle: PatchbayHandle, mix: MixConfig, bundle_id: String) {
     if cfg
         .sources
         .iter()
-        .any(|s| s.kind == source_kind::APP && s.target == bundle_id && s.device.is_empty())
+        .any(|s| s.is_app() && s.target == bundle_id && s.device.is_empty())
     {
         *CAPTURING.write() = None;
         return;
     }
-    cfg.sources.push(MixSourceConfig {
-        kind: source_kind::APP.to_owned(),
-        target: bundle_id,
-        device: String::new(),
-        map: default_map(),
-        gain_db: 0.0,
-        muted: false,
-    });
+    cfg.sources.push(MixSourceConfig::app(bundle_id));
     *CAPTURING.write() = None;
     spawn_forever(async move {
         match handle.0.save_mix(cfg).await {
@@ -126,12 +118,7 @@ fn capture_into_new(handle: PatchbayHandle, app: &HostApp) {
         name,
         channels: 2,
         sources: Vec::new(),
-        outputs: vec![patchbay_proto::MixOutputConfig {
-            device,
-            map: default_map(),
-            gain_db: 0.0,
-            muted: false,
-        }],
+        outputs: vec![patchbay_proto::MixOutputConfig::new(device)],
         enabled: None,
     };
     drop(o);

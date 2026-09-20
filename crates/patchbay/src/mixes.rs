@@ -41,7 +41,8 @@ mod platform {
     use std::fmt::Write as _;
 
     use patchbay_host::{
-        AppSelector, ChannelMap, HostError, MonitorSpec, SourceKind, SourceSpec, VirtualDeviceSpec,
+        AppSelector, ChannelMap, HostError, MonitorSpec, SourceKind, SourceSpec, TapMute,
+        VirtualDeviceSpec,
     };
     use patchbay_host_coreaudio::survey::Survey;
     use patchbay_proto::{MixConfig, source_kind};
@@ -84,6 +85,16 @@ mod platform {
                 };
                 Ok(SourceSpec {
                     kind,
+                    // Muting only means anything for a tap, and it is
+                    // held for as long as the tap exists rather than
+                    // only while it is read — a mix that is running is
+                    // taking the audio, whether or not anything is
+                    // listening at this instant.
+                    mute: if s.exclusive {
+                        TapMute::Muted
+                    } else {
+                        TapMute::Unmuted
+                    },
                     channel_map: map(&s.map)?,
                     volume: super::db_to_gain(s.gain_db),
                     enabled: !s.muted,
@@ -137,7 +148,12 @@ mod platform {
                 if !s.device.is_empty() {
                     let _ = write!(sig, "{}={};", s.device, present(&s.device));
                 }
-                let _ = write!(sig, "{}={pids:?};", s.target);
+                let _ = write!(
+                    sig,
+                    "{}={pids:?}{};",
+                    s.target,
+                    if s.exclusive { "!" } else { "" }
+                );
             } else if s.kind == source_kind::INPUT {
                 let _ = write!(sig, "{}={};", s.target, present(&s.target));
             }
