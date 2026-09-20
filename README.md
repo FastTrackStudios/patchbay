@@ -75,6 +75,19 @@ Dante network, …) and the machine's own audio system are controlled through
 the same RPC surface — the `Devices` tab in the app, and `patchbay device`
 for agents.
 
+The tab shows each device as the thing it is: a **Yamaha TF** as channel
+strips carrying the desk's own names, colours, icons, faders and ON keys; a
+**Galaxy 32** as its router, its four mixers, the line-in trims and the AFX
+insert grid; the host's own audio layer as a device list. Everything the
+device reports is still there, under **Inspector** — the parameter tree is
+the right tool for reverse-engineering and for anything a console page
+doesn't cover, and the wrong first thing to show someone who wants a fader.
+
+Two honesty notes the pages carry themselves: the Galaxy never announces
+routing changes made elsewhere, so its router can be up to five seconds
+behind the hardware panel; and its trim page says out loud that ALL mode
+moves all 32 line inputs at once.
+
 With **no config at all**, four entries come up, each auto-discovered and
 each failing soft (a missing device never affects the others):
 

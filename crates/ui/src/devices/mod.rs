@@ -21,6 +21,12 @@ use patchbay_proto::{
     DeviceView, ParamView, source_label,
 };
 
+pub mod console;
+mod core_audio;
+mod galaxy32;
+mod strip;
+mod yamaha_tf;
+
 use crate::state::{self, PatchbayHandle};
 use crate::ui::{Status, StatusDot};
 
@@ -292,6 +298,10 @@ pub fn DevicesView() -> Element {
 
     let devices = DEVICES.read().clone();
     let selected = SELECTED.read().clone();
+    let selected_summary = devices
+        .iter()
+        .find(|d| Some(device_key(d)) == selected)
+        .cloned();
     let error = ERROR.read().clone();
     let loading = *LOADING.read();
     let view = VIEW.read().clone();
@@ -363,16 +373,91 @@ pub fn DevicesView() -> Element {
                     "e.g. devices ({{name galaxy32, kind antelope-galaxy32}})."
                 }
             } else if let Some(v) = view {
-                div { class: "devices-body",
-                    ParamPanel { view: v.clone() }
-                    div { class: "device-side",
-                        RouterGrid { view: v.clone() }
-                        SnapshotPanel { view: v }
-                    }
-                }
+                Console { view: v.clone() }
+                Inspector { view: v }
+            } else if loading {
+                div { class: "empty-state dim-note", "reading device…" }
             } else {
-                div { class: "panel-section dim", style: "padding:24px;",
-                    if loading { "reading device…" } else { "device not loaded (offline?) — pick a device or re-read" }
+                Offline { device: selected_summary }
+            }
+        }
+    }
+}
+
+/// A device that is configured but not answering.
+///
+/// The adapter keeps trying, so this is a state to explain rather than
+/// an error to dismiss — the console appears by itself when the device
+/// comes back.
+#[component]
+fn Offline(device: Option<DeviceSummary>) -> Element {
+    let Some(d) = device else {
+        return rsx! {
+            div { class: "empty-state dim-note", "Pick a device above." }
+        };
+    };
+    rsx! {
+        crate::ui::EmptyState { title: format!("{} isn't answering", d.name),
+            if !d.error.is_empty() {
+                p { class: "dim-note", "{d.error}" }
+            }
+            p {
+                "Patchbay keeps trying — this page fills in on its own when the device comes "
+                "back. Check that it is powered on and reachable"
+                if d.transport.is_empty() { "." } else { " at {d.transport}." }
+            }
+        }
+    }
+}
+
+/// The console for this device — a real surface where we know the
+/// device family, the parameter tree everywhere else.
+///
+/// Branches on `summary.kind`, which is the config's adapter kind, not
+/// the model string: every Galaxy 32 answers to the same paths whatever
+/// it calls itself.
+#[component]
+fn Console(view: DeviceView) -> Element {
+    match view.summary.kind.as_str() {
+        "yamaha-tf" => rsx! { yamaha_tf::YamahaTfConsole { view } },
+        "antelope-galaxy32" => rsx! { galaxy32::Galaxy32Console { view } },
+        "system-audio" => rsx! { core_audio::CoreAudioView { view } },
+        _ => rsx! {},
+    }
+}
+
+/// Everything the device reports, as it reports it.
+///
+/// Demoted from the whole tab to a drawer: it is the right tool for
+/// reverse-engineering and for anything a console view doesn't cover,
+/// and the wrong first thing to show someone who wants a fader.
+#[component]
+fn Inspector(view: DeviceView) -> Element {
+    let mut open = use_signal(|| false);
+    let routes = !view.routes.is_empty() && view.summary.kind != "antelope-galaxy32";
+    rsx! {
+        div { class: "inspector",
+            button {
+                class: "inspector-toggle",
+                onclick: move |_| {
+                    let now = open();
+                    open.set(!now);
+                },
+                span { class: "section-caret", if open() { "▾" } else { "▸" } }
+                span { class: "section-label", "Inspector" }
+                span { class: "section-note",
+                    "{view.params.len()} parameters · {view.routes.len()} crosspoints"
+                }
+            }
+            if open() {
+                div { class: "devices-body",
+                    ParamPanel { view: view.clone() }
+                    div { class: "device-side",
+                        if routes {
+                            RouterGrid { view: view.clone() }
+                        }
+                        SnapshotPanel { view }
+                    }
                 }
             }
         }
