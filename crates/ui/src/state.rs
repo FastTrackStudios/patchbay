@@ -282,19 +282,29 @@ pub async fn refresh_all(handle: &PatchbayHandle) {
 ///
 /// The ten fetches go out concurrently; sequentially they cost ten
 /// round-trips, which is very visible over a ws remote.
+/// Whether this host has a graph at all.
+///
+/// `PipeWire` only: on macOS none of the graph-side RPCs mean anything,
+/// and calling them on every mutation cost ten round-trips to learn
+/// nothing.
+#[must_use]
+pub fn has_graph() -> bool {
+    CLOCK.peek().rate > 0 || !GRAPH.peek().nodes.is_empty()
+}
+
+/// Re-read everything that isn't the graph itself.
+///
+/// Called after any mutation, so it stays as small as it can be: the
+/// four things every host has, plus the graph-side six only where there
+/// is a graph.
 pub async fn refresh_meta(handle: &PatchbayHandle) {
     let c = &handle.0;
-    let (aliases, colors, presets, clock, dante, services, rules, sinks, views, defaults) = futures_util::join!(
+    let (aliases, colors, presets, clock, dante) = futures_util::join!(
         c.aliases(),
         c.colors(),
         c.list_presets(),
         c.clock(),
         c.dante_status(),
-        c.services(),
-        c.latency_rules(),
-        c.virtual_sinks(),
-        c.views(),
-        c.clock_defaults(),
     );
     if let Ok(aliases) = aliases {
         *ALIASES.write() = aliases.into_iter().map(|a| (a.target, a.alias)).collect();
@@ -311,6 +321,22 @@ pub async fn refresh_meta(handle: &PatchbayHandle) {
     if let Ok(dante) = dante {
         *DANTE.write() = dante;
     }
+    if has_graph() {
+        refresh_graph_meta(handle).await;
+    }
+}
+
+/// The graph-side settings: units, latency rules, virtual sinks, saved
+/// canvas views and the clock drop-in.
+pub async fn refresh_graph_meta(handle: &PatchbayHandle) {
+    let c = &handle.0;
+    let (services, rules, sinks, views, defaults) = futures_util::join!(
+        c.services(),
+        c.latency_rules(),
+        c.virtual_sinks(),
+        c.views(),
+        c.clock_defaults(),
+    );
     if let Ok(services) = services {
         *SERVICES.write() = services;
     }

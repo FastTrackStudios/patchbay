@@ -79,7 +79,7 @@ pub fn SettingsView() -> Element {
     let error = ERROR.read().clone();
     let macos = perms.platform == "macos";
     // The graph clock only exists where there is a graph.
-    let has_graph = state::CLOCK.read().rate > 0;
+    let has_graph = state::has_graph();
 
     rsx! {
         div { class: "view-head",

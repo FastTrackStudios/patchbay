@@ -220,6 +220,16 @@ pub fn DanteGrid() -> Element {
 
     rsx! {
         div { class: "dante-view",
+            div { class: "view-head",
+                span { class: "view-title", "Network" }
+                span { class: "view-sub", "Dante subscriptions — click a cell to route TX → RX" }
+                div { class: "view-head-actions",
+                    span { class: "label dante-legend",
+                        span { class: "cell-demo ok", "✓" } " subscribed  "
+                        span { class: "cell-demo warn", "!" } " unresolved"
+                    }
+                }
+            }
             div { class: "dante-header",
                 button { class: "chip", onclick: refresh,
                     if loading { "scanning…" } else { "rescan network" }
@@ -230,21 +240,22 @@ pub fn DanteGrid() -> Element {
                     value: "{GRID_FILTER}",
                     oninput: move |e| *GRID_FILTER.write() = e.value(),
                 }
-                span { class: "label",
-                    "{devices.len()} device(s) — click a cell to route TX → RX"
-                }
-                span { class: "label dante-legend",
-                    span { class: "cell-demo ok", "✓" } " subscribed  "
-                    span { class: "cell-demo warn", "!" } " unresolved"
-                }
+                span { class: "label", "{devices.len()} device(s)" }
                 if !error.is_empty() {
                     span { class: "dante-error", "{error}" }
                 }
             }
             if devices.is_empty() && !loading {
-                div { class: "panel-section dim", style: "padding:24px;",
-                    "No Dante devices answered mDNS. Studio gear off? Inferno down? "
-                    "Check the Services panel in the Patchbay view."
+                crate::ui::EmptyState { title: "No Dante devices answered".to_owned(),
+                    p {
+                        "Nothing replied to mDNS on this network. Studio gear powered off, or "
+                        "the Dante stack not running?"
+                    }
+                    p { class: "dim-note",
+                        "Local Network permission has to be granted for discovery to see "
+                        "anything — Settings says whether it is. On Linux the Inferno units "
+                        "are in Settings too."
+                    }
                 }
             } else {
                 div { class: "dante-scroll",
