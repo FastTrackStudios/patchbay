@@ -252,10 +252,15 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
     }
     let first = found.first().ok_or_else(|| {
         // A host with the port open that never answers is a different
-        // problem from an empty network — usually a console still
-        // booting, or one sitting on a screen that won't serve RCP —
-        // and saying "nothing found" sends people hunting a network
-        // fault that isn't there.
+        // problem from an empty network, and saying "nothing found"
+        // sends people hunting a fault that isn't there.
+        //
+        // Observed on a live TF1: the handshake completes and the
+        // console never ACKs the bytes we send — the socket sits with
+        // our `devinfo` still in the send queue. The stack accepted the
+        // connection; the application never read it. That is what a
+        // console whose RCP session is already taken looks like, so
+        // name that first.
         if let Some(addr) = scanned.silent.first() {
             let more = scanned.silent.len().saturating_sub(1);
             let others = if more > 0 {
@@ -264,8 +269,9 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
                 String::new()
             };
             return ConnectError::NotFound(format!(
-                "{}{others} has TCP {} open but never answered `devinfo` — the console may \
-                 still be booting, or something else is on that port",
+                "{}{others} accepted a connection on TCP {} and never answered `devinfo` — \
+                 another RCP client (TF Editor, StageMix) may be holding the console's \
+                 session; it can also mean the console is still starting up",
                 addr.ip(),
                 patchbay_yamaha::RCP_PORT,
             ));
