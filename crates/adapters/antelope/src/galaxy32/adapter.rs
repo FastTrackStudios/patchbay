@@ -134,6 +134,13 @@ fn want_u8(path: &str, v: &ParamValue) -> Result<u8, DeviceError> {
     }
 }
 
+/// How many announced endpoints one discovery pass will try.
+///
+/// Each attempt is a session the Manager Server has to set up and tear
+/// down, and a dead endpoint costs the whole handshake timeout. Two is
+/// enough to cover "the first one just died"; more is just churn.
+const MAX_ENDPOINT_ATTEMPTS: usize = 2;
+
 impl Galaxy32Adapter {
     /// Connect to a control endpoint described by `announce` (identity
     /// comes from the announce: serial, firmware, server version). Probes
@@ -257,6 +264,14 @@ impl Galaxy32Adapter {
     /// device with `serial` (any Galaxy if `None`) best-first, keeping the
     /// first that answers a read.
     ///
+    /// Every attempt costs a real session on the Manager Server, so this
+    /// listens first and then tries a small number of ranked endpoints —
+    /// it does not connect to everything it hears. Connecting to each
+    /// announced endpoint in turn is what tore the Thunderbolt device
+    /// down: the server keeps announcing endpoints whose sessions have
+    /// ended, so "try them all" means a connect every couple of seconds,
+    /// forever, and its heartbeat to the hardware does not survive that.
+    ///
     /// # Errors
     /// Discovery failure or no usable endpoint.
     pub async fn discover_and_connect(serial: Option<&str>, timeout: Duration) -> Result<Self> {
@@ -264,13 +279,7 @@ impl Galaxy32Adapter {
         let now = tokio::time::Instant::now();
         let deadline = now.checked_add(timeout).unwrap_or(now);
         let mut tried: HashSet<SocketAddr> = HashSet::new();
-        // LAN-address announces of the same server: used only if no
-        // loopback endpoint answers before the deadline.
-        let mut lan: Vec<(SocketAddr, Announce)> = Vec::new();
-        let mut last_err = None;
-        // Try loopback endpoints as their announces arrive (every 500 ms
-        // per interface), so a local server is usually up in < 0.5 s
-        // instead of after the full listen.
+        let mut heard: Vec<(SocketAddr, Announce)> = Vec::new();
         while let Ok(recv) = tokio::time::timeout_at(deadline, listener.recv()).await {
             let a = recv?;
             if !a.is_control() || serial.is_some_and(|s| a.serial() != Some(s)) {
@@ -279,22 +288,30 @@ impl Galaxy32Adapter {
             let Some(addr) = a.socket_addr() else {
                 continue;
             };
-            if !tried.insert(addr) {
-                continue;
-            }
-            if !addr.ip().is_loopback() {
-                lan.push((addr, a));
-                continue;
-            }
-            match Self::connect(addr, &a).await {
-                Ok(adapter) => return Ok(adapter),
-                Err(e) => {
-                    tracing::info!(%addr, error = %e, "antelope: endpoint rejected");
-                    last_err = Some(e);
-                }
+            if tried.insert(addr) {
+                heard.push((addr, a));
             }
         }
-        for (addr, a) in lan {
+        if heard.is_empty() {
+            return Err(AntelopeError::NotFound(format!(
+                "no control endpoint announced (serial {serial:?})"
+            )));
+        }
+
+        // Loopback before LAN (same server, shorter path), live before
+        // stale. Stale endpoints are only worth a try when nothing at
+        // all looked live — otherwise they are known-silent sessions.
+        let any_live = heard.iter().any(|(_, a)| a.looks_live());
+        let mut order: Vec<(SocketAddr, Announce)> = heard
+            .into_iter()
+            .filter(|(_, a)| a.looks_live() || !any_live)
+            .collect();
+        order.sort_by_key(|(addr, a)| (!a.looks_live(), !addr.ip().is_loopback()));
+        let considered = order.len();
+        order.truncate(MAX_ENDPOINT_ATTEMPTS);
+
+        let mut last_err = None;
+        for (addr, a) in order {
             match Self::connect(addr, &a).await {
                 Ok(adapter) => return Ok(adapter),
                 Err(e) => {
@@ -304,8 +321,13 @@ impl Galaxy32Adapter {
             }
         }
         Err(AntelopeError::NotFound(last_err.map_or_else(
-            || format!("no control endpoint announced (serial {serial:?})"),
-            |e| format!("no endpoint answered reads (last error: {e})"),
+            || format!("no usable control endpoint of {considered} announced"),
+            |e| {
+                format!(
+                    "no endpoint answered reads ({considered} announced, tried {}; last error: {e})",
+                    considered.min(MAX_ENDPOINT_ATTEMPTS)
+                )
+            },
         )))
     }
 

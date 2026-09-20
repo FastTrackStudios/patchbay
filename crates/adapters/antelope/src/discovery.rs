@@ -101,6 +101,32 @@ impl Announce {
 
     /// Device serial, if announced.
     #[must_use]
+    /// Whether this endpoint looks like a live session rather than one
+    /// the server has forgotten to stop announcing.
+    ///
+    /// The Manager Server allocates a control endpoint per session and
+    /// keeps announcing it after the session ends — a machine that has
+    /// reconnected a few times announces the same device on half a
+    /// dozen ports. Measured on a live Galaxy 32: every dead endpoint
+    /// announced `firmware_version` `0.00` and accepted connections
+    /// without ever replying; the one endpoint reporting the real
+    /// firmware (`8.24`) answered immediately.
+    #[must_use]
+    pub fn looks_live(&self) -> bool {
+        // No firmware field at all: nothing to judge on, so try it.
+        self.firmware().map_or(true, |fw| {
+            let fw = fw.trim();
+            !fw.is_empty() && !fw.chars().all(|c| c == '0' || c == '.')
+        })
+    }
+
+    /// Firmware version from the announce properties, if present.
+    #[must_use]
+    pub fn firmware(&self) -> Option<&str> {
+        self.properties.firmware_version.as_deref()
+    }
+
+    #[must_use]
     pub fn serial(&self) -> Option<&str> {
         self.properties.serial_number.as_deref()
     }
@@ -223,4 +249,37 @@ pub fn control_endpoints(announces: &[Announce], serial: Option<&str>) -> Vec<So
     });
     addrs.dedup();
     addrs
+}
+
+#[cfg(test)]
+mod liveness_tests {
+    use super::{Announce, AnnounceProperties};
+
+    fn announce(firmware: Option<&str>) -> Announce {
+        let mut a: Announce = serde_json::from_str(
+            r#"{"ip":"127.0.0.1","port":2030,"uuid":"u",
+                "name":"n","type":"_antelope_control._tcp.local.","properties":{}}"#,
+        )
+        .expect("fixture");
+        a.properties = AnnounceProperties {
+            firmware_version: firmware.map(str::to_owned),
+            ..AnnounceProperties::default()
+        };
+        a
+    }
+
+    #[test]
+    fn a_dead_session_announces_a_zero_firmware() {
+        // Measured on a live Galaxy 32: six endpoints the server kept
+        // announcing after their sessions ended all said `0.00` and
+        // never answered; the one reporting the real firmware did.
+        assert!(!announce(Some("0.00")).looks_live());
+        assert!(!announce(Some("0")).looks_live());
+        assert!(!announce(Some("0.0.0")).looks_live());
+        assert!(!announce(Some("  ")).looks_live());
+        assert!(announce(Some("8.24")).looks_live());
+        assert!(announce(Some("1.0")).looks_live());
+        // Nothing to judge on: try it rather than skip it.
+        assert!(announce(None).looks_live());
+    }
 }

@@ -29,6 +29,18 @@ use crate::store::GraphStore;
 const BACKOFF_MIN: Duration = Duration::from_secs(2);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
 
+/// How long a session has to last before the backoff is considered
+/// earned back.
+///
+/// Resetting on `connect` alone makes a flapping device reconnect at
+/// [`BACKOFF_MIN`] forever. Against the Antelope Manager Server that
+/// churn is not harmless: connecting every two seconds broke its
+/// heartbeat to the Galaxy 32 and it tore the Thunderbolt device down
+/// (`Heart beat exception` → `_stop_device` → `Stopping server for
+/// device`). A connection that dies immediately has not proved
+/// anything, so it does not earn a fresh backoff.
+const SESSION_EARNS_RESET: Duration = Duration::from_secs(30);
+
 /// Live state of one configured device.
 struct SlotState {
     adapter: Option<Adapter>,
@@ -479,7 +491,7 @@ async fn supervise(
     loop {
         match connect(slot.config.clone(), ctx.clone()).await {
             Ok(adapter) => {
-                backoff = BACKOFF_MIN;
+                let up_since = std::time::Instant::now();
                 // Subscribe before announcing so nothing slips between.
                 let mut rx = adapter.subscribe();
                 let info = adapter.info();
@@ -513,6 +525,9 @@ async fn supervise(
                 }
                 tracing::warn!(device = %id, %reason, "device offline; reconnecting");
                 publish(&events, &id, DeviceEventKind::Offline);
+                if up_since.elapsed() >= SESSION_EARNS_RESET {
+                    backoff = BACKOFF_MIN;
+                }
             }
             Err(e) => {
                 let mut st = slot.state.lock();

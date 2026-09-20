@@ -168,11 +168,21 @@ impl Client {
         });
         let mut first = shared.events.subscribe();
         let reader = tokio::spawn(read_loop(read, Arc::clone(&shared)));
+        // A live endpoint always says something back — the server sends
+        // cyclic state as soon as the handshake lands. Silence means the
+        // Manager Server is still announcing an endpoint whose session
+        // has ended: it accepts the connection and never speaks. Treat
+        // that as a failure so discovery moves on to the live endpoint
+        // instead of holding a dead one and then failing on the first
+        // request.
         if tokio::time::timeout(FIRST_FRAME_TIMEOUT, first.recv())
             .await
             .is_err()
         {
-            tracing::warn!(%addr, "antelope: no frame within {FIRST_FRAME_TIMEOUT:?} of the handshake");
+            reader.abort();
+            return Err(AntelopeError::Timeout {
+                method: format!("handshake {addr} (endpoint announced but silent)"),
+            });
         }
         Ok(Self {
             inner: Arc::new(Inner {
