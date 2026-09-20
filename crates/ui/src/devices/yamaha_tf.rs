@@ -12,7 +12,7 @@
 use dioxus::prelude::*;
 use patchbay_proto::DeviceView;
 
-use super::console::{Params, Strip, TF_LEAVES, count_under, numbered, strips};
+use super::console::{Params, TF_LEAVES, count_under, numbered, strips};
 use super::strip::{ChannelStrip, ParamFacts};
 
 /// Which bank of strips is showing.

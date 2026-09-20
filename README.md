@@ -20,6 +20,18 @@ on today" needs answering in seconds, not by reading `pw-link -l` output.
 The engine is headless and the UI is a client, so the desktop app and the
 browser remote are the same program seen through different windows.
 
+The window is a rail of views:
+
+| view | what it is for |
+|---|---|
+| **Now** | what is making sound right now: every app with audio, its level, the device it plays to, and one click to capture it into a mix |
+| **Mixes** | Loopback/OBS-style mixes — sources summed into virtual devices (macOS) |
+| **Devices** | the hardware as itself: a TF's channel strips, a Galaxy 32's router and mixers, the host's device list |
+| **Network** | the Dante subscription grid |
+| **Graph** | the PipeWire node canvas (Linux; hidden where there is no graph) |
+| **Scenes** | everything that can be saved and put back: presets, device snapshots, the Dante network |
+| **Settings** | privacy grants, the virtual-device driver, who can reach this Patchbay, the graph clock |
+
 ## Running it
 
 ```bash

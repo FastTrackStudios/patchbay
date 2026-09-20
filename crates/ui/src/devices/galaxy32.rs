@@ -39,7 +39,6 @@ const ROUTER_LAG: &str = "Routing changes made on the hardware panel or in the A
 
 #[component]
 pub fn Galaxy32Console(view: DeviceView) -> Element {
-    let params = Params::index(&view);
     let mixers = count_under(&view, "mixer");
     let page = *PAGE.read();
 
@@ -78,12 +77,12 @@ pub fn Galaxy32Console(view: DeviceView) -> Element {
             match page {
                 Page::Router => rsx! {
                     p { class: "dim-note console-note", "{ROUTER_LAG}" }
-                    super::RouterGrid { view: view.clone() }
+                    super::RouterGrid { view }
                 },
-                Page::Mixer(n) => rsx! { Mixer { view: view.clone(), mixer: n } },
-                Page::Trim => rsx! { Trim { view: view.clone() } },
-                Page::Afx => rsx! { Afx { view: view.clone() } },
-                Page::Clock => rsx! { Clock { view: view.clone() } },
+                Page::Mixer(n) => rsx! { Mixer { view, mixer: n } },
+                Page::Trim => rsx! { Trim { view } },
+                Page::Afx => rsx! { Afx { view } },
+                Page::Clock => rsx! { Clock { view } },
             }
         }
     }

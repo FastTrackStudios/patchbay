@@ -13,6 +13,8 @@ mod layout;
 mod mixes;
 mod now;
 mod panels;
+mod scenes;
+mod settings;
 mod state;
 mod theme;
 mod ui;

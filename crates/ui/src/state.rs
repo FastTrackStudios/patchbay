@@ -56,17 +56,30 @@ pub enum View {
     Network,
     /// The `PipeWire` node graph.
     Graph,
+    /// Everything that can be saved and put back.
+    Scenes,
+    /// Permissions, the driver, the network, the graph clock.
+    Settings,
 }
 
 impl View {
     /// Rail order, top to bottom.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::Now,
         Self::Mixes,
         Self::Devices,
         Self::Network,
         Self::Graph,
+        Self::Scenes,
+        Self::Settings,
     ];
+
+    /// Views that sit at the bottom of the rail, away from the ones you
+    /// work in — you visit these to set something up, not to mix.
+    #[must_use]
+    pub const fn is_utility(self) -> bool {
+        matches!(self, Self::Scenes | Self::Settings)
+    }
 
     /// Rail glyph — deliberately geometric: the webviews this runs in
     /// (`WKWebView`, `WebKitGTK`) render emoji at wildly different
@@ -79,6 +92,8 @@ impl View {
             Self::Devices => "▤",
             Self::Network => "⊞",
             Self::Graph => "⋔",
+            Self::Scenes => "❑",
+            Self::Settings => "⚙",
         }
     }
 
@@ -90,6 +105,8 @@ impl View {
             Self::Devices => "Devices",
             Self::Network => "Network",
             Self::Graph => "Graph",
+            Self::Scenes => "Scenes",
+            Self::Settings => "Settings",
         }
     }
 
@@ -102,6 +119,8 @@ impl View {
             Self::Devices => "Hardware: Galaxy 32, Yamaha TF, Core Audio",
             Self::Network => "Dante subscriptions",
             Self::Graph => "The PipeWire node graph",
+            Self::Scenes => "Saved states: presets, device snapshots, the Dante network",
+            Self::Settings => "Permissions, the driver, the network, the graph clock",
         }
     }
 }

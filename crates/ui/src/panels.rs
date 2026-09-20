@@ -157,9 +157,6 @@ pub fn SidePanel() -> Element {
     rsx! {
         div { class: "side-panel",
             ViewsPanel {}
-            ServicesPanel {}
-            LatencyPanel {}
-            PresetsPanel {}
             VirtualSinksPanel {}
             Inspector {}
         }
@@ -359,7 +356,7 @@ fn VirtualSinksPanel() -> Element {
 /// the 1024 default after. Rules apply when a node is created: restart
 /// the app, or hit apply (`WirePlumber` restart, brief blip).
 #[component]
-fn LatencyPanel() -> Element {
+pub(crate) fn LatencyPanel() -> Element {
     let handle = state::use_patchbay();
     let rules = state::LATENCY_RULES.read().clone();
 
@@ -432,7 +429,7 @@ fn LatencyPanel() -> Element {
 /// 50-quantum.conf (idle/default quantum + the min/max clamp). Applies
 /// on `PipeWire` restart.
 #[component]
-fn ClockDefaultsEditor() -> Element {
+pub(crate) fn ClockDefaultsEditor() -> Element {
     let handle = state::use_patchbay();
     let stored = *state::CLOCK_DEFAULTS.read();
     let mut quantum = use_signal(|| stored.quantum);
@@ -498,7 +495,7 @@ fn ClockDefaultsEditor() -> Element {
 /// `PipeWire` itself is down the engine reconnects on its own once it's
 /// restarted from here.
 #[component]
-fn ServicesPanel() -> Element {
+pub(crate) fn ServicesPanel() -> Element {
     let handle = state::use_patchbay();
 
     // Poll every 5 s so a crashed unit shows up without user action.
@@ -637,7 +634,7 @@ fn preset_diff(preset: &patchbay_proto::RoutingPreset) -> String {
 }
 
 #[component]
-fn PresetsPanel() -> Element {
+pub(crate) fn PresetsPanel() -> Element {
     let presets = PRESETS.read().clone();
     let handle = state::use_patchbay();
     let mut new_name = use_signal(String::new);

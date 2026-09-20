@@ -1,0 +1,49 @@
+/* Settings and Scenes: rows of "what this is, what state it is in, and
+   the one thing you can do about it". */
+
+.settings-body, .scenes-body {
+  padding: var(--s6) var(--s8) var(--s10);
+  display: flex; flex-direction: column; gap: var(--s9);
+  max-width: 900px;
+}
+.settings-section { display: flex; flex-direction: column; gap: var(--s3); }
+.settings-section > .dim-note { margin-top: 0; max-width: 720px; line-height: 1.6; }
+
+.setting-row {
+  display: flex; align-items: center; gap: var(--s5);
+  padding: var(--s4) var(--s5);
+  background: var(--raised); border: 1px solid var(--divider);
+  border-radius: var(--r3);
+}
+.setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.setting-title { font-weight: 600; }
+.setting-text .dim-note { margin-top: 0; width: auto; line-height: 1.5; }
+
+/* Opening the RPC to the network is the one setting here that can't be
+   taken back from somewhere else, so it gets the warning colour. */
+.setting-warning {
+  color: var(--warn); font-size: var(--fs-2); line-height: 1.6;
+  background: var(--warn-a10); border: 1px solid var(--warn-line);
+  border-radius: var(--r3); padding: var(--s4) var(--s5); max-width: 720px;
+}
+.setting-urls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3); }
+.setting-urls .dim-note { margin-top: 0; width: auto; }
+.setting-url {
+  font-family: var(--font-mono); font-size: var(--fs-1);
+  background: var(--sunken); border: 1px solid var(--border);
+  border-radius: var(--r2); padding: var(--s1) var(--s3); color: var(--accent-2);
+  user-select: all;
+}
+
+.scenes-note {
+  color: var(--ok); font-size: var(--fs-2);
+  background: var(--ok-a12); border: 1px solid var(--ok-line);
+  border-radius: var(--r3); padding: var(--s3) var(--s5);
+}
+
+/* The panels that moved here were written for a 280px column. */
+.settings-section .panel-section { max-width: 100%; }
+.settings-section .panel-section h3 {
+  font-size: var(--fs-1); text-transform: uppercase;
+  letter-spacing: var(--track); color: var(--muted);
+}

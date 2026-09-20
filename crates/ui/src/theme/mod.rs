@@ -13,5 +13,6 @@ pub const CSS: &str = concat!(
     include_str!("now.css"),
     include_str!("mixes.css"),
     include_str!("devices.css"),
+    include_str!("settings.css"),
     include_str!("views.css"),
 );
