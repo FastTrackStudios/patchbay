@@ -164,10 +164,38 @@ pub async fn probe(
     connect_timeout: Duration,
     reply_timeout: Duration,
 ) -> Option<String> {
-    let mut stream = tokio::time::timeout(connect_timeout, TcpStream::connect(addr))
-        .await
-        .ok()?
-        .ok()?;
+    match probe_detail(addr, connect_timeout, reply_timeout).await {
+        Probe::Console(product) => Some(product),
+        Probe::Silent | Probe::NoAnswer => None,
+    }
+}
+
+/// What was at an address.
+///
+/// [`Probe::Silent`] is the interesting one: something is listening on
+/// the RCP port and will not answer `devinfo`. A console does that while
+/// it is still booting, and reporting it as "nothing found" sends people
+/// looking for a network fault that isn't there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Probe {
+    /// Nothing accepted a connection.
+    NoAnswer,
+    /// Connected, but no RCP reply inside the timeout.
+    Silent,
+    /// Answered `devinfo productname`.
+    Console(String),
+}
+
+/// Probe one address, keeping what happened.
+pub async fn probe_detail(
+    addr: SocketAddr,
+    connect_timeout: Duration,
+    reply_timeout: Duration,
+) -> Probe {
+    let Ok(Ok(mut stream)) = tokio::time::timeout(connect_timeout, TcpStream::connect(addr)).await
+    else {
+        return Probe::NoAnswer;
+    };
     let ask = async {
         stream.write_all(b"devinfo productname\n").await.ok()?;
         let mut lines = BufReader::new(&mut stream).lines();
@@ -188,31 +216,55 @@ pub async fn probe(
         .ok()
         .flatten();
     let _ = stream.shutdown().await;
-    product
+    product.map_or(Probe::Silent, Probe::Console)
+}
+
+/// What a scan of some addresses turned up.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Scan {
+    /// Consoles that answered `devinfo` with a TF product name.
+    pub consoles: Vec<FoundConsole>,
+    /// Addresses with the RCP port open that never replied — usually a
+    /// console still booting, occasionally something else on 49280.
+    pub silent: Vec<SocketAddr>,
 }
 
 /// Probe `targets` concurrently and return every TF console found.
 pub async fn scan_addrs(targets: &[Ipv4Addr], opts: &ScanOptions) -> Vec<FoundConsole> {
+    scan_addrs_detail(targets, opts).await.consoles
+}
+
+/// As [`scan_addrs`], keeping the addresses that accepted a connection
+/// and then said nothing.
+pub async fn scan_addrs_detail(targets: &[Ipv4Addr], opts: &ScanOptions) -> Scan {
     let port = opts.port;
     let (ct, rt) = (opts.connect_timeout, opts.reply_timeout);
-    let mut found: Vec<FoundConsole> = stream::iter(targets.iter().copied())
+    let results: Vec<(SocketAddr, Probe)> = stream::iter(targets.iter().copied())
         .map(|ip| async move {
             let addr = SocketAddr::new(IpAddr::V4(ip), port);
-            probe(addr, ct, rt)
-                .await
-                .filter(|p| is_tf_product(p))
-                .map(|product| FoundConsole {
+            (addr, probe_detail(addr, ct, rt).await)
+        })
+        .buffer_unordered(opts.concurrency.max(1))
+        .collect()
+        .await;
+    let mut scan = Scan::default();
+    for (addr, probe) in results {
+        match probe {
+            Probe::Console(product) if is_tf_product(&product) => {
+                scan.consoles.push(FoundConsole {
                     addr,
                     product,
                     mac: None,
-                })
-        })
-        .buffer_unordered(opts.concurrency.max(1))
-        .filter_map(|r| async move { r })
-        .collect()
-        .await;
-    found.sort_by_key(|f| f.addr);
-    found
+                });
+            }
+            // Something answered, but not as a TF: worth saying so.
+            Probe::Console(_) | Probe::Silent => scan.silent.push(addr),
+            Probe::NoAnswer => {}
+        }
+    }
+    scan.consoles.sort_by_key(|f| f.addr);
+    scan.silent.sort();
+    scan
 }
 
 /// IEEE OUIs registered to Yamaha Corporation.
@@ -401,10 +453,16 @@ pub async fn find_by_mac(mac: [u8; 6], opts: &ScanOptions) -> Option<FoundConsol
 /// the module docs); returns the consoles of the first stage that
 /// found any.
 pub async fn discover(opts: &ScanOptions) -> Vec<FoundConsole> {
+    discover_detail(opts).await.consoles
+}
+
+/// As [`discover`], keeping what answered TCP without speaking RCP.
+pub async fn discover_detail(opts: &ScanOptions) -> Scan {
     let nets = local_networks();
     let sweep = scan_targets(&nets, opts.max_hosts);
     let arp = neighbors().await;
     let stages = plan_stages(&arp, &sweep);
+    let mut silent: Vec<SocketAddr> = Vec::new();
     tracing::info!(
         neighbors = arp.len(),
         yamaha = stages.first().map_or(0, Vec::len),
@@ -421,13 +479,20 @@ pub async fn discover(opts: &ScanOptions) -> Vec<FoundConsole> {
             hosts = targets.len(),
             "yamaha: scanning for TF consoles"
         );
-        let found = scan_addrs(targets, opts).await;
-        if !found.is_empty() {
+        let mut scan = scan_addrs_detail(targets, opts).await;
+        if !scan.consoles.is_empty() {
             tracing::info!(stage, hosts = targets.len(), "yamaha: TF console found");
-            return with_macs(found).await;
+            scan.consoles = with_macs(scan.consoles).await;
+            return scan;
         }
+        silent.extend(scan.silent);
     }
-    Vec::new()
+    silent.sort();
+    silent.dedup();
+    Scan {
+        consoles: Vec::new(),
+        silent,
+    }
 }
 
 #[cfg(test)]

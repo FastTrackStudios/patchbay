@@ -29,7 +29,8 @@ mod tf;
 
 pub use client::{Client, ClientEvent, ClientOptions, Notification, RCP_PORT, Reply};
 pub use discovery::{
-    FoundConsole, LocalNet, Neighbor, ScanOptions, discover as discover_consoles, find_by_mac,
+    FoundConsole, LocalNet, Neighbor, Probe, Scan, ScanOptions, discover as discover_consoles,
+    discover_detail as discover_consoles_detail, find_by_mac,
     format_mac, is_tf_product, local_networks, neighbors, parse_arp_an, parse_mac,
     parse_proc_net_arp, plan_stages, probe as probe_console, scan_addrs, scan_targets,
 };

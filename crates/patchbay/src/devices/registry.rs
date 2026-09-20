@@ -242,7 +242,8 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
         cache.set(&cfg.name, &found.addr.to_string());
         return Ok(found.addr);
     }
-    let found = patchbay_yamaha::discover_consoles(&scan).await;
+    let scanned = patchbay_yamaha::discover_consoles_detail(&scan).await;
+    let found = scanned.consoles;
     if found.len() > 1 {
         tracing::info!(
             consoles = ?found.iter().map(|f| f.addr).collect::<Vec<_>>(),
@@ -250,6 +251,25 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
         );
     }
     let first = found.first().ok_or_else(|| {
+        // A host with the port open that never answers is a different
+        // problem from an empty network — usually a console still
+        // booting, or one sitting on a screen that won't serve RCP —
+        // and saying "nothing found" sends people hunting a network
+        // fault that isn't there.
+        if let Some(addr) = scanned.silent.first() {
+            let more = scanned.silent.len().saturating_sub(1);
+            let others = if more > 0 {
+                format!(" (and {more} more)")
+            } else {
+                String::new()
+            };
+            return ConnectError::NotFound(format!(
+                "{}{others} has TCP {} open but never answered `devinfo` — the console may \
+                 still be booting, or something else is on that port",
+                addr.ip(),
+                patchbay_yamaha::RCP_PORT,
+            ));
+        }
         ConnectError::NotFound(format!(
             "no TF console answered on TCP {} on {} local network(s)",
             patchbay_yamaha::RCP_PORT,
