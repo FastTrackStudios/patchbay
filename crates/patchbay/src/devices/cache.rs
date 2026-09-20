@@ -97,6 +97,16 @@ impl DiscoveryCache {
     }
 
     /// Remember the members of `name` (no-op if unchanged).
+    /// Forget a device's cached address, so the next attempt discovers
+    /// instead of retrying somewhere it isn't. The MAC is kept — it is
+    /// how the console is followed across a DHCP change.
+    pub(crate) fn forget_addr(&self, name: &str) {
+        let mut data = self.data.lock();
+        if data.discovered.remove(name).is_some() {
+            Self::persist(self.path.as_ref(), &data);
+        }
+    }
+
     pub(crate) fn set_members(&self, name: &str, members: BTreeMap<String, String>) {
         let mut data = self.data.lock();
         if data.members.get(name) == Some(&members) {

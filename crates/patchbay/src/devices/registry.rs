@@ -12,11 +12,12 @@
 //! from "found / pinned but unreachable" ([`ConnectError::Failed`]) so
 //! `device list` can say *not found* vs *offline*.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 use patchbay_device::DynDeviceAdapter;
@@ -199,17 +200,77 @@ async fn resolve_rcp(raw: &str) -> Result<SocketAddr, ConnectError> {
         .ok_or_else(|| ConnectError::Failed(format!("addr '{raw}' did not resolve")))
 }
 
-/// Pause before re-probing a cached address once.
-const CACHED_PROBE_RETRY: Duration = Duration::from_millis(250);
-
-/// Find the console, read-only (`devinfo productname` only), cheapest
-/// first:
+/// Don't sweep the subnets more often than this.
 ///
-/// 1. the cached address (one probe);
+/// A sweep is up to `max_hosts` TCP connections per local network. Doing
+/// that on every reconnect cycle is antisocial on any network, and on a
+/// console whose RCP listener is already struggling it is what keeps it
+/// down: the TF accepts connections into its backlog and only services
+/// them one session at a time, so a repeating sweep can wedge the
+/// listener until the desk is restarted.
+const SWEEP_EVERY: Duration = Duration::from_secs(300);
+
+/// When the last full discovery sweep ran, per device name.
+static LAST_SWEEP: std::sync::LazyLock<parking_lot::Mutex<BTreeMap<String, Instant>>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(BTreeMap::new()));
+
+/// What the last sweep concluded, per device — reused while the next
+/// sweep is rate-limited, so the reason stays the reason instead of
+/// becoming "we haven't looked recently".
+static LAST_SCAN_NOTE: std::sync::LazyLock<parking_lot::Mutex<BTreeMap<String, String>>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(BTreeMap::new()));
+
+/// Consecutive failed connects against a cached address, per device.
+static CACHED_MISSES: std::sync::LazyLock<parking_lot::Mutex<BTreeMap<String, u32>>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(BTreeMap::new()));
+
+/// Keep trying a cached address this many times before giving up on it.
+///
+/// A console that is merely switched off should cost one connection per
+/// reconnect cycle and nothing else — going back to discovery on the
+/// first failure would put the sweep back in the loop, which is what
+/// wedged a live TF's RCP listener in the first place.
+const CACHED_MISSES_BEFORE_REDISCOVER: u32 = 5;
+
+/// Record a failed connect; `true` when the cached address should go.
+fn cached_miss(name: &str) -> bool {
+    let mut misses = CACHED_MISSES.lock();
+    let n = misses.entry(name.to_owned()).or_insert(0);
+    *n = n.saturating_add(1);
+    if *n >= CACHED_MISSES_BEFORE_REDISCOVER {
+        misses.remove(name);
+        true
+    } else {
+        false
+    }
+}
+
+/// Forget the failure history for a device that just connected.
+fn cached_hit(name: &str) {
+    CACHED_MISSES.lock().remove(name);
+}
+
+/// Whether a sweep for `name` is due, recording it if so.
+fn sweep_due(name: &str) -> bool {
+    let mut last = LAST_SWEEP.lock();
+    match last.get(name) {
+        Some(t) if t.elapsed() < SWEEP_EVERY => false,
+        _ => {
+            last.insert(name.to_owned(), Instant::now());
+            true
+        }
+    }
+}
+
+/// Find the console, cheapest first:
+///
+/// 1. the cached address, returned **without probing** — the session
+///    that follows is the probe, so a console we already know costs one
+///    connection instead of two;
 /// 2. the cached MAC looked up in the neighbour table — follows the
 ///    console across DHCP address changes in one probe;
 /// 3. the staged scan (Yamaha-OUI neighbours → other neighbours → full
-///    sweep of the local subnets).
+///    sweep), at most once every [`SWEEP_EVERY`].
 ///
 /// The console's Dante card has its own address and MAC (Audinate
 /// OUI); it never speaks RCP and is skipped by the scan.
@@ -219,19 +280,7 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
         .get(&cfg.name)
         .and_then(|c| c.parse::<SocketAddr>().ok())
     {
-        // Twice: right after launch macOS can fail a process's first LAN
-        // connections while it evaluates Local Network access.
-        for attempt in 0..2_u8 {
-            if attempt > 0 {
-                tokio::time::sleep(CACHED_PROBE_RETRY).await;
-            }
-            if patchbay_yamaha::probe_console(addr, scan.connect_timeout, scan.reply_timeout)
-                .await
-                .is_some_and(|p| patchbay_yamaha::is_tf_product(&p))
-            {
-                return Ok(addr);
-            }
-        }
+        return Ok(addr);
     }
     if let Some(mac) = cache
         .get_mac(&cfg.name)
@@ -242,6 +291,15 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
         cache.set(&cfg.name, &found.addr.to_string());
         return Ok(found.addr);
     }
+    if !sweep_due(&cfg.name) {
+        let note = LAST_SCAN_NOTE.lock().get(&cfg.name).cloned();
+        return Err(ConnectError::NotFound(note.unwrap_or_else(|| {
+            format!(
+                "no TF console found; the subnets are swept at most every {}s",
+                SWEEP_EVERY.as_secs()
+            )
+        })));
+    }
     let scanned = patchbay_yamaha::discover_consoles_detail(&scan).await;
     let found = scanned.consoles;
     if found.len() > 1 {
@@ -251,6 +309,11 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
         );
     }
     let first = found.first().ok_or_else(|| {
+        let remember = |name: &str, msg: &str| {
+            LAST_SCAN_NOTE
+                .lock()
+                .insert(name.to_owned(), msg.to_owned());
+        };
         // A host with the port open that never answers is a different
         // problem from an empty network, and saying "nothing found"
         // sends people hunting a fault that isn't there.
@@ -268,21 +331,26 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
             } else {
                 String::new()
             };
-            return ConnectError::NotFound(format!(
+            let msg = format!(
                 "{}{others} accepted a connection on TCP {} and never answered `devinfo` — \
                  another RCP client (TF Editor, StageMix) may be holding the console's \
-                 session; it can also mean the console is still starting up",
+                 session, or its remote-control listener needs the desk restarted",
                 addr.ip(),
                 patchbay_yamaha::RCP_PORT,
-            ));
+            );
+            remember(&cfg.name, &msg);
+            return ConnectError::NotFound(msg);
         }
-        ConnectError::NotFound(format!(
+        let msg = format!(
             "no TF console answered on TCP {} on {} local network(s)",
             patchbay_yamaha::RCP_PORT,
             patchbay_yamaha::local_networks().len()
-        ))
+        );
+        remember(&cfg.name, &msg);
+        ConnectError::NotFound(msg)
     })?;
     tracing::info!(addr = %first.addr, product = %first.product, "yamaha-tf: console found");
+    LAST_SCAN_NOTE.lock().remove(&cfg.name);
     cache.set(&cfg.name, &first.addr.to_string());
     if let Some(mac) = first.mac {
         cache.set_mac(&cfg.name, &patchbay_yamaha::format_mac(mac));
@@ -317,9 +385,20 @@ fn yamaha_tf(cfg: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
             },
             ..patchbay_yamaha::TfOptions::default()
         };
-        let adapter = patchbay_yamaha::TfAdapter::connect_with(addr, opts)
-            .await
-            .map_err(|e| ConnectError::Failed(format!("{addr}: {e}")))?;
+        let adapter = match patchbay_yamaha::TfAdapter::connect_with(addr, opts).await {
+            Ok(a) => a,
+            Err(e) => {
+                // The cached address is now the only thing we probe, so
+                // it is also the only thing that can be wrong. Forget it
+                // and let the next attempt discover rather than retrying
+                // an address the console has left.
+                if raw.is_empty() && cached_miss(&cfg.name) {
+                    ctx.cache.forget_addr(&cfg.name);
+                }
+                return Err(ConnectError::Failed(format!("{addr}: {e}")));
+            }
+        };
+        cached_hit(&cfg.name);
         let adapter: Adapter = Arc::new(adapter);
         Ok(adapter)
     })
