@@ -99,8 +99,6 @@ impl Announce {
             .map(|ip| SocketAddr::new(ip, self.port))
     }
 
-    /// Device serial, if announced.
-    #[must_use]
     /// Whether this endpoint looks like a live session rather than one
     /// the server has forgotten to stop announcing.
     ///
@@ -126,6 +124,7 @@ impl Announce {
         self.properties.firmware_version.as_deref()
     }
 
+    /// Device serial, if announced.
     #[must_use]
     pub fn serial(&self) -> Option<&str> {
         self.properties.serial_number.as_deref()

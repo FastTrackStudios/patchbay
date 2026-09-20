@@ -298,16 +298,25 @@ impl Galaxy32Adapter {
             )));
         }
 
-        // Loopback before LAN (same server, shorter path), live before
-        // stale. Stale endpoints are only worth a try when nothing at
-        // all looked live — otherwise they are known-silent sessions.
-        let any_live = heard.iter().any(|(_, a)| a.looks_live());
-        let mut order: Vec<(SocketAddr, Announce)> = heard
-            .into_iter()
-            .filter(|(_, a)| a.looks_live() || !any_live)
-            .collect();
-        order.sort_by_key(|(addr, a)| (!a.looks_live(), !addr.ip().is_loopback()));
-        let considered = order.len();
+        // Endpoints for sessions that have ended never answer, and
+        // connecting to one is not free — it is a session the server
+        // sets up and tears down, and enough of that breaks its
+        // heartbeat to the hardware. So when everything announced is an
+        // ended session, say so and connect to nothing: the server is in
+        // a state only it can leave, and hammering it is what put it
+        // there.
+        let considered = heard.len();
+        let mut order: Vec<(SocketAddr, Announce)> =
+            heard.into_iter().filter(|(_, a)| a.looks_live()).collect();
+        if order.is_empty() {
+            return Err(AntelopeError::NotFound(format!(
+                "{considered} control endpoint(s) announced, all for sessions that have ended \
+                 (firmware reported as 0.00) — the Manager Server has no live session for this \
+                 device; restarting it, or the device panel, gives it one"
+            )));
+        }
+        // Loopback before LAN: same server, shorter path.
+        order.sort_by_key(|(addr, _)| !addr.ip().is_loopback());
         order.truncate(MAX_ENDPOINT_ATTEMPTS);
 
         let mut last_err = None;

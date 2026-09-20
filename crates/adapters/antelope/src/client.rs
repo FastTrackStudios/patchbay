@@ -35,6 +35,8 @@ pub const CYCLIC_STATE_CMD: u32 = 115;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(2);
+/// Pause between the session's first frame and our first request.
+const SESSION_SETTLE: Duration = Duration::from_millis(300);
 
 /// What the reader task publishes.
 #[derive(Debug, Clone)]
@@ -168,13 +170,13 @@ impl Client {
         });
         let mut first = shared.events.subscribe();
         let reader = tokio::spawn(read_loop(read, Arc::clone(&shared)));
-        // A live endpoint always says something back — the server sends
-        // cyclic state as soon as the handshake lands. Silence means the
+        // A session that is serving the hardware starts streaming
+        // cyclic frames straight away (~10 Hz). Silence means the
         // Manager Server is still announcing an endpoint whose session
-        // has ended: it accepts the connection and never speaks. Treat
-        // that as a failure so discovery moves on to the live endpoint
-        // instead of holding a dead one and then failing on the first
-        // request.
+        // has ended: it accepts the connection and never speaks. That
+        // used to be a warning, so a dead endpoint was held and then
+        // failed on its first request; failing here instead lets
+        // discovery move on to a live endpoint.
         if tokio::time::timeout(FIRST_FRAME_TIMEOUT, first.recv())
             .await
             .is_err()
@@ -184,6 +186,11 @@ impl Client {
                 method: format!("handshake {addr} (endpoint announced but silent)"),
             });
         }
+        // Then let it settle. A request sent the instant the first frame
+        // lands is answered `COMMAND_STATUS FAIL`; the official panel
+        // pauses here too, and so does every capture we replayed while
+        // working the protocol out.
+        tokio::time::sleep(SESSION_SETTLE).await;
         Ok(Self {
             inner: Arc::new(Inner {
                 addr,
