@@ -1,7 +1,14 @@
 /* Device consoles: channel strips, the trim page, the AFX grid, and the
    inspector the parameter tree now lives in. */
 
-.console { display: flex; flex-direction: column; gap: var(--s5); padding: var(--s5) var(--s7); min-height: 0; }
+.console {
+  display: flex; flex-direction: column; gap: var(--s5);
+  padding: var(--s5) var(--s7);
+  /* The device pages sit in a flex column, so the console has to be
+     allowed to shrink AND to scroll — otherwise a bank of full-height
+     strips is squeezed and its bottom row is clipped. */
+  flex: 1; min-height: 0; overflow-y: auto;
+}
 .console-bar {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3);
   padding-bottom: var(--s2);
@@ -12,7 +19,13 @@
 /* ── channel strips ──────────────────────────────────────────────── */
 .dev-strips {
   display: flex; gap: var(--s3); overflow-x: auto;
-  padding-bottom: var(--s2); align-items: stretch;
+  /* Room for the horizontal scrollbar, which otherwise sits on top of
+     the last control in every strip. */
+  padding-bottom: var(--s5);
+  /* Not `stretch`: the strips clip their own colour bar with
+     `overflow: hidden`, so a strip sized to the row rather than to its
+     content loses whatever is at the bottom of it. */
+  align-items: flex-start; flex: 0 0 auto;
 }
 .dev-strip {
   position: relative; flex: 0 0 96px; width: 96px;
@@ -40,7 +53,7 @@
 }
 .dev-strip-pick { width: 100%; font-size: var(--fs-sm); padding: 0 var(--s1); }
 
-.dev-strip-body { display: flex; justify-content: center; height: 150px; }
+.dev-strip-body { display: flex; justify-content: center; height: 150px; flex: 0 0 auto; }
 .dev-strip-db {
   text-align: center; font-size: var(--fs-1); color: var(--text);
   font-variant-numeric: tabular-nums;
