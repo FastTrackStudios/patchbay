@@ -31,6 +31,16 @@ static NOTE: GlobalSignal<String> = Signal::global(String::new);
 /// A hardware write is running — the Dante buttons take seconds.
 static BUSY: GlobalSignal<bool> = Signal::global(|| false);
 
+/// Forget the previous engine's saved states (see `hosts::reset`).
+pub fn reset() {
+    SNAPSHOTS.write().clear();
+    DANTE_SAVED.write().clear();
+    MIXES.write().clear();
+    ERROR.write().clear();
+    NOTE.write().clear();
+    *BUSY.write() = false;
+}
+
 async fn refresh(handle: &PatchbayHandle) {
     let (snaps, dante, mixes) = futures_util::join!(
         handle.0.list_device_snapshots(),
@@ -101,7 +111,13 @@ pub fn ScenesView() -> Element {
     rsx! {
         div { class: "view-head",
             span { class: "view-title", "Scenes" }
-            span { class: "view-sub", "what Patchbay can save and put back" }
+            span { class: "view-sub",
+                if crate::hosts::multi_host() {
+                    "what {crate::hosts::live_name()} can save and put back — every device on it"
+                } else {
+                    "what Patchbay can save and put back — every device"
+                }
+            }
         }
         ErrorBar { message: error, on_dismiss: move |()| ERROR.write().clear() }
         div { class: "view-body scenes-body",

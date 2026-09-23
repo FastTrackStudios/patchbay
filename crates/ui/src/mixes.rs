@@ -43,6 +43,12 @@ static TARGETS: GlobalSignal<HostTargets> = Signal::global(HostTargets::default)
 /// unknown, not false).
 static TARGETS_LOADED: GlobalSignal<bool> = Signal::global(|| false);
 static SELECTED: GlobalSignal<Option<String>> = Signal::global(|| None);
+/// Where the list and the editor are one pane each (a phone): show the
+/// list. Separate from [`SELECTED`] because a mix is always selected —
+/// the refresh re-picks the first one — and "back" must not bounce.
+/// Starts true so a phone lands on the list; beside each other it is
+/// ignored.
+static BROWSING: GlobalSignal<bool> = Signal::global(|| true);
 static ERROR: GlobalSignal<String> = Signal::global(String::new);
 static NEW_NAME: GlobalSignal<String> = Signal::global(String::new);
 /// Patchbay.driver status + its virtual devices.
@@ -66,10 +72,29 @@ static CONFIRM_DELETE: GlobalSignal<Option<String>> = Signal::global(|| None);
 static LEVEL_TX: GlobalSignal<HashMap<LevelKey, Option<(f64, bool)>>> =
     Signal::global(HashMap::new);
 
+/// Forget the previous engine's mixes (see `hosts::reset`).
+pub fn reset() {
+    MIXES.write().clear();
+    *TARGETS.write() = HostTargets::default();
+    *TARGETS_LOADED.write() = false;
+    *SELECTED.write() = None;
+    *BROWSING.write() = true;
+    ERROR.write().clear();
+    *VDEVS.write() = patchbay_proto::VirtualDevicesStatus::default();
+    *VRENAME.write() = None;
+    METERS.write().clear();
+    *PICKER.write() = None;
+    *CONFIRM_DELETE.write() = None;
+    LEVEL_TX.write().clear();
+}
+
 /// Open `name` in the Mixes view — the way other views hand off to it.
 pub(crate) fn open(name: &str) {
     *SELECTED.write() = Some(name.to_owned());
-    *crate::state::VIEW.write() = crate::state::View::Mixes;
+    *BROWSING.write() = false;
+    // Host mixes are the system's Mix page.
+    crate::devices::select_system();
+    *crate::state::VIEW.write() = crate::state::View::Mix;
 }
 
 /// `(mix name, is output, index)`.
@@ -454,6 +479,9 @@ pub fn MixesView() -> Element {
         };
     }
 
+    // On a phone: the editor pane rather than the list.
+    let editing = current.is_some() && !*BROWSING.read();
+
     let create = {
         move || {
             let name = NEW_NAME.peek().trim().to_owned();
@@ -467,6 +495,7 @@ pub fn MixesView() -> Element {
             }
             NEW_NAME.write().clear();
             *SELECTED.write() = Some(name.clone());
+            *BROWSING.write() = false;
             save(
                 handle.clone(),
                 MixConfig {
@@ -482,9 +511,14 @@ pub fn MixesView() -> Element {
     let create_key = create.clone();
 
     rsx! {
-        div { class: "mixes-view",
+        div { class: if editing { "mixes-view has-selection" } else { "mixes-view" },
             div { class: "mix-list",
-                h3 { "Mixes" }
+                // The same head every other page has: what this is, and
+                // which machine's — on a phone this pane is the whole screen.
+                div { class: "mix-list-head",
+                    h3 { "Mixes" }
+                    crate::devices::ContextTag {}
+                }
                 for m in mixes.iter() {
                     {
                         let name = m.config.name.clone();
@@ -499,6 +533,7 @@ pub fn MixesView() -> Element {
                                 class: if on { "mix-row on" } else { "mix-row" },
                                 onclick: move |_| {
                                     *SELECTED.write() = Some(name.clone());
+                                    *BROWSING.write() = false;
                                     *PICKER.write() = None;
                                     *CONFIRM_DELETE.write() = None;
                                 },
@@ -590,6 +625,7 @@ fn MixEditor(view: MixView) -> Element {
                         METERS.write().remove(&name);
                         let first = MIXES.peek().first().map(|m| m.config.name.clone());
                         *SELECTED.write() = first;
+                        *BROWSING.write() = true;
                         ERROR.write().clear();
                     }
                     Err(e) => *ERROR.write() = format!("delete '{name}': {e}"),
@@ -601,6 +637,17 @@ fn MixEditor(view: MixView) -> Element {
     rsx! {
         div { class: "mix-editor",
             div { class: "view-head",
+                // Phone only: the list and the editor are one pane each.
+                button {
+                    class: "chip mix-back",
+                    "aria-label": "back to the list of mixes",
+                    onclick: move |_| {
+                        *BROWSING.write() = true;
+                        *PICKER.write() = None;
+                        *CONFIRM_DELETE.write() = None;
+                    },
+                    "‹ Mixes"
+                }
                 span { class: "view-title", "{name}" }
                 span { class: "{badge}", "{word}" }
                 span { class: "view-sub", "{cfg.channels} ch" }

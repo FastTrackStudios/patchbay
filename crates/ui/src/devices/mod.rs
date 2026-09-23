@@ -28,7 +28,7 @@ mod strip;
 mod yamaha_tf;
 
 use crate::state::{self, PatchbayHandle};
-use crate::ui::{Status, StatusDot};
+use crate::ui::{EmptyState, ErrorBar, Status, StatusDot};
 
 // ─── State ──────────────────────────────────────────────────────────────
 
@@ -100,12 +100,28 @@ const fn state_label(s: DeviceLinkState) -> &'static str {
     }
 }
 
+/// Forget the previous engine's devices (see `hosts::reset`). A device
+/// the switch asked for is selected up front, so the first poll loads it.
+pub fn reset() {
+    DEVICES.write().clear();
+    *SELECTED.write() = crate::hosts::PENDING_DEVICE.write().take();
+    *VIEW.write() = None;
+    SNAPSHOTS.write().clear();
+    *REPORT.write() = None;
+    ERROR.write().clear();
+    *LOADING.write() = false;
+    OUT_GROUP.write().clear();
+    SRC_GROUP.write().clear();
+    OPEN_SECTIONS.write().clear();
+    *CONTEXT_MENU.write() = false;
+}
+
 fn bump_stale() {
     let mut s = STALE.write();
     *s = s.wrapping_add(1);
 }
 
-fn device_key(d: &DeviceSummary) -> String {
+pub fn device_key(d: &DeviceSummary) -> String {
     if d.id.is_empty() {
         d.name.clone()
     } else {
@@ -138,6 +154,9 @@ async fn load_selected(handle: &PatchbayHandle) {
     let Some(id) = SELECTED.peek().clone() else {
         return;
     };
+    if !loads_a_view() {
+        return;
+    }
     *LOADING.write() = true;
     match handle.0.device(id).await {
         Ok(v) => {
@@ -264,122 +283,335 @@ fn group_params(
 
 // ─── Components ─────────────────────────────────────────────────────────
 
-#[component]
-pub fn DevicesView() -> Element {
-    let handle = state::use_patchbay();
+// ─── Context ────────────────────────────────────────────────────────────
+//
+// The selected device is the app's *context*: Route and Mix both act on
+// it. The rail shows it and switches it, so the list and the selected
+// device are kept fresh from the app root, not from whichever page
+// happens to be mounted.
 
-    // List on open, then keep it (and the selected device) fresh: a
-    // cheap poll for link state, a full re-read when events say so.
-    use_future({
+/// The host's own audio layer (Core Audio / the `PipeWire` graph).
+pub const KIND_SYSTEM: &str = "system-audio";
+/// The Dante network, as one device.
+pub const KIND_DANTE: &str = "dante";
+
+/// The context switcher is open.
+pub static CONTEXT_MENU: GlobalSignal<bool> = Signal::global(|| false);
+
+/// Every configured device, for the context switcher.
+pub fn contexts() -> Vec<DeviceSummary> {
+    DEVICES.read().clone()
+}
+
+/// The device Route and Mix are about. `None` until the list has been
+/// read (or where the engine has no device layer at all).
+pub fn context() -> Option<DeviceSummary> {
+    let selected = SELECTED.read().clone()?;
+    DEVICES
+        .read()
+        .iter()
+        .find(|d| device_key(d) == selected)
+        .cloned()
+}
+
+/// A context's name at rail width: what the device IS — `Core Audio`,
+/// `TF1`, `Galaxy32` — rather than what the config calls it. Named for
+/// the thing and not as "System", because one rail is meant to hold
+/// several hosts side by side (Core Audio on one machine, `PipeWire` on
+/// another).
+pub fn context_label(d: &DeviceSummary) -> String {
+    match d.kind.as_str() {
+        // "Dante network" doesn't fit the rail; the icon says network.
+        KIND_DANTE => "Dante".to_owned(),
+        _ if d.model.is_empty() => d.name.clone(),
+        _ => d.model.clone(),
+    }
+}
+
+pub const fn context_status(d: &DeviceSummary) -> Status {
+    match d.state {
+        DeviceLinkState::Online => Status::Ok,
+        DeviceLinkState::Connecting | DeviceLinkState::Searching => Status::Busy,
+        DeviceLinkState::Offline => Status::Bad,
+        DeviceLinkState::Disabled | DeviceLinkState::NotFound => Status::Missing,
+    }
+}
+
+/// `online`, `not found`, … plus where and why when there is more to say.
+pub fn context_detail(d: &DeviceSummary) -> String {
+    let mut out = state_label(d.state).to_owned();
+    if !d.transport.is_empty() {
+        out = format!("{out} · {}", d.transport);
+    }
+    if !d.error.is_empty() {
+        out = format!("{out} · {}", d.error);
+    }
+    out
+}
+
+/// The context's key, for remembering it (`crate::session`).
+pub fn selected_key() -> Option<String> {
+    SELECTED.read().clone()
+}
+
+/// Select a device by key before its engine has listed it — restoring a
+/// session. If it no longer exists the page says so, and the rail offers
+/// the ones that do.
+pub fn prefer(key: String) {
+    if SELECTED.peek().as_deref() != Some(key.as_str()) {
+        *SELECTED.write() = Some(key);
+        *VIEW.write() = None;
+    }
+}
+
+/// Make `d` the context.
+pub fn select_context(handle: PatchbayHandle, d: &DeviceSummary) {
+    *CONTEXT_MENU.write() = false;
+    // A deliberate pick outranks wherever the last session was headed.
+    *crate::session::WANT.write() = None;
+    let key = device_key(d);
+    if SELECTED.peek().as_deref() == Some(key.as_str()) {
+        return;
+    }
+    *SELECTED.write() = Some(key);
+    *VIEW.write() = None;
+    OUT_GROUP.write().clear();
+    SRC_GROUP.write().clear();
+    *REPORT.write() = None;
+    ERROR.write().clear();
+    spawn(async move { load_selected(&handle).await });
+}
+
+/// Make the host's own audio the context — how another view hands off to
+/// something that only exists there (a host mix).
+pub fn select_system() {
+    let system = DEVICES
+        .peek()
+        .iter()
+        .find(|d| d.kind == KIND_SYSTEM)
+        .map(device_key);
+    if let Some(key) = system
+        && SELECTED.peek().as_deref() != Some(key.as_str())
+    {
+        *SELECTED.write() = Some(key);
+        *VIEW.write() = None;
+    }
+}
+
+/// Keeps the device list and the context's view fresh: a cheap poll for
+/// link state, a full re-read when events say so. Call once, from the
+/// app root.
+pub fn use_device_poll() {
+    let handle = state::use_patchbay();
+    use_future(move || {
         let handle = handle.clone();
-        move || {
-            let handle = handle.clone();
-            async move {
-                refresh_list(&handle).await;
-                load_selected(&handle).await;
-                let mut seen_stale = *STALE.peek();
-                let mut tick = 0_u32;
-                loop {
-                    state::sleep_secs(1).await;
-                    tick = tick.wrapping_add(1);
-                    let stale = *STALE.peek();
-                    let unloaded = VIEW.peek().is_none() && SELECTED.peek().is_some();
-                    if tick.is_multiple_of(5) || stale != seen_stale {
-                        refresh_list(&handle).await;
-                    }
-                    if stale != seen_stale || (unloaded && tick.is_multiple_of(5)) {
-                        seen_stale = stale;
-                        load_selected(&handle).await;
-                    }
+        async move {
+            refresh_list(&handle).await;
+            load_selected(&handle).await;
+            let mut seen_stale = *STALE.peek();
+            let mut tick = 0_u32;
+            loop {
+                state::sleep_secs(1).await;
+                tick = tick.wrapping_add(1);
+                let stale = *STALE.peek();
+                let unloaded = VIEW.peek().is_none() && loads_a_view();
+                if tick.is_multiple_of(5) || stale != seen_stale {
+                    refresh_list(&handle).await;
+                }
+                if stale != seen_stale || (unloaded && tick.is_multiple_of(5)) {
+                    seen_stale = stale;
+                    load_selected(&handle).await;
                 }
             }
         }
     });
+}
 
-    let devices = DEVICES.read().clone();
-    let selected = SELECTED.read().clone();
-    let selected_summary = devices
+/// Whether the context is a device whose parameter view a page draws.
+/// Dante is drawn from the subscription scan instead, and reading it as
+/// a device costs a second ARC sweep of the network for nothing.
+fn loads_a_view() -> bool {
+    let Some(selected) = SELECTED.peek().clone() else {
+        return false;
+    };
+    DEVICES
+        .peek()
         .iter()
-        .find(|d| Some(device_key(d)) == selected)
-        .cloned();
+        .find(|d| device_key(d) == selected)
+        .is_some_and(|d| d.kind != KIND_DANTE)
+}
+
+// ─── Pages ──────────────────────────────────────────────────────────────
+
+/// What a device page shows: its console, or why there isn't one yet.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DevicePage {
+    Route,
+    Mix,
+}
+
+/// A hardware device's router.
+#[component]
+pub fn DeviceRoute() -> Element {
+    rsx! { DeviceShell { page: DevicePage::Route } }
+}
+
+/// A hardware device's console: strips, mixers, and everything else it
+/// has that isn't patching.
+#[component]
+pub fn DeviceMix() -> Element {
+    rsx! { DeviceShell { page: DevicePage::Mix } }
+}
+
+#[component]
+fn DeviceShell(page: DevicePage) -> Element {
+    let handle = state::use_patchbay();
+    let summary = context();
     let error = ERROR.read().clone();
     let loading = *LOADING.read();
     let view = VIEW.read().clone();
 
-    let reload = {
+    let reload = move |_| {
         let handle = handle.clone();
-        move |_| {
-            let handle = handle.clone();
-            spawn(async move {
-                refresh_list(&handle).await;
-                load_selected(&handle).await;
-            });
-        }
+        spawn(async move {
+            refresh_list(&handle).await;
+            load_selected(&handle).await;
+        });
+    };
+    let (title, sub) = match page {
+        DevicePage::Route => ("Route", "this device's own patching"),
+        DevicePage::Mix => ("Mix", "the device, as itself"),
     };
 
     rsx! {
         div { class: "devices-view",
-            div { class: "dante-header",
-                for d in devices.iter() {
-                    {
-                        let key = device_key(d);
-                        let on = selected.as_deref() == Some(key.as_str());
-                        let status = match d.state {
-                            DeviceLinkState::Online => Status::Ok,
-                            DeviceLinkState::Connecting | DeviceLinkState::Searching => Status::Busy,
-                            DeviceLinkState::Offline => Status::Bad,
-                            DeviceLinkState::Disabled | DeviceLinkState::NotFound => Status::Missing,
-                        };
-                        let title = format!("{} — {}{}{}", d.name, state_label(d.state), if d.transport.is_empty() { String::new() } else { format!(" — {}", d.transport) }, if d.error.is_empty() { String::new() } else { format!(" — {}", d.error) });
-                        let label = if d.model.is_empty() { d.name.clone() } else { format!("{} ({})", d.model, d.name) };
-                        let handle = handle.clone();
-                        rsx! {
-                            button {
-                                class: if on { "chip on" } else { "chip" },
-                                title: "{title}",
-                                onclick: move |_| {
-                                    *SELECTED.write() = Some(key.clone());
-                                    *VIEW.write() = None;
-                                    OUT_GROUP.write().clear();
-                                    SRC_GROUP.write().clear();
-                                    *REPORT.write() = None;
-                                    let handle = handle.clone();
-                                    spawn(async move { load_selected(&handle).await });
-                                },
-                                StatusDot { status, title: "{title}" }
-                                " {label}"
+            div { class: "view-head",
+                span { class: "view-title", "{title}" }
+                ContextTag {}
+                span { class: "view-sub", "{sub}" }
+                div { class: "view-head-actions",
+                    // Only a console has disruptive parameters (clock, scene
+                    // recall); a router has nothing this would unlock.
+                    if page == DevicePage::Mix {
+                        label { class: "label disruptive-toggle",
+                            title: "Clock changes and scene recall interrupt audio, so they are locked until you say so",
+                            input {
+                                r#type: "checkbox",
+                                checked: *ALLOW_DISRUPTIVE.read(),
+                                onchange: move |e| *ALLOW_DISRUPTIVE.write() = e.checked(),
                             }
+                            " disruptive writes"
                         }
                     }
-                }
-                button { class: "chip", onclick: reload,
-                    if loading { "reading…" } else { "re-read" }
-                }
-                label { class: "label",
-                    input {
-                        r#type: "checkbox",
-                        checked: *ALLOW_DISRUPTIVE.read(),
-                        onchange: move |e| *ALLOW_DISRUPTIVE.write() = e.checked(),
+                    button { class: "chip", onclick: reload,
+                        if loading { "reading…" } else { "re-read" }
                     }
-                    " allow disruptive writes (clock / scene recall)"
-                }
-                if !error.is_empty() {
-                    span { class: "dante-error", "{error}" }
                 }
             }
-            if devices.is_empty() {
-                div { class: "panel-section dim", style: "padding:24px;",
-                    "No devices configured. Add a `devices` section to the patchbay config, "
-                    "e.g. devices ({{name galaxy32, kind antelope-galaxy32}})."
+            ErrorBar { message: error, on_dismiss: move |()| ERROR.write().clear() }
+            div { class: "devices-scroll",
+                if let Some(v) = view {
+                    match page {
+                        DevicePage::Route => rsx! { RoutePane { view: v } },
+                        DevicePage::Mix => rsx! {
+                            Console { view: v.clone() }
+                            Inspector { view: v }
+                        },
+                    }
+                } else if loading {
+                    div { class: "empty-state dim-note", "reading device…" }
+                } else {
+                    Offline { device: summary }
                 }
-            } else if let Some(v) = view {
-                Console { view: v.clone() }
-                Inspector { view: v }
-            } else if loading {
-                div { class: "empty-state dim-note", "reading device…" }
-            } else {
-                Offline { device: selected_summary }
             }
+        }
+    }
+}
+
+/// The device's router, or a plain statement that it doesn't have one
+/// Patchbay can reach.
+#[component]
+fn RoutePane(view: DeviceView) -> Element {
+    if view.outputs.is_empty() {
+        let name = context_label(&view.summary);
+        return rsx! {
+            EmptyState { title: format!("{name} doesn't expose its patching"),
+                p {
+                    "This device's adapter reports no router, so there is nothing to patch "
+                    "from here. Its levels are under Mix; every parameter it does report is "
+                    "in the Inspector there."
+                }
+            }
+        };
+    }
+    rsx! {
+        div { class: "console",
+            if view.summary.kind == "antelope-galaxy32" {
+                p { class: "dim-note console-note", "{galaxy32::ROUTER_LAG}" }
+            }
+            RouterGrid { view }
+        }
+    }
+}
+
+/// The host's device table, docked under the system's Route page.
+///
+/// A drawer, shut by default: the page above it already lists these
+/// devices live. This is where their sample rates and transports are.
+#[component]
+pub fn SystemDrawer() -> Element {
+    let mut open = use_signal(|| false);
+    let view = VIEW
+        .read()
+        .clone()
+        .filter(|v| v.summary.kind == KIND_SYSTEM);
+    let Some(view) = view else {
+        return rsx! {};
+    };
+    let label = if view.summary.model.is_empty() {
+        "System audio".to_owned()
+    } else {
+        view.summary.model.clone()
+    };
+    rsx! {
+        div { class: "inspector docked",
+            button {
+                class: "inspector-toggle",
+                onclick: move |_| {
+                    let now = open();
+                    open.set(!now);
+                },
+                span { class: "section-caret", if open() { "▾" } else { "▸" } }
+                span { class: "section-label", "{label}" }
+                span { class: "section-note", "sample rates · transports · defaults" }
+            }
+            if open() {
+                core_audio::CoreAudioView { view }
+            }
+        }
+    }
+}
+
+/// Which device this page is about — and the way to change it, right
+/// where the title is. On a phone the subtitle is gone and the rail is a
+/// tab bar, so this is what says "you are routing the TF".
+#[component]
+pub fn ContextTag() -> Element {
+    let Some(d) = context() else {
+        return rsx! {};
+    };
+    rsx! {
+        button {
+            class: "context-tag",
+            title: "Working on {d.name} ({context_detail(&d)}) — click to switch device",
+            onclick: move |_| *CONTEXT_MENU.write() = true,
+            StatusDot { status: context_status(&d), title: context_detail(&d) }
+            span { "{context_label(&d)}" }
+            // Which machine — once there is more than one to be on.
+            if crate::hosts::multi_host() {
+                span { class: "context-tag-host", "{crate::hosts::live_name()}" }
+            }
+            span { class: "context-tag-caret", "▾" }
         }
     }
 }
@@ -393,7 +625,7 @@ pub fn DevicesView() -> Element {
 fn Offline(device: Option<DeviceSummary>) -> Element {
     let Some(d) = device else {
         return rsx! {
-            div { class: "empty-state dim-note", "Pick a device above." }
+            div { class: "empty-state dim-note", "Pick a device in the rail." }
         };
     };
     rsx! {
@@ -421,7 +653,6 @@ fn Console(view: DeviceView) -> Element {
     match view.summary.kind.as_str() {
         "yamaha-tf" => rsx! { yamaha_tf::YamahaTfConsole { view } },
         "antelope-galaxy32" => rsx! { galaxy32::Galaxy32Console { view } },
-        "system-audio" => rsx! { core_audio::CoreAudioView { view } },
         _ => rsx! {},
     }
 }
@@ -434,7 +665,6 @@ fn Console(view: DeviceView) -> Element {
 #[component]
 fn Inspector(view: DeviceView) -> Element {
     let mut open = use_signal(|| false);
-    let routes = !view.routes.is_empty() && view.summary.kind != "antelope-galaxy32";
     rsx! {
         div { class: "inspector",
             button {
@@ -453,9 +683,6 @@ fn Inspector(view: DeviceView) -> Element {
                 div { class: "devices-body",
                     ParamPanel { view: view.clone() }
                     div { class: "device-side",
-                        if routes {
-                            RouterGrid { view: view.clone() }
-                        }
                         SnapshotPanel { view }
                     }
                 }

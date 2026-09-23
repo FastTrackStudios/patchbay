@@ -6,14 +6,15 @@
 //! That is exactly right on the wire and unreadable as a tree — it is
 //! why this tab used to open on rows like `app/25000 · 5 param(s)`.
 //!
-//! Here it is a list. The live version of the same information, with
-//! meters and the routing controls, is the Now view.
+//! Here it is a list, docked under the system's Route page — which is the
+//! live version of the same information, with meters and the routing
+//! controls. This adds what that page has no room for: sample rates,
+//! transports, and what the system's defaults are.
 
 use dioxus::prelude::*;
 use patchbay_proto::DeviceView;
 
 use super::console::Params;
-use crate::state::{VIEW, View};
 
 /// One `device/<uid>/…` group, gathered.
 #[derive(Debug, Clone, PartialEq)]
@@ -102,11 +103,6 @@ pub fn CoreAudioView(view: DeviceView) -> Element {
                 if !default_in.is_empty() {
                     span { class: "mix-badge", "default in: {default_in}" }
                 }
-                button {
-                    class: "chip",
-                    onclick: move |_| *VIEW.write() = View::Now,
-                    "Open Now ↗"
-                }
             }
             div { class: "host-devices",
                 for d in rows {
@@ -130,8 +126,7 @@ pub fn CoreAudioView(view: DeviceView) -> Element {
                 }
             }
             p { class: "dim-note console-note",
-                "Read-only by design — Patchbay never changes the system's defaults. The apps "
-                "using these devices, with levels and routing, are in Now."
+                "Read-only by design — Patchbay never changes the system's defaults."
             }
         }
     }

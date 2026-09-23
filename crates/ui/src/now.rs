@@ -44,6 +44,15 @@ static SHOW_IDLE: GlobalSignal<bool> = Signal::global(|| false);
 /// Bundle id whose "capture into…" picker is open.
 static CAPTURING: GlobalSignal<Option<String>> = Signal::global(|| None);
 
+/// Forget the previous engine's overview (see `hosts::reset`).
+pub fn reset() {
+    *OVERVIEW.write() = HostOverview::default();
+    *LOADED.write() = false;
+    LEVELS.write().clear();
+    ERROR.write().clear();
+    *CAPTURING.write() = None;
+}
+
 // ─── Data ───────────────────────────────────────────────────────────────
 
 async fn refresh(handle: &PatchbayHandle) {
@@ -218,7 +227,7 @@ pub fn NowView() -> Element {
                 EmptyState { title: "Host audio needs macOS",
                     p {
                         "Apps, taps and virtual devices come from Core Audio. On Linux the "
-                        "PipeWire graph in the Graph view is the router."
+                        "PipeWire graph is the router."
                     }
                 }
             }
@@ -234,8 +243,9 @@ pub fn NowView() -> Element {
 
     rsx! {
         div { class: "view-head",
-            span { class: "view-title", "Now" }
-            span { class: "view-sub", "what is making sound on this machine" }
+            span { class: "view-title", "Route" }
+            crate::devices::ContextTag {}
+            span { class: "view-sub", "what is making sound on this machine, and where it goes" }
             div { class: "view-head-actions",
                 button {
                     class: if show_idle { "chip on" } else { "chip" },
@@ -436,7 +446,7 @@ fn MixCard(mix: MixView) -> Element {
             div { class: "mix-card-top",
                 button {
                     class: "mix-card-name",
-                    title: "Open in Mixes",
+                    title: "Open in Mix",
                     onclick: move |_| crate::mixes::open(&name),
                     "{mix.config.name}"
                 }

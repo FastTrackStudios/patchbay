@@ -13,6 +13,35 @@ use patchbay_proto::{
 #[derive(Clone)]
 pub struct PatchbayHandle(pub Arc<PatchbayServiceClient>);
 
+/// Empty every mirror of engine state — another engine is about to go
+/// live. View preferences (zoom, filters, which view) are the user's and
+/// stay.
+pub fn reset() {
+    *GRAPH.write() = GraphSnapshot::default();
+    ALIASES.write().clear();
+    COLORS.write().clear();
+    ICONS.write().clear();
+    PRESETS.write().clear();
+    *CLOCK.write() = ClockInfo::default();
+    *DANTE.write() = DanteStatus::default();
+    SERVICES.write().clear();
+    LATENCY_RULES.write().clear();
+    VIRTUAL_SINKS.write().clear();
+    VIEWS.write().clear();
+    *CLOCK_DEFAULTS.write() = patchbay_proto::ClockDefaults::default();
+    DANTE_DEVICES.write().clear();
+    *DANTE_LOADING.write() = false;
+    DANTE_ERROR.write().clear();
+    // Ids are per-graph: none of these mean anything on another machine.
+    ARMED_OUTPUTS.write().clear();
+    *SELECTED_NODE.write() = None;
+    *LAST_REPORT.write() = None;
+    *PRESET_DIFF.write() = None;
+    *HOVERED_NODE.write() = None;
+    *DRAG.write() = None;
+    UNDO.write().clear();
+}
+
 /// Convenience accessor for components.
 pub fn use_patchbay() -> PatchbayHandle {
     use_context::<PatchbayHandle>()
@@ -43,68 +72,41 @@ pub static DANTE_LOADING: GlobalSignal<bool> = Signal::global(|| false);
 /// Last dante grid error (empty = fine).
 pub static DANTE_ERROR: GlobalSignal<String> = Signal::global(String::new);
 
-/// Which main view is showing.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// What you are doing — to whichever device is the current context
+/// (`crate::devices::context`). Two verbs and two places to visit,
+/// instead of a view per subsystem: the Dante grid and a console's
+/// router are both *Route*, host mixes and a desk's strips are both
+/// *Mix*, and which one you get is a matter of which device you are
+/// working on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum View {
-    /// What is making sound right now — the front door.
-    Now,
-    /// Host audio mixes (Loopback / OBS style, macOS).
-    Mixes,
-    /// External hardware (device adapters).
-    Devices,
-    /// Dante subscriptions over ARC.
-    Network,
-    /// The `PipeWire` node graph.
-    Graph,
-    /// Everything that can be saved and put back.
+    /// Where signals go: the system's apps and devices (or the `PipeWire`
+    /// graph), the Dante subscription grid, a device's router.
+    Route,
+    /// Levels: host mixes, a console's channel strips, a device's mixers.
+    Mix,
+    /// Everything that can be saved and put back — across every device.
     Scenes,
-    /// Permissions, the driver, the network, the graph clock.
+    /// Appearance, permissions, the driver, the network, the graph clock.
     Settings,
 }
 
 impl View {
     /// Rail order, top to bottom.
-    pub const ALL: [Self; 7] = [
-        Self::Now,
-        Self::Mixes,
-        Self::Devices,
-        Self::Network,
-        Self::Graph,
-        Self::Scenes,
-        Self::Settings,
-    ];
+    pub const ALL: [Self; 4] = [Self::Route, Self::Mix, Self::Scenes, Self::Settings];
 
     /// Views that sit at the bottom of the rail, away from the ones you
-    /// work in — you visit these to set something up, not to mix.
+    /// work in — they aren't about the current device.
     #[must_use]
     pub const fn is_utility(self) -> bool {
         matches!(self, Self::Scenes | Self::Settings)
     }
 
-    /// Rail glyph — deliberately geometric: the webviews this runs in
-    /// (`WKWebView`, `WebKitGTK`) render emoji at wildly different
-    /// weights, these stay consistent.
-    #[must_use]
-    pub const fn glyph(self) -> &'static str {
-        match self {
-            Self::Now => "◉",
-            Self::Mixes => "⇶",
-            Self::Devices => "▤",
-            Self::Network => "⊞",
-            Self::Graph => "⋔",
-            Self::Scenes => "❑",
-            Self::Settings => "⚙",
-        }
-    }
-
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Now => "Now",
-            Self::Mixes => "Mixes",
-            Self::Devices => "Devices",
-            Self::Network => "Network",
-            Self::Graph => "Graph",
+            Self::Route => "Route",
+            Self::Mix => "Mix",
             Self::Scenes => "Scenes",
             Self::Settings => "Settings",
         }
@@ -114,18 +116,15 @@ impl View {
     #[must_use]
     pub const fn hint(self) -> &'static str {
         match self {
-            Self::Now => "What is making sound on this machine right now",
-            Self::Mixes => "Host audio mixes: apps and inputs summed into virtual devices",
-            Self::Devices => "Hardware: Galaxy 32, Yamaha TF, Core Audio",
-            Self::Network => "Dante subscriptions",
-            Self::Graph => "The PipeWire node graph",
-            Self::Scenes => "Saved states: presets, device snapshots, the Dante network",
-            Self::Settings => "Permissions, the driver, the network, the graph clock",
+            Self::Route => "Where signals go, on the current device",
+            Self::Mix => "Levels and mixes, on the current device",
+            Self::Scenes => "Saved states for every device: presets, snapshots, the Dante network",
+            Self::Settings => "Appearance, permissions, the driver, the network, the graph clock",
         }
     }
 }
 
-pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Now);
+pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Route);
 
 // ─── View state ─────────────────────────────────────────────────────────
 
@@ -134,6 +133,10 @@ pub static VIEW: GlobalSignal<View> = Signal::global(|| View::Now);
 pub static ARMED_OUTPUTS: GlobalSignal<Vec<u32>> = Signal::global(Vec::new);
 /// Node id whose inspector is open.
 pub static SELECTED_NODE: GlobalSignal<Option<u32>> = Signal::global(|| None);
+/// The Graph side panel is showing. Only means something where the panel
+/// is a sheet over the canvas (a narrow window); beside the canvas it is
+/// always there.
+pub static PANEL_OPEN: GlobalSignal<bool> = Signal::global(|| false);
 pub static SEARCH: GlobalSignal<String> = Signal::global(String::new);
 /// Which media domain the graph shows (Audio | MIDI | Video tabs).
 /// `Other`-kind ports ride along in the Audio tab.
@@ -290,6 +293,12 @@ pub async fn refresh_all(handle: &PatchbayHandle) {
 #[must_use]
 pub fn has_graph() -> bool {
     CLOCK.peek().rate > 0 || !GRAPH.peek().nodes.is_empty()
+}
+
+/// [`has_graph`], subscribed: a page that branches on it re-renders when
+/// the daemon comes up.
+pub fn has_graph_now() -> bool {
+    CLOCK.read().rate > 0 || !GRAPH.read().nodes.is_empty()
 }
 
 /// Re-read everything that isn't the graph itself.

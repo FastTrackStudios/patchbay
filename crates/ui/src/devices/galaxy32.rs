@@ -1,5 +1,6 @@
-//! Antelope Galaxy 32 as a console: the router, the four mixers, the
-//! line-in trims, the AFX insert grid and the clock.
+//! Antelope Galaxy 32 as a console: the four mixers, the line-in trims,
+//! the AFX insert grid and the clock. Its router is the device's Route
+//! page (`super::RoutePane`).
 //!
 //! The device carries no names, colours or icons of its own — every
 //! label here comes from its static page tables. Patchbay's aliases are
@@ -17,11 +18,10 @@ use super::strip::{ChannelStrip, ParamFacts};
 use crate::state;
 
 /// Which page of the device is showing.
-static PAGE: GlobalSignal<Page> = Signal::global(|| Page::Router);
+static PAGE: GlobalSignal<Page> = Signal::global(|| Page::Mixer(1));
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
-    Router,
     /// 1-based mixer number.
     Mixer(u32),
     Trim,
@@ -33,7 +33,7 @@ enum Page {
 ///
 /// The adapter re-reads every 5 s because the Manager Server never
 /// notifies routing changes made elsewhere.
-const ROUTER_LAG: &str = "Routing changes made on the hardware panel or in the Antelope \
+pub(super) const ROUTER_LAG: &str = "Routing changes made on the hardware panel or in the Antelope \
                           software appear here within about five seconds — the device \
                           doesn't announce them. Changes made here are immediate.";
 
@@ -45,11 +45,6 @@ pub fn Galaxy32Console(view: DeviceView) -> Element {
     rsx! {
         div { class: "console",
             div { class: "console-bar",
-                button {
-                    class: if page == Page::Router { "chip on" } else { "chip" },
-                    onclick: move |_| *PAGE.write() = Page::Router,
-                    "Router"
-                }
                 for n in 1..=mixers {
                     button {
                         key: "mix{n}",
@@ -75,10 +70,6 @@ pub fn Galaxy32Console(view: DeviceView) -> Element {
                 }
             }
             match page {
-                Page::Router => rsx! {
-                    p { class: "dim-note console-note", "{ROUTER_LAG}" }
-                    super::RouterGrid { view }
-                },
                 Page::Mixer(n) => rsx! { Mixer { view, mixer: n } },
                 Page::Trim => rsx! { Trim { view } },
                 Page::Afx => rsx! { Afx { view } },

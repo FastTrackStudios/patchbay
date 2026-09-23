@@ -154,8 +154,20 @@ pub fn StatusBar() -> Element {
 
 #[component]
 pub fn SidePanel() -> Element {
+    // Picking a node is asking to see it: where the panel is a sheet,
+    // bring it up rather than leave the inspector filled in out of sight.
+    use_effect(|| {
+        if SELECTED_NODE.read().is_some() {
+            *state::PANEL_OPEN.write() = true;
+        }
+    });
     rsx! {
         div { class: "side-panel",
+            button {
+                class: "side-panel-grip",
+                "aria-label": "close panel",
+                onclick: move |_| *state::PANEL_OPEN.write() = false,
+            }
             ViewsPanel {}
             VirtualSinksPanel {}
             Inspector {}

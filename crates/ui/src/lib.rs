@@ -1,24 +1,30 @@
 //! Patchbay UI — Dioxus components for the `PipeWire` studio-routing app.
 //!
-//! Pure client surface: renders from global signals fed by
-//! [`apply_graph_event`] / the fetch helpers, and talks back through the
-//! [`PatchbayHandle`] (a `PatchbayServiceClient` provided via context by
-//! the shell — desktop in-process today, browser remote later).
+//! Pure client surface. A shell (the desktop app, the browser remote)
+//! provides a [`Shell`] via context — its own engine connection and a way
+//! to dial others — and mounts [`PatchbayApp`]; everything else, from
+//! bridging the engine's event streams into the UI's mirrors to switching
+//! between several engines, happens in here.
 
 mod app;
+mod appearance;
 mod canvas;
 mod dante_grid;
 mod devices;
+mod hosts;
+mod icons;
 mod layout;
 mod mixes;
 mod now;
+mod pages;
 mod panels;
 mod scenes;
+mod session;
 mod settings;
 mod state;
 mod theme;
 mod ui;
 
-pub use app::PatchbayApp;
-pub use devices::apply_device_event;
-pub use state::{PatchbayHandle, apply_graph_event, refresh_all, replace_graph, sleep_secs};
+pub use app::{PatchbayApp, Splash};
+pub use hosts::{Dialer, EngineLink, Shell};
+pub use state::{PatchbayHandle, sleep_secs};

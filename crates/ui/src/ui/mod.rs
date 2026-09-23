@@ -227,6 +227,8 @@ pub fn ConfirmButton(
                 }
             },
             onmouseleave: move |_| armed.set(false),
+            // Touch has no "leave": tapping anywhere else disarms it.
+            onblur: move |_| armed.set(false),
             "{text}"
         }
     }
