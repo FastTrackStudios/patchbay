@@ -1,17 +1,24 @@
-/* Device consoles: channel strips, the trim page, the AFX grid, and the
-   inspector the parameter tree now lives in. */
+/* Devices: the picker bar, the consoles (channel strips, the trim page,
+   the AFX grid) and the inspector the parameter tree lives in. */
+
+.devices-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* The console and its inspector scroll as one page under the bars: a
+   bank of full-height strips is never squeezed or clipped. */
+.devices-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column;
+}
+
+.disruptive-toggle { display: inline-flex; align-items: center; gap: var(--s3); white-space: nowrap; cursor: pointer; }
+.dante-error { color: var(--danger-text); font-size: var(--fs-2); }
 
 .console {
-  display: flex; flex-direction: column; gap: var(--s5);
-  padding: var(--s5) var(--s7);
-  /* The device pages sit in a flex column, so the console has to be
-     allowed to shrink AND to scroll — otherwise a bank of full-height
-     strips is squeezed and its bottom row is clipped. */
-  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--s6);
+  padding: var(--s6) var(--gutter);
+  flex: 0 0 auto; min-width: 0;
 }
 .console-bar {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3);
-  padding-bottom: var(--s2);
 }
 .console-scene { margin-left: auto; color: var(--warn); font-size: var(--fs-2); }
 .console-note { max-width: 780px; line-height: 1.6; margin-top: 0; }
@@ -26,26 +33,27 @@
      `overflow: hidden`, so a strip sized to the row rather than to its
      content loses whatever is at the bottom of it. */
   align-items: flex-start; flex: 0 0 auto;
+  scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
 }
 .dev-strip {
-  position: relative; flex: 0 0 96px; width: 96px;
+  position: relative; flex: 0 0 100px; width: 100px; scroll-snap-align: start;
   background: var(--raised); border: 1px solid var(--border);
-  border-radius: var(--r4); padding: var(--s4) var(--s3) var(--s3);
-  display: flex; flex-direction: column; align-items: stretch; gap: var(--s2);
-  overflow: hidden;
+  border-radius: var(--r4); padding: var(--s5) var(--s3) var(--s4);
+  display: flex; flex-direction: column; align-items: stretch; gap: var(--s3);
+  overflow: hidden; box-shadow: var(--shadow-card);
 }
 /* Off, or fader all the way down: still legible, clearly not passing. */
 .dev-strip.silent { opacity: 0.55; }
-.dev-strip-color { position: absolute; left: 0; right: 0; top: 0; height: 3px; }
+.dev-strip-color { position: absolute; left: 0; right: 0; top: 0; height: 4px; }
 
-.dev-strip-head { display: flex; flex-direction: column; gap: var(--s1); min-height: 54px; }
+.dev-strip-head { display: flex; flex-direction: column; gap: var(--s1); min-height: 58px; }
 .dev-strip-pos {
-  font-size: var(--fs-sm); color: var(--muted-2);
+  font-size: var(--fs-xs); color: var(--muted-2); font-weight: 600;
   letter-spacing: 0.04em; text-transform: uppercase;
 }
 .dev-strip-name {
   width: 100%; font-weight: 600; font-size: var(--fs-2);
-  padding: var(--s1) var(--s2);
+  padding: 0 var(--s2);
 }
 .dev-strip-name.static {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -53,25 +61,20 @@
 }
 .dev-strip-pick { width: 100%; font-size: var(--fs-sm); padding: 0 var(--s1); }
 
-.dev-strip-body { display: flex; justify-content: center; height: 150px; flex: 0 0 auto; }
-.dev-strip-db {
-  text-align: center; font-size: var(--fs-1); color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-.chip.strip-on { text-align: center; padding: var(--s1) var(--s3); font-size: var(--fs-1); }
+.dev-strip-body { display: flex; justify-content: center; height: 170px; flex: 0 0 auto; }
+.chip.strip-on { width: 100%; font-size: var(--fs-1); font-weight: 650; }
 .chip.strip-on.on { background: var(--ok-a18); border-color: var(--ok-line); color: var(--ok); }
 
 /* ── trim ────────────────────────────────────────────────────────── */
 .trim-warning {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--s4);
   padding: var(--s4) var(--s5); border-radius: var(--r3);
-  border: 1px solid var(--divider);
+  border: 1px solid var(--divider); background: var(--raised);
 }
 /* ALL mode moves every line input at once — the page has to say so. */
-.trim-warning.on {
-  background: var(--warn-a10); border-color: var(--warn-line);
-}
-.trim-warning-text { color: var(--warn); font-size: var(--fs-2); flex: 1; min-width: 260px; }
+.trim-warning.on { background: var(--warn-a10); border-color: var(--warn-line); }
+.trim-warning .dev-strip-pick { width: auto; }
+.trim-warning-text { color: var(--warn); font-size: var(--fs-2); flex: 1; min-width: 220px; }
 
 .trim-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
@@ -79,7 +82,7 @@
 }
 .trim-cell {
   display: flex; align-items: baseline; gap: var(--s3);
-  padding: var(--s2) var(--s4); border-radius: var(--r2);
+  padding: var(--s3) var(--s4); border-radius: var(--r2);
   background: var(--raised); border: 1px solid var(--divider);
 }
 .trim-num {
@@ -89,12 +92,12 @@
 .trim-val { font-size: var(--fs-2); font-variant-numeric: tabular-nums; }
 
 /* ── AFX insert grid ─────────────────────────────────────────────── */
-.afx-scroll { overflow: auto; max-height: 60vh; }
+.afx-scroll { overflow: auto; max-height: 60vh; border: 1px solid var(--divider); border-radius: var(--r3); }
 .afx-grid { border-collapse: collapse; font-size: var(--fs-1); }
 .afx-grid th, .afx-grid td { border: 1px solid var(--divider); }
 .afx-grid thead th {
   position: sticky; top: 0; z-index: 2;
-  background: var(--surface); padding: var(--s1) var(--s3); color: var(--muted);
+  background: var(--surface); padding: var(--s2) var(--s3); color: var(--muted);
 }
 .afx-corner, .afx-ch {
   position: sticky; left: 0; z-index: 3; background: var(--surface);
@@ -107,19 +110,99 @@
 .afx-cell.filled select { color: var(--accent-text); }
 
 /* ── clock ───────────────────────────────────────────────────────── */
-.clock-facts { display: flex; flex-wrap: wrap; gap: var(--s8); }
-.clock-fact { display: flex; flex-direction: column; gap: var(--s1); }
-.clock-fact-value { font-size: var(--fs-4); font-variant-numeric: tabular-nums; }
+.clock-facts { display: flex; flex-wrap: wrap; gap: var(--s4); }
+.clock-fact {
+  display: flex; flex-direction: column; gap: var(--s2); min-width: 130px;
+  padding: var(--s5) var(--s6); border-radius: var(--r3);
+  background: var(--raised); border: 1px solid var(--divider);
+}
+.clock-fact-value { font-size: var(--fs-4); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-hi); }
 
 /* ── host devices ────────────────────────────────────────────────── */
-.host-devices { display: flex; flex-direction: column; }
+.host-devices {
+  display: flex; flex-direction: column;
+  background: var(--raised); border: 1px solid var(--divider); border-radius: var(--r3);
+  padding: var(--s2);
+}
 
 /* ── inspector ───────────────────────────────────────────────────── */
-.inspector { border-top: 1px solid var(--divider); margin-top: var(--s5); }
+.inspector { border-top: 1px solid var(--divider); margin-top: var(--s5); flex: 0 0 auto; }
 .inspector-toggle {
   width: 100%; display: flex; align-items: center; gap: var(--s3);
-  padding: var(--s4) var(--s7); background: none; border: none;
+  min-height: var(--row-h);
+  padding: var(--s4) var(--gutter); background: none; border: none;
   color: var(--text); cursor: pointer; text-align: left;
 }
 .inspector-toggle:hover { color: var(--accent-2); }
 .inspector .devices-body { border-top: 1px solid var(--line-2); }
+/* Docked under a page that scrolls by itself: it needs its own limit. */
+.inspector.docked { margin-top: 0; background: var(--surface); }
+.inspector.docked .console { max-height: 42dvh; overflow-y: auto; border-top: 1px solid var(--line-2); }
+
+.devices-body { display: flex; min-height: 0; }
+.device-params {
+  flex: 1; min-width: 0; padding: var(--s5) var(--gutter);
+  display: flex; flex-direction: column; gap: var(--s3);
+}
+.device-id { margin-bottom: var(--s2); }
+.device-id .dim-note { width: auto; }
+.device-side {
+  width: min(560px, 45%); flex: 0 0 auto; min-width: 0;
+  border-left: 1px solid var(--divider); padding: var(--s5) var(--s6);
+  display: flex; flex-direction: column; gap: var(--s8);
+}
+.param-section { border: 1px solid var(--divider); border-radius: var(--r3); background: var(--raised); }
+.param-section-h {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3);
+  min-height: var(--control-h);
+  padding: var(--s3) var(--s5); cursor: pointer; user-select: none; -webkit-user-select: none;
+  background: var(--surface); border-radius: var(--r3);
+}
+.param-section-h:hover { color: var(--accent-2); }
+.param-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2) var(--s7);
+  padding: var(--s2) var(--s5); border-top: 1px solid var(--line-2);
+}
+.param-row:hover { background: var(--accent-a06); }
+.param-row-h {
+  width: 170px; color: var(--text-2); font-size: var(--fs-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.param { display: inline-flex; align-items: center; gap: var(--s3); }
+.param.disruptive { outline: 1px dashed var(--danger-2); border-radius: var(--r2); padding: 1px 3px; }
+.param-leaf { color: var(--muted); font-size: var(--fs-1); }
+.param-val { color: var(--text); font-size: var(--fs-1); min-width: 56px; font-variant-numeric: tabular-nums; }
+.param input.fader { width: 140px; }
+.param input.pan { width: 70px; }
+.param-int { width: 84px; padding: 0 var(--s2); }
+.param-text { width: 140px; padding: 0 var(--s3); }
+.dev-count { color: var(--muted); font-weight: 400; font-size: var(--fs-sm); }
+
+.router-pick { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3); margin-bottom: var(--s3); }
+.router-scroll { overflow: auto; max-height: 460px; border: 1px solid var(--divider); border-radius: var(--r3); }
+.corner-dev { position: sticky; left: 0; font-size: var(--fs-1); }
+
+.snap-save { display: flex; flex-wrap: wrap; gap: var(--s3); margin-bottom: var(--s4); }
+.snap-save .search { width: auto; flex: 1 1 140px; }
+.snap-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3); padding: var(--s2) 0; }
+.snap-row .dim-note { width: auto; flex: 1 1 auto; margin-top: 0; }
+.snap-name { font-weight: 600; }
+.snap-report { margin-top: var(--s5); display: flex; flex-direction: column; gap: var(--s3); overflow-x: auto; }
+.snap-table { border-collapse: collapse; font-size: var(--fs-1); }
+.snap-table td { padding: var(--s1) var(--s3); border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+
+/* ── narrow ──────────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  .devices-body { flex-direction: column; }
+  .device-side { width: 100%; border-left: none; border-top: 1px solid var(--divider); padding: var(--s6) var(--gutter); }
+}
+@media (max-width: 760px) {
+  .console-scene { margin-left: 0; flex-basis: 100%; }
+  .dev-strip-body { height: 200px; }
+  .param-row-h { width: 100%; font-weight: 600; }
+  .param input.fader { width: 46vw; }
+  .afx-scroll { max-height: none; }
+}
+@media (pointer: coarse) {
+  .dev-strip { flex-basis: 112px; width: 112px; }
+}

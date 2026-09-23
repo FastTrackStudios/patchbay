@@ -1,84 +1,214 @@
-/* Shared widgets (crates/ui/src/ui). */
+/* Shared widgets (crates/ui/src/ui) and the small controls every view
+   is built from. */
+
+/* ── chip: the app's button ──────────────────────────────────────── */
+.chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s3);
+  min-height: var(--control-h);
+  background: var(--raised-2); color: var(--text-2);
+  border: 1px solid var(--border); border-radius: var(--r-pill);
+  padding: 0 var(--control-px); cursor: pointer;
+  font-size: var(--fs-2); font-weight: 500; line-height: 1.2; white-space: nowrap;
+  user-select: none; -webkit-user-select: none;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.chip:hover { border-color: var(--accent); color: var(--text); }
+.chip:active { transform: scale(0.96); }
+.chip.on { background: var(--accent-bg); color: var(--accent-text); border-color: var(--accent); }
+.chip.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.chip.primary:hover { filter: brightness(1.1); color: var(--on-accent); }
+.chip.danger:hover { border-color: var(--danger-2); color: var(--danger-text); }
+.chip.danger.armed { border-color: var(--danger-2); color: var(--danger-text); background: var(--danger-a15); }
+.chip.toggle { font-size: var(--fs-1); }
+.chip:disabled, .param input:disabled, .param select:disabled { opacity: 0.45; cursor: not-allowed; }
+.chip:disabled:active { transform: none; }
+/* Hover is sticky on touch: the last chip tapped would stay lit. */
+@media (hover: none) {
+  .chip:hover { border-color: var(--border); color: var(--text-2); }
+  .chip.on:hover { border-color: var(--accent); color: var(--accent-text); }
+  .chip.primary:hover { border-color: var(--accent); color: var(--on-accent); filter: none; }
+  .chip.danger.armed:hover { border-color: var(--danger-2); color: var(--danger-text); }
+}
+
+/* ── tabs ────────────────────────────────────────────────────────── */
+.view-tabs { display: flex; gap: var(--s1); margin-right: var(--s5); }
+.tab {
+  background: none; color: var(--muted); border: none;
+  border-bottom: 2px solid transparent;
+  min-height: var(--control-h); padding: 0 var(--s6); cursor: pointer;
+  font-size: var(--fs-3); font-weight: 500;
+}
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text-hi); border-bottom-color: var(--accent); }
 
 /* ── section ─────────────────────────────────────────────────────── */
-.section { border: 1px solid var(--divider); border-radius: var(--r3); }
+.section { border: 1px solid var(--divider); border-radius: var(--r3); background: var(--raised); }
 .section-head {
   width: 100%; display: flex; align-items: center; gap: var(--s3);
+  min-height: var(--control-h);
   padding: var(--s2) var(--s5); background: var(--surface);
   border: none; border-radius: var(--r3); color: var(--text);
-  cursor: pointer; user-select: none; text-align: left;
+  cursor: pointer; user-select: none; -webkit-user-select: none; text-align: left;
 }
 .section-head:hover { color: var(--accent-2); }
 .section-caret { color: var(--muted); font-size: var(--fs-sm); flex: 0 0 auto; }
 .section-note { color: var(--muted); font-size: var(--fs-1); margin-left: auto; }
 .section-body { border-top: 1px solid var(--line-2); }
 
-/* ── text field ──────────────────────────────────────────────────── */
-.textfield {
+/* ── text fields ─────────────────────────────────────────────────── */
+.textfield, .search, .alias-input {
   min-width: 0; background: var(--sunken); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r3);
-  padding: var(--s1) var(--s4); outline: none; font-size: var(--fs-2);
+  min-height: var(--control-h); padding: 0 var(--s5);
+  outline: none; font-size: var(--fs-2);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.textfield:focus { border-color: var(--accent); }
+.textfield:focus, .search:focus, .alias-input:focus {
+  border-color: var(--accent); box-shadow: var(--focus-ring);
+}
+.textfield::placeholder, .search::placeholder, .alias-input::placeholder { color: var(--muted-2); }
+.search { width: 220px; }
+.alias-input { flex: 1; width: 100%; }
 
-/* ── horizontal meter (list rows) ────────────────────────────────── */
-/* Same construction as the vertical meter: the gradient is pinned to the
-   scale and a cover hides everything above the level, so a channel at
-   -30 dBFS is green whatever the bar's pixel width happens to be. */
+/* ── notes, labels, badges ───────────────────────────────────────── */
+.dim-note { color: var(--muted); font-size: var(--fs-1); margin-top: var(--s2); width: 100%; line-height: 1.45; }
+.label { color: var(--muted); font-size: var(--fs-1); }
+
+.mix-badge, .live-badge {
+  display: inline-flex; align-items: center;
+  font-size: var(--fs-xs); font-weight: 600; border-radius: var(--r-pill);
+  padding: 2px var(--s4);
+  border: 1px solid var(--border); color: var(--text-2); white-space: nowrap;
+}
+.live-badge { text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.mix-badge.live, .live-badge.on { color: var(--ok); border-color: var(--ok-line); background: var(--ok-a12); }
+.mix-badge.bad { color: var(--danger-text); border-color: var(--danger-line-2); background: var(--danger-a12); }
+.mix-badge.off { color: var(--muted); }
+.live-badge.wait { color: var(--warn); border-color: var(--warn-line); background: var(--warn-a10); }
+.live-badge.clock { color: var(--accent-2); border-color: var(--accent2-a45); background: var(--accent2-a10); }
+
+/* ── status dots ─────────────────────────────────────────────────── */
+.svc-dot, .dante-dot, .play-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto;
+  display: inline-block; background: var(--muted-2);
+}
+.play-dot { width: 8px; height: 8px; background: var(--dot-off); }
+.svc-dot.on, .dante-dot.on, .play-dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok-glow); }
+.svc-dot.failed { background: var(--danger); box-shadow: 0 0 5px var(--danger-glow); }
+.svc-dot.busy { background: var(--warn); }
+.svc-dot.missing { background: transparent; border: 1px solid var(--muted-3); }
+
+/* ── meters ──────────────────────────────────────────────────────── */
+/* The gradient is pinned to the scale and a cover hides everything
+   above the level, so a channel at -30 dBFS is green whatever the bar's
+   pixel size happens to be, and an animating meter never repaints a
+   gradient. -60..0 dBFS: green to -20 (66.7%), amber to -6 (90%), red. */
 .levelbar {
-  position: relative; height: 9px; flex: 1 1 auto; min-width: 48px;
-  border-radius: var(--r1); overflow: hidden;
+  position: relative; height: 10px; flex: 1 1 auto; min-width: 48px;
+  border-radius: var(--r-pill); overflow: hidden;
   /* An empty meter still has to read as a meter, not as a hairline. */
   border: 1px solid var(--border);
-  /* -60..0 dBFS: green to -20 (66.7%), yellow to -6 (90%), red above. */
   background: linear-gradient(to right,
-    var(--ok-2) 0%, var(--ok) 66.7%, var(--warn) 66.7%,
-    var(--warn-2) 90%, var(--danger) 90%, var(--danger) 100%);
-  box-shadow: var(--inset-hairline);
+    var(--meter-ok-2) 0%, var(--meter-ok) 66.7%, var(--meter-warn) 66.7%,
+    var(--meter-warn-2) 90%, var(--meter-hot) 90%, var(--meter-hot) 100%);
 }
 .levelbar-cover {
   position: absolute; right: 0; top: 0; bottom: 0;
-  background: var(--sunken); transition: width var(--dur-fast) linear;
+  background: var(--meter-trough); transition: width var(--dur-fast) linear;
 }
 .levelbar.hot { box-shadow: 0 0 6px var(--danger-glow); }
 
+.meter-scale { position: relative; width: 16px; font-size: var(--fs-xs); color: var(--muted-2); }
+.meter-scale span {
+  position: absolute; right: 0; transform: translateY(50%);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.meter {
+  position: relative; width: 10px; border-radius: var(--r1); overflow: hidden;
+  background: linear-gradient(to top,
+    var(--meter-ok-2) 0%, var(--meter-ok) 66.7%, var(--meter-warn) 66.7%,
+    var(--meter-warn-2) 90%, var(--meter-hot) 90%, var(--meter-hot) 100%);
+  box-shadow: var(--inset-hairline);
+}
+.meter-cover {
+  position: absolute; left: 0; right: 0; top: 0;
+  background: var(--meter-trough); transition: height var(--dur-fast) linear;
+}
+.meter.hot { box-shadow: 0 0 6px var(--danger-glow); }
+
 /* ── error bar ───────────────────────────────────────────────────── */
-.error-bar {
+.error-bar, .mix-error-bar {
   display: flex; align-items: center; gap: var(--s5);
-  padding: var(--s3) var(--s7);
+  padding: var(--s3) var(--gutter);
   background: var(--danger-a12); border-bottom: 1px solid var(--danger-line);
   color: var(--danger-text); font-size: var(--fs-2);
 }
-.error-bar span { flex: 1; word-break: break-word; }
+.error-bar span, .mix-error-bar span { flex: 1; word-break: break-word; }
 
 /* ── empty state ─────────────────────────────────────────────────── */
-.empty-state {
-  padding: var(--s10); max-width: 560px;
-  display: flex; flex-direction: column; gap: var(--s5); line-height: 1.5;
+.empty-state, .mix-empty {
+  padding: var(--s10) var(--gutter); max-width: 560px;
+  display: flex; flex-direction: column; gap: var(--s5); line-height: 1.55;
   color: var(--text-3);
 }
-.empty-state h3 { font-size: var(--fs-4); color: var(--text); }
+.empty-state h3, .mix-empty h3 { font-size: var(--fs-4); color: var(--text-hi); }
 
 /* ── vertical fader ──────────────────────────────────────────────── */
 /* Drawn explicitly rather than left to the webview: a default range
    input fills the travelled part with the accent colour, which on a
-   channel strip reads as a level meter rather than a fader position. */
+   channel strip reads as a level meter rather than a fader position.
+   The input is wider than the track so a thumb can land on it. */
 input.vfader {
   writing-mode: vertical-lr; direction: rtl;
   -webkit-appearance: none; appearance: none;
-  width: 22px; height: 100%; margin: 0 0 0 var(--s3);
+  width: var(--fader-w); height: 100%; margin: 0 0 0 var(--s2);
   background: transparent; border: none; cursor: ns-resize; outline: none;
+  /* The strip row scrolls sideways; a vertical drag belongs to the fader. */
+  touch-action: pan-x;
 }
 input.vfader::-webkit-slider-runnable-track {
   width: 4px; height: 100%;
-  background: var(--sunken); border-radius: var(--r1);
+  background: var(--meter-trough); border-radius: var(--r1);
   box-shadow: var(--inset-hairline);
+}
+input.vfader::-moz-range-track {
+  width: 4px; height: 100%;
+  background: var(--meter-trough); border-radius: var(--r1);
 }
 input.vfader::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
-  width: 20px; height: 11px; margin-left: -8px;
+  width: var(--thumb-w); height: var(--thumb-h);
+  margin-left: calc((4px - var(--thumb-w)) / 2);
+  background: linear-gradient(to bottom, var(--text-2) 0 44%, var(--sunken) 44% 56%, var(--text-2) 56% 100%);
+  border: 1px solid var(--sunken);
+  border-radius: var(--r1); box-shadow: var(--shadow-card);
+}
+input.vfader::-moz-range-thumb {
+  width: var(--thumb-w); height: var(--thumb-h);
   background: var(--text-2); border: 1px solid var(--sunken);
   border-radius: var(--r1); box-shadow: var(--shadow-card);
 }
-input.vfader:hover::-webkit-slider-thumb { background: var(--text); }
-input.vfader:focus::-webkit-slider-thumb { border-color: var(--accent); }
+input.vfader:hover::-webkit-slider-thumb, input.vfader:active::-webkit-slider-thumb {
+  background: linear-gradient(to bottom, var(--text-hi) 0 44%, var(--sunken) 44% 56%, var(--text-hi) 56% 100%);
+}
+input.vfader:focus-visible { box-shadow: none; }
+input.vfader:focus-visible::-webkit-slider-thumb { border-color: var(--accent); box-shadow: var(--focus-ring); }
+
+/* Horizontal ranges (the parameter inspector). */
+input[type="range"]:not(.vfader) { min-height: var(--control-h); background: transparent; border: none; }
+
+/* ── swatches ────────────────────────────────────────────────────── */
+.color-swatches { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
+.swatch {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid var(--border); cursor: pointer; padding: 0; flex: 0 0 auto;
+}
+.swatch:hover { border-color: var(--text); }
+.swatch.on { border: 2px solid var(--hi); }
+.swatch.none { background: transparent; color: var(--muted); font-size: var(--fs-xs); line-height: 1; }
+.swatch.cycle { width: 14px; height: 14px; }
+@media (pointer: coarse) {
+  .swatch { width: 30px; height: 30px; }
+  .swatch.cycle { width: 24px; height: 24px; }
+}

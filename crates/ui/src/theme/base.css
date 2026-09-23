@@ -1,79 +1,285 @@
-/* Reset, native-control theming, and the app shell: icon rail on the
-   left, one view in the outlet, status bar underneath. */
+/* Reset, native-control theming, and the app shell.
+
+   Wide: a rail down the left, one view beside it, the status bar under
+   the view. Narrow (a phone): the rail becomes a tab bar along the
+   bottom, inside the safe area, and the view gets the whole width. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body { height: 100%; overscroll-behavior: none; }
+
 .patchbay-root {
   display: flex; flex-direction: column;
-  width: 100vw; height: 100vh; overflow: hidden;
+  width: 100vw; height: 100vh; height: 100dvh; overflow: hidden;
   background: var(--bg); color: var(--text);
   font-family: var(--font);
-  font-size: var(--fs-3);
+  font-size: var(--fs-3); line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  /* No double-tap zoom: it costs every tap 300ms and a fader a jump. */
+  touch-action: manipulation;
+  outline: none;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 
 /* Native controls follow the theme (webkit defaults to light). */
-select, option, input, textarea, button {
-  font-family: inherit;
-}
+select, option, input, textarea, button { font-family: inherit; }
 select, option, input, textarea {
   background: var(--sunken); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--r3);
-  accent-color: var(--accent); color-scheme: dark;
+  accent-color: var(--accent);
 }
-select { padding: var(--s1) var(--s3); font-size: var(--fs-2); }
+select, input:not([type="range"]):not([type="checkbox"]):not([type="radio"]) {
+  min-height: var(--control-h);
+}
+select { padding: var(--s1) var(--s4); font-size: var(--fs-2); max-width: 100%; }
 option { background: var(--surface); }
-input[type="number"]::-webkit-inner-spin-button,
-input[type="number"]::-webkit-outer-spin-button { filter: invert(0.85); }
+input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; vertical-align: -3px; }
+button { color: inherit; }
+.patchbay-root:not([data-theme="daylight"]) input[type="number"]::-webkit-inner-spin-button,
+.patchbay-root:not([data-theme="daylight"]) input[type="number"]::-webkit-outer-spin-button {
+  filter: invert(0.85);
+}
+
+button:focus-visible, select:focus-visible, input:focus-visible,
+textarea:focus-visible, [tabindex]:focus-visible {
+  outline: none; box-shadow: var(--focus-ring);
+}
+.patchbay-root:focus-visible { box-shadow: none; }
+
+/* iOS zooms the page into any field whose text is under 16px. */
+@media (pointer: coarse) {
+  select, textarea,
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]) { font-size: 16px; }
+  input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; vertical-align: -5px; }
+}
+
+/* Scrollbars that belong to the theme rather than to the OS. */
+.patchbay-root * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.patchbay-root ::-webkit-scrollbar { width: 10px; height: 10px; }
+.patchbay-root ::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: var(--r-pill);
+  border: 3px solid transparent; background-clip: content-box;
+}
+.patchbay-root ::-webkit-scrollbar-thumb:hover { background-color: var(--edge); }
+.patchbay-root ::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── shell ───────────────────────────────────────────────────────── */
 .shell { display: flex; flex: 1; min-height: 0; }
+.main-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 
 .rail {
-  width: var(--rail-w); flex: 0 0 auto;
+  width: calc(var(--rail-w) + var(--safe-l)); flex: 0 0 auto;
   background: var(--surface); border-right: 1px solid var(--divider);
   display: flex; flex-direction: column; align-items: stretch;
-  padding: var(--s3) 0; gap: var(--s1);
-  overflow-y: auto;
+  padding: calc(var(--s4) + var(--safe-t)) var(--s3) calc(var(--s4) + var(--safe-b)) calc(var(--s3) + var(--safe-l));
+  gap: var(--s2);
+  overflow-y: auto; scrollbar-width: none;
+  user-select: none; -webkit-user-select: none;
 }
+.rail::-webkit-scrollbar { display: none; }
 .rail-brand {
-  font-weight: 600; font-size: var(--fs-1); letter-spacing: var(--track);
+  display: flex; flex-direction: column; align-items: center; gap: var(--s2);
+  font-weight: 700; font-size: var(--fs-xs); letter-spacing: var(--track);
   text-transform: uppercase; color: var(--muted);
-  text-align: center; padding: var(--s2) 0 var(--s5);
+  padding: var(--s2) 0 var(--s6);
 }
+.rail-mark { width: 30px; height: 30px; color: var(--accent); }
 .rail-item {
+  position: relative;
   background: none; border: none; cursor: pointer;
-  color: var(--muted); padding: var(--s3) var(--s1);
-  display: flex; flex-direction: column; align-items: center; gap: var(--s1);
-  border-left: 2px solid transparent;
-  font-size: var(--fs-sm); letter-spacing: 0.02em;
+  color: var(--muted); padding: var(--s4) var(--s1);
+  display: flex; flex-direction: column; align-items: center; gap: var(--s2);
+  border-radius: var(--r4);
+  font-size: var(--fs-sm); font-weight: 500; letter-spacing: 0.01em;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .rail-item:hover { color: var(--text); background: var(--raised-hover); }
-.rail-item.on { color: var(--text); border-left-color: var(--accent); background: var(--accent-a10); }
-.rail-glyph { font-size: var(--fs-5); line-height: 1; }
+.rail-item:active { transform: scale(0.97); }
+.rail-item.on { color: var(--accent-text); background: var(--accent-a12); }
+.rail-item.on .rail-icon { color: var(--accent-2); }
+.rail-icon { width: 22px; height: 22px; flex: 0 0 auto; }
+.rail-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-spacer { flex: 1; }
 /* A view with something wrong in it wears a dot on its rail button. */
-.rail-item { position: relative; }
 .rail-badge {
-  position: absolute; top: var(--s3); right: var(--s5);
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--warn); box-shadow: var(--dot-ring);
+  position: absolute; top: var(--s3); right: 22%;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--warn); box-shadow: 0 0 0 2px var(--surface);
 }
 .rail-badge.bad { background: var(--danger); }
 
-.view-outlet { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* ── context: the device Route and Mix act on ────────────────────── */
+/* First in the rail and set apart from the two verbs under it — it is
+   their subject, not a third destination. */
+.rail-context {
+  border: 1px solid var(--border); background: var(--raised);
+  color: var(--text); margin-bottom: var(--s4);
+}
+.rail-context:hover, .rail-context.open { background: var(--raised-2); border-color: var(--edge); color: var(--text-hi); }
+.rail-context .rail-label { font-weight: 650; }
+.rail-context-dot { position: absolute; top: var(--s3); right: var(--s4); display: inline-flex; }
+
+.context-scrim { position: fixed; inset: 0; z-index: 40; background: transparent; border: none; }
+.context-menu {
+  position: fixed; z-index: 41;
+  left: calc(var(--rail-w) + var(--safe-l) + var(--s3)); top: calc(64px + var(--safe-t));
+  width: 320px; max-width: calc(100vw - var(--rail-w) - var(--s8));
+  max-height: calc(100dvh - 96px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--s1);
+  padding: var(--s3); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r4);
+  box-shadow: var(--shadow-pop);
+}
+.context-menu-title {
+  font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--track);
+  color: var(--muted); font-weight: 650; padding: var(--s3) var(--s4) var(--s2);
+}
+/* A machine, above its devices. */
+.context-host {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s5) var(--s4) var(--s2); margin-top: var(--s2);
+  border-top: 1px solid var(--line);
+}
+.context-menu > .context-host:first-child { border-top: none; margin-top: 0; padding-top: var(--s3); }
+.context-host-name {
+  font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--track);
+  font-weight: 650; color: var(--muted);
+}
+.context-host.live .context-host-name { color: var(--accent-2); }
+.context-host-note {
+  flex: 1; min-width: 0; text-align: right; font-size: var(--fs-sm); color: var(--muted-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rail-sub {
+  max-width: 100%; font-size: var(--fs-xs); font-weight: 500; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: -2px;
+}
+.context-tag-host { color: var(--muted); font-weight: 500; }
+.context-tag-host::before { content: "· "; }
+
+.context-option {
+  display: flex; align-items: center; gap: var(--s5); text-align: left;
+  min-height: var(--row-h); padding: var(--s3) var(--s4);
+  background: none; border: 1px solid transparent; border-radius: var(--r3);
+  color: var(--text); cursor: pointer;
+}
+.context-option:hover { background: var(--raised-hover); }
+.context-option.on { background: var(--accent-a12); border-color: var(--accent-a35); }
+.context-option.on .rail-icon { color: var(--accent-2); }
+.context-option .rail-icon { color: var(--muted); }
+.context-option-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.context-option-name { font-weight: 600; color: var(--text-hi); }
+.context-option-note {
+  font-size: var(--fs-1); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* The same fact, in a page's head: which device this is, and a way to
+   change it without reaching for the rail. */
+.context-tag {
+  display: inline-flex; align-items: center; gap: var(--s3);
+  min-height: calc(var(--control-h) - 4px); padding: 0 var(--s5);
+  background: var(--raised); border: 1px solid var(--border); border-radius: var(--r-pill);
+  color: var(--text); font-size: var(--fs-2); font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+}
+.context-tag:hover { border-color: var(--accent); color: var(--text-hi); }
+.context-tag-caret { color: var(--muted); font-size: var(--fs-sm); }
+
+.view-outlet { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+
+/* A short, wide window — a phone on its side: keep the rail, lose the
+   labels, so the view keeps its height. */
+@media (max-height: 520px) and (min-width: 761px) {
+  .patchbay-root { --rail-w: 56px; }
+  .rail { padding-top: calc(var(--s2) + var(--safe-t)); gap: 0; }
+  .rail-brand, .rail-label, .rail-sub { display: none; }
+  .rail-item { padding: var(--s4) 0; }
+  .rail-context { margin-bottom: var(--s2); }
+  .context-menu { top: calc(var(--s3) + var(--safe-t)); max-height: calc(100dvh - var(--s6)); }
+}
+
+/* A phone: the rail is a tab bar. */
+@media (max-width: 760px) {
+  .shell { flex-direction: column; }
+  .main-col { order: 1; padding-top: var(--safe-t); }
+  .rail {
+    order: 2; width: 100%; flex-direction: row; align-items: stretch;
+    border-right: none; border-top: 1px solid var(--divider);
+    padding: var(--s2) calc(var(--s2) + var(--safe-r)) calc(var(--s2) + var(--safe-b)) calc(var(--s2) + var(--safe-l));
+    gap: 0; overflow: visible;
+    min-height: calc(var(--tabbar-h) + var(--safe-b));
+    /* Lifted off the content, which scrolls underneath it. */
+    box-shadow: 0 -6px 18px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-strength)));
+    z-index: 30;
+  }
+  /* The page head's device pill names the machine on a phone. */
+  .rail-brand, .rail-spacer, .rail-sub { display: none; }
+  .rail-item {
+    flex: 1 1 0; min-width: 0; justify-content: center;
+    padding: var(--s3) 0; gap: 3px; border-radius: var(--r3);
+    font-size: var(--fs-xs);
+  }
+  .rail-item:hover { background: none; }
+  .rail-item.on { background: none; color: var(--accent-2); }
+  /* The active tab: a pill behind the icon, the way a phone does it. */
+  .rail-item .rail-icon { box-sizing: content-box; padding: 3px 14px; border-radius: var(--r-pill); }
+  .rail-item.on .rail-icon { background: var(--accent-a25); color: var(--accent-text); }
+  .rail-badge { top: var(--s2); right: calc(50% - 18px); }
+
+  /* The device is the first tab, boxed so it reads as "what", beside
+     the "do what" tabs. Its list comes up as a sheet over the bar. */
+  .rail-context {
+    flex: 1.15 1 0; margin: 0 var(--s2) 0 0;
+    border: 1px solid var(--border); background: var(--raised);
+  }
+  .rail-context:hover { background: var(--raised); }
+  .rail-context .rail-icon { padding: 3px 10px; }
+  .rail-context-dot { top: var(--s2); right: var(--s3); }
+  .context-scrim { background: var(--scrim); }
+  .context-menu {
+    left: 0; right: 0; top: auto; bottom: calc(var(--tabbar-h) + var(--safe-b));
+    width: auto; max-width: none; max-height: 70dvh;
+    border-radius: var(--r4) var(--r4) 0 0; border-width: 1px 0 0;
+    padding: var(--s4) var(--gutter) var(--s6);
+  }
+}
 
 /* ── shared view furniture ───────────────────────────────────────── */
 .view-head {
-  display: flex; align-items: center; gap: var(--s6);
-  padding: var(--s5) var(--s8) var(--s4);
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2) var(--s6);
+  padding: var(--s6) var(--gutter) var(--s5);
   border-bottom: 1px solid var(--divider); flex: 0 0 auto;
+  background: var(--bg);
+  min-height: 56px;
 }
-.view-title { font-size: var(--fs-5); font-weight: 600; }
+.view-title { font-size: var(--fs-5); font-weight: 650; letter-spacing: -0.01em; color: var(--text-hi); }
 .view-sub { color: var(--muted); font-size: var(--fs-2); }
-.view-head-actions { margin-left: auto; display: flex; align-items: center; gap: var(--s3); }
-.view-body { flex: 1; min-height: 0; overflow: auto; }
+.view-head-actions { margin-left: auto; display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3); }
+.view-body { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
 
 .section-label {
-  font-size: var(--fs-1); text-transform: uppercase;
-  letter-spacing: var(--track); color: var(--muted); font-weight: 600;
+  font-size: var(--fs-sm); text-transform: uppercase;
+  letter-spacing: var(--track); color: var(--muted); font-weight: 650;
 }
+
+@media (max-width: 760px) {
+  .view-head { min-height: 48px; padding-top: var(--s5); padding-bottom: var(--s4); }
+  /* The subtitle is a nicety; on a phone the title line is for actions. */
+  .view-sub { display: none; }
+  .view-head .mix-error { flex-basis: 100%; }
+}
+
+/* ── splash: before there is an engine to talk to ────────────────── */
+.splash {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--s6); padding: var(--s9); text-align: center; color: var(--muted);
+}
+.splash-mark { width: 64px; height: 64px; color: var(--accent); }
+.splash.waiting .splash-mark { animation: splash-breathe 1.8s ease-in-out infinite; }
+.splash-title { font-size: var(--fs-5); font-weight: 650; color: var(--text-hi); }
+.splash-detail { max-width: 420px; font-size: var(--fs-2); line-height: 1.6; word-break: break-word; }
+.splash.failed .splash-detail { color: var(--danger-text); }
+@keyframes splash-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }

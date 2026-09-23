@@ -1,97 +1,272 @@
 /* Design tokens — the only place a literal colour, size or duration is
    allowed to appear. Everything else in the UI refers to these.
 
-   The palette is the one the app already used, named: it was previously
-   spread across ~270 rules as raw hex, which is why nothing could be
-   restyled without a find-and-replace. */
+   Three layers, all declared on the app root so they resolve on the
+   same element (a derived token declared on `:root` would be computed
+   there, before a theme on the app root could override its inputs).
+   `.theme-scope` is a second root: any element wearing it and a
+   `data-theme` is painted in that theme — the Settings previews.
 
-:root {
+     1. a THEME picks the base colours  — [data-theme]
+     2. an ACCENT picks the brand hue   — [data-accent]
+     3. the DERIVED block mixes every tint, glow and hairline from them
+
+   so a new theme is ~30 lines of base colours and nothing else. */
+
+/* ── 1. themes ───────────────────────────────────────────────────── */
+
+/* Studio — a neutral blue-black control room. Also the base every other
+   theme overrides; the theme a new device starts on is Midnight
+   (`Theme::default()` in appearance.rs). */
+:is(.patchbay-root, .theme-scope) {
   color-scheme: dark;
 
-  /* ── surfaces, back to front ─────────────────────────────────── */
-  --bg: #14171c;          /* window background */
-  --surface: #1b1f26;     /* bars, side panels, sticky headers */
-  --raised: #1d222b;      /* cards, strips, node bodies */
-  --raised-2: #232933;    /* chips, node headers, hover fills */
-  --raised-hover: #1f242c;
-  --row-hover: #262d38;   /* a port row under the cursor */
-  --sink: #1b2029;        /* output / destination strips */
-  --sunken: #10131a;      /* inputs, meter troughs, code */
-  --row-alt: #191d24;     /* alternating / grouping rows */
-  --surface-a90: rgba(27, 31, 38, 0.9); /* floating tool clusters */
+  /* surfaces, back to front */
+  --bg: #0f1216;          /* window background */
+  --surface: #151a20;     /* bars, rail, side panels, sticky headers */
+  --raised: #1a2028;      /* cards, strips, node bodies */
+  --raised-2: #222a34;    /* chips, node headers, hover fills */
+  --raised-hover: #1e252e;
+  --row-hover: #26303c;   /* a port row under the cursor */
+  --sink: #182029;        /* output / destination strips */
+  --sunken: #0b0d11;      /* inputs, meter troughs, code */
+  --row-alt: #141920;     /* alternating / grouping rows */
 
-  /* ── lines ───────────────────────────────────────────────────── */
-  --border: #2b323d;      /* control and card borders */
-  --divider: #262c35;     /* structural rules between regions */
-  --line: #232933;        /* list-row separators */
-  --line-2: #1f242c;      /* the faintest separator */
+  /* lines */
+  --border: #2a333f;      /* control and card borders */
+  --divider: #222a34;     /* structural rules between regions */
+  --line: #1f2630;        /* list-row separators */
+  --line-2: #1a2028;      /* the faintest separator */
   --edge: #3a4656;        /* dashed placeholders, empty slots */
-  --sink-border: #2d3848;
+  --sink-border: #2a3746;
 
-  /* ── text ────────────────────────────────────────────────────── */
-  --text-hi: #e6ecf3;     /* the brightest text: a hovered row */
-  --text: #d7dde5;        /* primary */
-  --text-2: #aab4c0;      /* secondary (port names, values) */
-  --text-3: #8fa3bb;      /* tertiary (reports, clock info) */
-  --muted: #7a8494;       /* labels, captions */
-  --muted-2: #5c6673;     /* disabled, notes, scale ticks */
-  --muted-3: #3a424e;     /* inert dots */
-  --dot-off: #333a44;     /* a dot for something that exists but is silent */
+  /* text */
+  --text-hi: #f2f5f9;     /* the brightest text: a hovered row */
+  --text: #dde3ea;        /* primary */
+  --text-2: #aeb8c4;      /* secondary (port names, values) */
+  --text-3: #93a3b8;      /* tertiary (reports, clock info) */
+  --muted: #7d8898;       /* labels, captions */
+  --muted-2: #5d6775;     /* disabled, notes, scale ticks */
+  --muted-3: #39414d;     /* inert dots */
+  --dot-off: #323a45;     /* exists but silent */
   --dot-suspended: #4a525e;
-  --hi: #ffffff;          /* the one pure-white accent: a chosen swatch */
+  --hi: #ffffff;          /* the one pure accent: a chosen swatch */
+  --on-accent: #ffffff;   /* text on a solid accent fill */
 
-  /* ── accent ──────────────────────────────────────────────────── */
-  --accent: #4a90d9;
-  --accent-2: #7cc4ff;    /* informational / links */
-  --accent-bg: #2b4a6f;
-  --accent-bg-2: #38618f; /* the pulse peak of an armed row */
-  --accent-text: #cfe6ff;
-  --accent-a06: rgba(74, 144, 217, 0.06);
-  --accent-a07: rgba(74, 144, 217, 0.07);
-  --accent-a10: rgba(74, 144, 217, 0.10);
-  --accent-a12: rgba(74, 144, 217, 0.12);
-  --accent-a25: rgba(74, 144, 217, 0.25);
-  --accent-a35: rgba(74, 144, 217, 0.35);
-  --accent2-a10: rgba(124, 196, 255, 0.10);
-  --accent2-a45: rgba(124, 196, 255, 0.45);
+  /* status */
+  --ok: #4fd18b;
+  --warn: #ffd072;
+  --warn-2: #ffae4d;
+  --danger: #ec6257;
+  --danger-text: #ffb8b1;
 
-  /* ── status ──────────────────────────────────────────────────── */
-  --ok: #58d68d;
-  --ok-2: #2fbf71;        /* the bottom of the meter gradient */
-  --ok-a12: rgba(88, 214, 141, 0.12);
-  --ok-a18: rgba(88, 214, 141, 0.18);
-  --ok-line: rgba(88, 214, 141, 0.5);
-  --ok-glow: rgba(88, 214, 141, 0.6);
-  --ok-glow-2: rgba(88, 214, 141, 0.8);
-  --ok-glow-3: rgba(88, 214, 141, 0.85);
+  /* depth */
+  --shadow-rgb: 0, 0, 0;
+  --shadow-strength: 1;
+}
 
-  --warn: #ffd479;
-  --warn-2: #ffb454;
-  --warn-a10: rgba(255, 212, 121, 0.10);
-  --warn-a20: rgba(255, 212, 121, 0.2);
-  --warn-line: rgba(255, 212, 121, 0.45);
-  --warn2-glow: rgba(255, 180, 84, 0.55);
+/* Midnight — true black for OLED phones and dark stages. */
+:is(.patchbay-root, .theme-scope)[data-theme="midnight"] {
+  --bg: #000000;
+  --surface: #07090c;
+  --raised: #0d1014;
+  --raised-2: #151920;
+  --raised-hover: #11151a;
+  --row-hover: #1a2029;
+  --sink: #0b1016;
+  --sunken: #000000;
+  --row-alt: #090b0f;
+  --border: #1e252e;
+  --divider: #161b22;
+  --line: #13171d;
+  --line-2: #0f1318;
+  --edge: #2c3644;
+  --sink-border: #1c2733;
+  --text-hi: #ffffff;
+  --text: #d5dbe3;
+  --text-2: #a2adba;
+  --text-3: #8797ab;
+  --muted: #6f7a89;
+  --muted-2: #505a67;
+  --muted-3: #2b323c;
+  --dot-off: #262c35;
+  --dot-suspended: #3c444f;
+}
 
-  --danger: #e05c52;
-  --danger-2: #d9534a;    /* borders on destructive controls */
-  --danger-text: #ffb4ad;
-  --danger-a12: rgba(224, 92, 82, 0.12);
-  --danger-a15: rgba(224, 92, 82, 0.15);
-  --danger-a20: rgba(224, 92, 82, 0.2);
-  --danger-line: rgba(224, 92, 82, 0.4);
-  --danger-line-2: rgba(224, 92, 82, 0.55);
-  --danger-glow: rgba(224, 92, 82, 0.6);
+/* Console — warm charcoal, like the desk it is sitting next to. */
+:is(.patchbay-root, .theme-scope)[data-theme="console"] {
+  --bg: #161412;
+  --surface: #1d1a17;
+  --raised: #24201c;
+  --raised-2: #2e2924;
+  --raised-hover: #29241f;
+  --row-hover: #362f29;
+  --sink: #221f1c;
+  --sunken: #0f0e0c;
+  --row-alt: #1a1815;
+  --border: #3a342d;
+  --divider: #2e2924;
+  --line: #2a2520;
+  --line-2: #24201c;
+  --edge: #51483e;
+  --sink-border: #3b352f;
+  --text-hi: #faf6f0;
+  --text: #e6dfd5;
+  --text-2: #bdb3a5;
+  --text-3: #a89c8b;
+  --muted: #8d8272;
+  --muted-2: #6b6255;
+  --muted-3: #453e35;
+  --dot-off: #3c362e;
+  --dot-suspended: #564d42;
+}
 
-  --alias: #ffd479;       /* a port carrying a human-given name */
+/* Daylight — for a bright room, a tablet on a lectern, or outdoors. */
+:is(.patchbay-root, .theme-scope)[data-theme="daylight"] {
+  color-scheme: light;
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --raised-2: #eef1f5;
+  --raised-hover: #f3f6f9;
+  --row-hover: #e6ebf1;
+  --sink: #f6f8fb;
+  --sunken: #e9edf2;
+  --row-alt: #f0f3f6;
+  --border: #d0d7e0;
+  --divider: #dde2e9;
+  --line: #e4e8ee;
+  --line-2: #ebeef2;
+  --edge: #aab4c1;
+  --sink-border: #cfd8e3;
+  --text-hi: #05080c;
+  --text: #18202a;
+  --text-2: #3f4a58;
+  --text-3: #4f5d6f;
+  --muted: #667383;
+  --muted-2: #8a95a3;
+  --muted-3: #c2cad4;
+  --dot-off: #c9d0d9;
+  --dot-suspended: #aab3be;
+  --hi: #05080c;
+  --ok: #178a4c;
+  --warn: #96620a;
+  --warn-2: #b8590c;
+  --danger: #cf3a2e;
+  --danger-text: #a1261c;
+  --shadow-rgb: 30, 45, 70;
+  --shadow-strength: 0.35;
+}
 
-  /* ── depth ───────────────────────────────────────────────────── */
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.35);
-  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --inset-hairline: 0 0 0 1px rgba(0, 0, 0, 0.35) inset;
-  --dot-ring: 0 0 4px rgba(0, 0, 0, 0.5);
-  --scrim: rgba(0, 0, 0, 0.55);
+/* Contrast — maximum legibility: pure black, white lines, no greys
+   doing the work of text. */
+:is(.patchbay-root, .theme-scope)[data-theme="contrast"] {
+  --bg: #000000;
+  --surface: #000000;
+  --raised: #0a0a0a;
+  --raised-2: #1a1a1a;
+  --raised-hover: #161616;
+  --row-hover: #262626;
+  --sink: #0a0a0a;
+  --sunken: #000000;
+  --row-alt: #0d0d0d;
+  --border: #8c8c8c;
+  --divider: #6b6b6b;
+  --line: #4a4a4a;
+  --line-2: #333333;
+  --edge: #b0b0b0;
+  --sink-border: #8c8c8c;
+  --text-hi: #ffffff;
+  --text: #ffffff;
+  --text-2: #ebebeb;
+  --text-3: #dcdcdc;
+  --muted: #c4c4c4;
+  --muted-2: #a3a3a3;
+  --muted-3: #5c5c5c;
+  --dot-off: #4a4a4a;
+  --dot-suspended: #6b6b6b;
+  --ok: #5dff9f;
+  --warn: #ffe066;
+  --warn-2: #ffb833;
+  --danger: #ff6b5e;
+  --danger-text: #ffd0cb;
+}
 
-  /* ── space ───────────────────────────────────────────────────── */
+/* ── 2. accents ──────────────────────────────────────────────────── */
+/* --accent is the fill, --accent-2 the lighter informational tone. */
+:is(.patchbay-root, .theme-scope)                        { --accent: #4a90e2; --accent-2: #7cc4ff; }
+:is(.patchbay-root, .theme-scope)[data-accent="teal"]    { --accent: #25b0a5; --accent-2: #5fd9cf; }
+:is(.patchbay-root, .theme-scope)[data-accent="green"]   { --accent: #3fae6a; --accent-2: #74dc9c; }
+:is(.patchbay-root, .theme-scope)[data-accent="amber"]   { --accent: #d9962b; --accent-2: #ffc766; }
+:is(.patchbay-root, .theme-scope)[data-accent="orange"]  { --accent: #e0703a; --accent-2: #ffa071; }
+:is(.patchbay-root, .theme-scope)[data-accent="red"]     { --accent: #dc5047; --accent-2: #ff8f87; }
+:is(.patchbay-root, .theme-scope)[data-accent="pink"]    { --accent: #d9569b; --accent-2: #ff8fc6; }
+:is(.patchbay-root, .theme-scope)[data-accent="purple"]  { --accent: #8f6ae6; --accent-2: #b9a0ff; }
+/* On a light ground the "lighter tone" has to be the darker one. */
+:is(.patchbay-root, .theme-scope)[data-theme="daylight"] {
+  --accent-2: color-mix(in srgb, var(--accent) 78%, #000000);
+}
+
+/* ── 3. derived — never overridden by a theme ────────────────────── */
+:is(.patchbay-root, .theme-scope) {
+  --surface-a90: color-mix(in srgb, var(--surface) 90%, transparent);
+
+  --accent-bg: color-mix(in srgb, var(--accent) 30%, var(--raised));
+  --accent-bg-2: color-mix(in srgb, var(--accent) 46%, var(--raised));
+  --accent-text: color-mix(in srgb, var(--accent) 30%, var(--text-hi));
+  --accent-a06: color-mix(in srgb, var(--accent) 6%, transparent);
+  --accent-a07: color-mix(in srgb, var(--accent) 7%, transparent);
+  --accent-a10: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-a12: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-a25: color-mix(in srgb, var(--accent) 25%, transparent);
+  --accent-a35: color-mix(in srgb, var(--accent) 35%, transparent);
+  --accent2-a10: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  --accent2-a45: color-mix(in srgb, var(--accent-2) 45%, transparent);
+  --focus-ring: 0 0 0 3px var(--accent-a35);
+
+  --ok-2: color-mix(in srgb, var(--ok) 80%, #0a5a3a);
+  --ok-a12: color-mix(in srgb, var(--ok) 12%, transparent);
+  --ok-a18: color-mix(in srgb, var(--ok) 18%, transparent);
+  --ok-line: color-mix(in srgb, var(--ok) 50%, transparent);
+  --ok-glow: color-mix(in srgb, var(--ok) 60%, transparent);
+  --ok-glow-2: color-mix(in srgb, var(--ok) 80%, transparent);
+  --ok-glow-3: color-mix(in srgb, var(--ok) 85%, transparent);
+
+  --warn-a10: color-mix(in srgb, var(--warn) 10%, transparent);
+  --warn-a20: color-mix(in srgb, var(--warn) 20%, transparent);
+  --warn-line: color-mix(in srgb, var(--warn) 45%, transparent);
+  --warn2-glow: color-mix(in srgb, var(--warn-2) 55%, transparent);
+
+  --danger-2: color-mix(in srgb, var(--danger) 92%, #000000);
+  --danger-a12: color-mix(in srgb, var(--danger) 12%, transparent);
+  --danger-a15: color-mix(in srgb, var(--danger) 15%, transparent);
+  --danger-a20: color-mix(in srgb, var(--danger) 20%, transparent);
+  --danger-line: color-mix(in srgb, var(--danger) 40%, transparent);
+  --danger-line-2: color-mix(in srgb, var(--danger) 55%, transparent);
+  --danger-glow: color-mix(in srgb, var(--danger) 60%, transparent);
+
+  --alias: var(--warn);   /* a port carrying a human-given name */
+
+  /* Meters keep broadcast colours in every theme: green / amber / red
+     mean the same thing on a white page as on a black one. */
+  --meter-ok-2: #1fae63;
+  --meter-ok: #4fd18b;
+  --meter-warn: #ffd072;
+  --meter-warn-2: #ffae4d;
+  --meter-hot: #ec6257;
+  --meter-trough: color-mix(in srgb, var(--sunken) 92%, var(--text));
+
+  --shadow-card: 0 1px 2px rgba(var(--shadow-rgb), calc(0.30 * var(--shadow-strength))),
+                 0 2px 8px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-strength)));
+  --shadow-pop: 0 12px 32px rgba(var(--shadow-rgb), calc(0.55 * var(--shadow-strength)));
+  --inset-hairline: 0 0 0 1px rgba(var(--shadow-rgb), calc(0.35 * var(--shadow-strength))) inset;
+  --dot-ring: 0 0 4px rgba(var(--shadow-rgb), calc(0.5 * var(--shadow-strength)));
+  --scrim: rgba(var(--shadow-rgb), 0.55);
+}
+
+/* ── scales ──────────────────────────────────────────────────────── */
+:is(.patchbay-root, .theme-scope) {
+  /* space */
   --s1: 2px;
   --s2: 4px;
   --s3: 6px;
@@ -103,31 +278,97 @@
   --s9: 24px;
   --s10: 32px;
 
-  /* ── radii ───────────────────────────────────────────────────── */
+  /* radii */
   --r1: 3px;
-  --r2: 4px;
-  --r3: 6px;
-  --r4: 8px;
+  --r2: 5px;
+  --r3: 8px;
+  --r4: 12px;
   --r-pill: 999px;
 
-  /* ── type ────────────────────────────────────────────────────── */
-  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  /* type */
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-1: 12px;
+  --fs-2: 13px;
+  --fs-3: 14px;
+  --fs-4: 16px;
+  --fs-5: 19px;
+  --fs-6: 24px;
+  --track: 0.08em;        /* uppercase section labels */
+
+  /* motion */
+  --dur-fast: 0.09s;
+  --dur: 0.16s;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* controls */
+  --control-h: 28px;      /* a chip, a select, a text field */
+  --control-px: 12px;
+  --row-h: 40px;          /* a list row you can act on */
+  --fader-w: 28px;        /* the fader's hit area */
+  --thumb-w: 26px;
+  --thumb-h: 14px;
+  --cell: 24px;           /* a crosspoint in a grid */
+
+  /* layout */
+  --rail-w: 84px;
+  --tabbar-h: 58px;
+  --panel-w: 300px;
+  --gutter: var(--s8);    /* the page's side padding */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+}
+
+/* Compact — more on screen for a big desktop window. */
+:is(.patchbay-root, .theme-scope)[data-density="compact"] {
   --fs-xs: 9px;
   --fs-sm: 10px;
   --fs-1: 11px;
   --fs-2: 12px;
   --fs-3: 13px;
   --fs-4: 15px;
-  --fs-5: 16px;
-  --fs-6: 20px;
-  --track: 0.08em;        /* uppercase section labels */
-
-  /* ── motion ──────────────────────────────────────────────────── */
-  --dur-fast: 0.09s;
-  --dur: 0.15s;
-
-  /* ── layout ──────────────────────────────────────────────────── */
+  --fs-5: 17px;
+  --fs-6: 21px;
+  --control-h: 24px;
+  --control-px: 10px;
+  --row-h: 34px;
   --rail-w: 72px;
-  --panel-w: 280px;
+  --gutter: var(--s7);
+}
+
+/* Fingers, not cursors: every target grows to something hittable. This
+   follows the pointer, not the screen width — a touch laptop gets it,
+   a narrow desktop window doesn't. Compact never applies to touch. */
+@media (pointer: coarse) {
+  :is(.patchbay-root, .theme-scope), :is(.patchbay-root, .theme-scope)[data-density="compact"] {
+    --fs-xs: 10px;
+    --fs-sm: 11px;
+    --fs-1: 12px;
+    --fs-2: 14px;
+    --fs-3: 15px;
+    --fs-4: 17px;
+    --control-h: 38px;
+    --control-px: 14px;
+    --row-h: 48px;
+    --fader-w: 44px;
+    --thumb-w: 40px;
+    --thumb-h: 22px;
+    --cell: 34px;
+  }
+}
+
+/* A phone: tighter gutters, everything else handled per view. */
+@media (max-width: 760px) {
+  :is(.patchbay-root, .theme-scope), :is(.patchbay-root, .theme-scope)[data-density="compact"] {
+    --gutter: var(--s6);
+    --fs-5: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.patchbay-root, .theme-scope) { --dur-fast: 0s; --dur: 0s; }
 }

@@ -2,21 +2,24 @@
    the one thing you can do about it". */
 
 .settings-body, .scenes-body {
-  padding: var(--s6) var(--s8) var(--s10);
+  padding: var(--s7) var(--gutter) var(--s10);
   display: flex; flex-direction: column; gap: var(--s9);
-  max-width: 900px;
 }
+/* Centred in a wide window rather than pinned to its left edge. */
+.settings-body > *, .scenes-body > * { width: 100%; max-width: 860px; margin-left: auto; margin-right: auto; }
 .settings-section { display: flex; flex-direction: column; gap: var(--s3); }
-.settings-section > .dim-note { margin-top: 0; max-width: 720px; line-height: 1.6; }
+.settings-section > .section-label { padding: 0 var(--s1) var(--s1); }
+.settings-section > .dim-note { margin-top: 0; max-width: 720px; line-height: 1.6; padding: 0 var(--s1); }
 
 .setting-row {
-  display: flex; align-items: center; gap: var(--s5);
-  padding: var(--s4) var(--s5);
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3) var(--s5);
+  min-height: var(--row-h);
+  padding: var(--s4) var(--s6);
   background: var(--raised); border: 1px solid var(--divider);
   border-radius: var(--r3);
 }
-.setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
-.setting-title { font-weight: 600; }
+.setting-text { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.setting-title { font-weight: 600; color: var(--text-hi); }
 .setting-text .dim-note { margin-top: 0; width: auto; line-height: 1.5; }
 
 /* Opening the RPC to the network is the one setting here that can't be
@@ -26,24 +29,102 @@
   background: var(--warn-a10); border: 1px solid var(--warn-line);
   border-radius: var(--r3); padding: var(--s4) var(--s5); max-width: 720px;
 }
-.setting-urls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3); }
+.setting-urls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3); padding: 0 var(--s1); }
 .setting-urls .dim-note { margin-top: 0; width: auto; }
 .setting-url {
   font-family: var(--font-mono); font-size: var(--fs-1);
   background: var(--sunken); border: 1px solid var(--border);
-  border-radius: var(--r2); padding: var(--s1) var(--s3); color: var(--accent-2);
-  user-select: all;
+  border-radius: var(--r2); padding: var(--s2) var(--s4); color: var(--accent-2);
+  user-select: all; -webkit-user-select: all; word-break: break-all;
 }
 
 .scenes-note {
   color: var(--ok); font-size: var(--fs-2);
   background: var(--ok-a12); border: 1px solid var(--ok-line);
-  border-radius: var(--r3); padding: var(--s3) var(--s5);
+  border-radius: var(--r3); padding: var(--s4) var(--s5);
 }
 
 /* The panels that moved here were written for a 280px column. */
-.settings-section .panel-section { max-width: 100%; }
+.settings-section .panel-section {
+  max-width: 100%;
+  background: var(--raised); border: 1px solid var(--divider);
+  border-radius: var(--r3); padding: var(--s5) var(--s6);
+}
 .settings-section .panel-section h3 {
-  font-size: var(--fs-1); text-transform: uppercase;
+  font-size: var(--fs-sm); text-transform: uppercase;
   letter-spacing: var(--track); color: var(--muted);
+}
+.settings-section .clock-defaults {
+  background: var(--raised); border: 1px solid var(--divider);
+  border-radius: var(--r3); padding: var(--s5) var(--s6);
+}
+.settings-section .clock-defaults h3 { display: none; }
+
+/* ── hosts ───────────────────────────────────────────────────────── */
+.setting-row .host-input { flex: 1 1 200px; width: auto; }
+
+/* ── appearance ──────────────────────────────────────────────────── */
+.theme-grid {
+  display: grid; gap: var(--s4);
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+}
+.theme-card {
+  display: flex; flex-direction: column; gap: var(--s3); text-align: left;
+  padding: var(--s3); cursor: pointer;
+  background: var(--raised); color: var(--text);
+  border: 1.5px solid var(--divider); border-radius: var(--r4);
+  transition: border-color var(--dur) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.theme-card:hover { border-color: var(--edge); }
+.theme-card:active { transform: scale(0.98); }
+.theme-card.on { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.theme-card-name { font-weight: 600; font-size: var(--fs-2); padding: 0 var(--s1); }
+.theme-card-note { color: var(--muted); font-size: var(--fs-sm); padding: 0 var(--s1) var(--s1); line-height: 1.35; }
+
+/* A thumbnail of the theme: a rail, a line of text, two rows and the
+   accent. Each pane is a `.theme-scope`, so it is painted with that
+   theme's real tokens and cannot drift from it. Auto shows two panes. */
+.theme-preview {
+  height: 64px; border-radius: var(--r3); overflow: hidden;
+  display: flex; border: 1px solid var(--border);
+}
+.theme-preview-pane { position: relative; flex: 1; min-width: 0; display: flex; background: var(--bg); }
+.theme-preview-rail { width: 14px; background: var(--surface); border-right: 1px solid var(--divider); }
+.theme-preview-body { flex: 1; min-width: 0; padding: 9px 8px; display: flex; flex-direction: column; gap: 6px; }
+.theme-preview-text { height: 4px; width: 46%; border-radius: 2px; background: var(--text); }
+.theme-preview-row { height: 9px; border-radius: 3px; background: var(--raised-2); border: 1px solid var(--border); }
+.theme-preview-row.short { width: 62%; }
+.theme-preview-dot {
+  position: absolute; right: 7px; bottom: 7px; width: 11px; height: 11px;
+  border-radius: 50%; background: var(--accent);
+}
+
+.accent-row { display: flex; flex-wrap: wrap; gap: var(--s4); }
+.accent-swatch {
+  width: 32px; height: 32px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 2px solid transparent; background-clip: padding-box;
+  box-shadow: 0 0 0 1px var(--border);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.accent-swatch:hover { transform: scale(1.08); }
+.accent-swatch.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text-hi); }
+@media (pointer: coarse) { .accent-swatch { width: 40px; height: 40px; } }
+
+.segmented {
+  display: inline-flex; padding: 2px; gap: 2px;
+  background: var(--sunken); border: 1px solid var(--border); border-radius: var(--r-pill);
+}
+.segmented button {
+  min-height: calc(var(--control-h) - 2px); padding: 0 var(--s7);
+  background: none; border: none; border-radius: var(--r-pill); cursor: pointer;
+  color: var(--muted); font-size: var(--fs-2); font-weight: 500;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.segmented button:hover { color: var(--text); }
+.segmented button.on { background: var(--raised-2); color: var(--text-hi); box-shadow: var(--shadow-card); }
+
+@media (max-width: 760px) {
+  .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* The action drops under the text instead of squeezing it. */
+  .setting-row > .chip, .setting-row > .segmented { margin-left: auto; }
 }

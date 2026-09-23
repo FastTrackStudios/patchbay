@@ -1,9 +1,13 @@
 /* Now — the dashboard. */
 
-.now-body { padding: var(--s6) var(--s8) var(--s9); display: flex; flex-direction: column; gap: var(--s8); }
+.now-body {
+  padding: var(--s7) var(--gutter) var(--s10);
+  display: flex; flex-direction: column; gap: var(--s9);
+}
 .now-section { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.now-section > .section-label { padding: 0 var(--s1) var(--s2); }
 .now-columns {
-  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s8);
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s9);
   align-items: start;
 }
 
@@ -11,7 +15,7 @@
 .problems { display: flex; flex-direction: column; gap: var(--s3); }
 .problem {
   display: flex; align-items: flex-start; gap: var(--s5);
-  padding: var(--s4) var(--s5); border-radius: var(--r3);
+  padding: var(--s5) var(--s6); border-radius: var(--r3);
   background: var(--warn-a10); border: 1px solid var(--warn-line);
   color: var(--warn);
 }
@@ -21,72 +25,102 @@
 }
 .problem-text { display: flex; flex-direction: column; gap: var(--s1); flex: 1; min-width: 0; }
 .problem-summary { font-weight: 600; }
-.problem-detail { color: var(--text-3); font-size: var(--fs-2); }
+.problem-detail { color: var(--text-3); font-size: var(--fs-2); line-height: 1.5; }
 
 /* ── app rows ────────────────────────────────────────────────────── */
 .app-row {
   display: flex; align-items: center; gap: var(--s5);
-  padding: var(--s3) var(--s4);
-  border-radius: var(--r3); border: 1px solid transparent;
+  min-height: var(--row-h);
+  padding: var(--s3) var(--s5);
+  background: var(--raised); border: 1px solid var(--divider);
+  border-radius: var(--r3);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.app-row:hover { background: var(--raised-hover); border-color: var(--divider); }
+.app-row:hover { background: var(--raised-hover); border-color: var(--border); }
 .app-badge {
-  flex: 0 0 auto; width: 24px; height: 24px; border-radius: var(--r3);
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: var(--r3);
   display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: var(--fs-2); color: var(--sunken);
+  font-weight: 700; font-size: var(--fs-2); color: rgba(0, 0, 0, 0.78);
 }
 .app-name {
-  flex: 0 0 180px; width: 180px; font-weight: 600;
+  flex: 0 0 190px; width: 190px; font-weight: 600; color: var(--text-hi);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.app-row .levelbar { flex: 0 0 160px; width: 160px; }
+.app-row .levelbar { flex: 0 0 180px; width: 180px; }
 .app-route {
   flex: 1; min-width: 0; color: var(--muted); font-size: var(--fs-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .capture-picker {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3);
-  padding: var(--s2) var(--s4) var(--s5) calc(24px + var(--s5) * 2);
+  margin-top: calc(var(--s3) * -1 - 1px);
+  padding: var(--s5) var(--s5) var(--s5) calc(28px + var(--s5) * 2);
+  background: var(--accent-a06);
+  border: 1px solid var(--accent-a35); border-top: none;
+  border-radius: 0 0 var(--r3) var(--r3);
 }
 .capture-picker .dim-note { margin-top: 0; width: auto; }
 
 /* ── mix cards ───────────────────────────────────────────────────── */
 .mix-card {
-  border: 1px solid var(--divider); border-radius: var(--r4);
-  background: var(--raised); padding: var(--s5);
+  border: 1px solid var(--divider); border-radius: var(--r3);
+  background: var(--raised); padding: var(--s5) var(--s6);
   display: flex; flex-direction: column; gap: var(--s2);
 }
 .mix-card-top { display: flex; align-items: center; gap: var(--s3); }
 .mix-card-name {
   flex: 1; min-width: 0; text-align: left;
-  background: none; border: none; color: var(--text);
+  background: none; border: none; color: var(--text-hi);
   font-weight: 600; font-size: var(--fs-3); cursor: pointer;
+  min-height: var(--control-h);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .mix-card-name:hover { color: var(--accent-2); }
 .mix-card .dim-note { margin-top: 0; }
-.mix-card-actions { display: flex; gap: var(--s3); margin-top: var(--s1); }
+.mix-card-actions { display: flex; gap: var(--s3); margin-top: var(--s2); }
 
 /* ── device rows ─────────────────────────────────────────────────── */
 .device-group-label {
-  font-size: var(--fs-1); text-transform: uppercase;
+  font-size: var(--fs-sm); text-transform: uppercase; font-weight: 600;
   letter-spacing: var(--track); color: var(--muted-2);
-  margin-top: var(--s3);
+  margin-top: var(--s4); padding: 0 var(--s1);
 }
 .device-row {
-  display: flex; align-items: center; gap: var(--s4);
-  padding: var(--s2) var(--s4); border-radius: var(--r3);
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2) var(--s4);
+  min-height: var(--row-h);
+  padding: var(--s2) var(--s5); border-radius: var(--r3);
 }
 .device-row:hover { background: var(--raised-hover); }
 .device-name {
-  flex: 1; min-width: 0;
+  flex: 1 1 160px; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .device-row .dim-note { margin-top: 0; width: auto; white-space: nowrap; }
 
 /* Narrow windows (and the browser remote on a tablet): one column. */
-@media (max-width: 900px) {
-  .now-columns { grid-template-columns: 1fr; }
-  .app-name { flex-basis: 120px; width: 120px; }
-  .app-route { display: none; }
+@media (max-width: 1000px) {
+  .now-columns { grid-template-columns: minmax(0, 1fr); }
+  .app-name { flex-basis: 140px; width: 140px; }
+  .app-row .levelbar { flex: 1 1 100px; width: auto; }
+}
+
+/* A phone: the row becomes a small card — who, how loud, where to. */
+@media (max-width: 760px) {
+  .app-row {
+    display: grid; align-items: center; gap: var(--s2) var(--s4);
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "badge dot  name  act"
+      "badge bar  bar   act"
+      "route route route route";
+    padding: var(--s5);
+  }
+  .app-row .app-badge { grid-area: badge; width: 36px; height: 36px; font-size: var(--fs-4); }
+  .app-row .svc-dot { grid-area: dot; }
+  .app-row .app-name { grid-area: name; width: auto; }
+  .app-row .levelbar { grid-area: bar; width: auto; min-width: 0; }
+  .app-row .app-route { grid-area: route; white-space: normal; font-size: var(--fs-1); }
+  .app-row .app-route:empty { display: none; }
+  .app-row .chip { grid-area: act; }
+  .capture-picker { padding-left: var(--s5); }
 }

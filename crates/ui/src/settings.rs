@@ -4,8 +4,8 @@
 //! Most of it is platform-specific and only appears where it means
 //! something: privacy grants and the virtual-device driver on macOS, the
 //! `PipeWire` clock, the managed services and the per-app latency rules
-//! on Linux. What is left — who can reach this Patchbay over the network
-//! — matters everywhere.
+//! on Linux. What is left — how it looks on this device, and who can
+//! reach this Patchbay over the network — matters everywhere.
 
 use dioxus::prelude::*;
 use patchbay_proto::{ListenAddress, PermissionsStatus};
@@ -25,6 +25,15 @@ static ERROR: GlobalSignal<String> = Signal::global(String::new);
 /// Second click on "open to the network" — it exposes an unauthenticated
 /// RPC, so it is not a one-click toggle.
 static CONFIRM_LAN: GlobalSignal<bool> = Signal::global(|| false);
+
+/// Forget the previous engine's settings (see `hosts::reset`).
+pub fn reset() {
+    *PERMISSIONS.write() = PermissionsStatus::default();
+    *LISTEN.write() = ListenAddress::default();
+    *DRIVER.write() = patchbay_proto::VirtualDevicesStatus::default();
+    ERROR.write().clear();
+    *CONFIRM_LAN.write() = false;
+}
 
 async fn refresh(handle: &PatchbayHandle) {
     let (perms, listen, driver) = futures_util::join!(
@@ -88,6 +97,8 @@ pub fn SettingsView() -> Element {
         }
         ErrorBar { message: error, on_dismiss: move |()| ERROR.write().clear() }
         div { class: "view-body settings-body",
+            crate::appearance::AppearanceSection {}
+            Hosts {}
             Network { listen }
             if macos {
                 Permissions { perms }
@@ -104,6 +115,127 @@ pub fn SettingsView() -> Element {
                 section { class: "settings-section",
                     crate::panels::LatencyPanel {}
                 }
+            }
+        }
+    }
+}
+
+/// Address to add under Hosts.
+static NEW_HOST: GlobalSignal<String> = Signal::global(String::new);
+
+/// Add or forget a host in the HOME engine's address book — the list
+/// belongs to the engine this UI came from, whichever one is live.
+fn edit_hosts(home: PatchbayHandle, addr: String, add: bool) {
+    dioxus::core::spawn_forever(async move {
+        let res = if add {
+            home.0.add_host(addr).await
+        } else {
+            home.0.remove_host(addr).await
+        };
+        match res {
+            Ok(book) => {
+                *crate::hosts::BOOK.write() = book;
+                if add {
+                    NEW_HOST.write().clear();
+                }
+            }
+            Err(e) => *ERROR.write() = format!("hosts: {e}"),
+        }
+    });
+}
+
+/// The other Patchbay engines this UI can work on.
+#[component]
+fn Hosts() -> Element {
+    let shell = use_context::<crate::Shell>();
+    let home = shell.home.handle.clone();
+    let book = crate::hosts::BOOK.read().clone();
+    let peers = crate::hosts::PEERS.read().clone();
+    let can_dial = shell.dial.is_some();
+    let add = {
+        let home = home.clone();
+        move || {
+            let addr = NEW_HOST.peek().trim().to_owned();
+            if !addr.is_empty() {
+                edit_hosts(home.clone(), addr, true);
+            }
+        }
+    };
+    let add_key = add.clone();
+
+    rsx! {
+        section { class: "settings-section",
+            h3 { class: "section-label", "Hosts" }
+            p { class: "dim-note",
+                "Other machines running Patchbay. Their devices appear in the rail's switcher, and "
+                "picking one makes that machine's engine the one you are working on. This window "
+                "connects to each of them directly, so each has to be open to the network."
+            }
+            div { class: "setting-row",
+                StatusDot { status: Status::Ok, title: "connected".to_owned() }
+                div { class: "setting-text",
+                    span { class: "setting-title", "{book.this}" }
+                    span { class: "dim-note", "this engine — where this window's host list is kept" }
+                }
+            }
+            for h in book.hosts.iter() {
+                {
+                    let peer = peers.get(&h.addr);
+                    let (status, state) = match peer {
+                        Some(p) if p.link.is_some() => (Status::Ok, format!("{} device(s)", p.devices.len())),
+                        Some(p) if !p.error.is_empty() => (Status::Bad, p.error.clone()),
+                        _ if !can_dial => (Status::Missing, "this shell can't dial other engines".to_owned()),
+                        _ => (Status::Busy, "connecting…".to_owned()),
+                    };
+                    let home = home.clone();
+                    let addr = h.addr.clone();
+                    rsx! {
+                        div { class: "setting-row", key: "{h.addr}",
+                            StatusDot { status, title: state.clone() }
+                            div { class: "setting-text",
+                                span { class: "setting-title", "{h.name}" }
+                                span { class: "dim-note", "{h.addr} · {state}" }
+                            }
+                            if h.discovered {
+                                span { class: "mix-badge live", "on the network" }
+                            }
+                            if h.saved {
+                                crate::ui::ConfirmButton {
+                                    label: "forget".to_owned(),
+                                    armed_label: "sure?".to_owned(),
+                                    on_confirm: move |()| edit_hosts(home.clone(), addr.clone(), false),
+                                }
+                            } else {
+                                button {
+                                    class: "chip",
+                                    title: "Keep it listed even when it isn't advertising",
+                                    onclick: move |_| edit_hosts(home.clone(), addr.clone(), true),
+                                    "save"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            div { class: "setting-row",
+                input {
+                    class: "search host-input",
+                    placeholder: "thebattleship.local",
+                    "aria-label": "host to add",
+                    autocapitalize: "none",
+                    spellcheck: "false",
+                    value: "{NEW_HOST}",
+                    oninput: move |e| *NEW_HOST.write() = e.value(),
+                    onkeydown: move |e: Event<KeyboardData>| {
+                        if e.key() == Key::Enter {
+                            add_key();
+                        }
+                    },
+                }
+                button { class: "chip", onclick: move |_| add(), "add host" }
+            }
+            if !book.discovery_note.is_empty() {
+                p { class: "dim-note", "Discovery: {book.discovery_note}" }
             }
         }
     }
@@ -273,7 +405,7 @@ fn Driver(driver: patchbay_proto::VirtualDevicesStatus) -> Element {
                     }
                     span { class: "dim-note",
                         if driver.driver_loaded {
-                            "Publishing {driver.devices.len()} device(s). Create and remove them in Now."
+                            "Publishing {driver.devices.len()} device(s). Create and remove them under System → Mix."
                         } else {
                             "Run packaging/macos/install-driver.sh. Without it there are no Patchbay \
                              devices for apps to play into, and mixes have nothing to be heard through."
