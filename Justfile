@@ -7,15 +7,31 @@ default:
 
 # Stage the browser remote for embedding: dx web build of patchbay-web →
 # app/web-dist/, which `--features embed-web` compiles into the binary
-# via include_dir!. web-dist/ is gitignored.
+# via include_dir!. web-dist/ is gitignored. dx never cleans its output
+# (every past build's hashed wasm stays in public/assets and would be
+# embedded too), so it is removed first.
 web-stage:
+    rm -rf target/dx/patchbay-web/release/web/public
     cd app/web && dx build --platform web --release
     rm -rf app/web-dist
     cp -r target/dx/patchbay-web/release/web/public app/web-dist
 
-# Install on this machine: release binary (web bundle EMBEDDED) in
-# ~/.local/lib/fts, `patchbay` on PATH, launcher entry + icon.
-install: web-stage
+# Install on this machine and (re)start it — the one command after any
+# change. macOS: build + sign + install Patchbay.app, relaunch it, wait
+# until it answers (packaging/macos/deploy.sh; the running engine drops
+# for a couple of seconds). Linux: `install-linux`.
+install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+        Darwin) packaging/macos/deploy.sh ;;
+        *) {{just_executable()}} install-linux ;;
+    esac
+
+# Linux: release binary (web bundle EMBEDDED) in ~/.local/lib/fts,
+# `patchbay` on PATH, launcher entry + icon. Does not restart a running
+# app.
+install-linux: web-stage
     #!/usr/bin/env bash
     set -euo pipefail
     cargo build --release -p fts-patchbay --features embed-web
@@ -81,6 +97,7 @@ macos-sign: macos-app
     packaging/macos/sign.sh
 
 # Build + sign + install to ~/Applications (PATCHBAY_APP_DIR overrides); CLI → ~/.local/bin/patchbay.
+# Quits a running Patchbay but does not relaunch it — `just install` does.
 macos-install: macos-sign
     packaging/macos/install.sh
 

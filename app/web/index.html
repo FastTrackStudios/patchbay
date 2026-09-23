@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>{app_title}</title>
+        <meta charset="UTF-8">
+        <!-- viewport-fit=cover: the app draws under the notch and the home
+             indicator and pads itself with the safe-area insets. No
+             user-scalable=no — pinch-zoom of the page stays available;
+             the app only turns off double-tap zoom, in CSS. -->
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+        <!-- Overwritten with the chosen theme's background once the app is up. -->
+        <meta name="theme-color" content="#000000">
+        <meta name="color-scheme" content="dark light">
+        <!-- "Add to Home Screen" opens it like an app, without browser chrome. -->
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="apple-mobile-web-app-title" content="Patchbay">
+        <style>
+            html, body { margin: 0; height: 100%; background: #000000; }
+        </style>
+    </head>
+    <body>
+        <div id="main"></div>
+    </body>
+</html>

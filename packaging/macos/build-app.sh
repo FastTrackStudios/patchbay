@@ -18,14 +18,32 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 [[ "$(uname -s)" == Darwin ]] || { echo "macos-app: macOS only" >&2; exit 1; }
 
+# A shell that never sourced ~/.cargo/env (a GUI-launched terminal, a
+# bare zsh) has neither cargo nor dx. Without dx the web build below is
+# skipped and a stale app/web-dist is embedded without a word, so look
+# where rustup puts them before deciding they are missing.
+if ! command -v cargo >/dev/null 2>&1 && [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
+command -v cargo >/dev/null 2>&1 || {
+    echo "macos-app: cargo not found (PATH, ~/.cargo/bin) — install rustup, or run from the dev shell" >&2
+    exit 1
+}
+
 features=()
 if command -v dx >/dev/null 2>&1; then
     echo "==> building the web remote (dx)"
+    # dx never cleans its output: every past build's hashed wasm + js
+    # stays in public/assets, and all of it would be embedded (~5 MB a
+    # build). Start from nothing so the bundle is exactly this build.
+    rm -rf target/dx/patchbay-web/release/web/public
     (cd app/web && dx build --platform web --release)
     rm -rf app/web-dist
     cp -r target/dx/patchbay-web/release/web/public app/web-dist
 fi
 if [[ -f app/web-dist/index.html ]]; then
+    command -v dx >/dev/null 2>&1 \
+        || echo "==> WARNING: dx not found — embedding the app/web-dist staged earlier, NOT a fresh web build" >&2
     features=(--features embed-web)
     echo "==> embedding app/web-dist (browser remote at http://127.0.0.1:4046/)"
 else

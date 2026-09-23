@@ -20,7 +20,7 @@ pub(crate) const MANAGED_UNITS: &[(&str, &str)] = &[
 ];
 
 /// One `systemctl show` for all managed units; missing units report
-/// `present: false` (`LoadState=not-found`).
+/// `present: false` (`LoadState=not-found`, or no systemd to ask).
 pub(crate) fn status_all() -> Vec<ServiceStatus> {
     status_of(MANAGED_UNITS)
 }
@@ -57,7 +57,10 @@ pub(crate) fn status_of(units: &[(&str, &str)]) -> Vec<ServiceStatus> {
                 label: (*label).to_owned(),
                 state: field("ActiveState"),
                 sub_state: field("SubState"),
-                present: field("LoadState") != "not-found",
+                // No answer at all (no `systemctl`: macOS) is not "present":
+                // an empty LoadState used to pass the `!= "not-found"` test
+                // and offer a Mac a start button for systemd units.
+                present: !matches!(field("LoadState").as_str(), "" | "not-found"),
             }
         })
         .collect()
