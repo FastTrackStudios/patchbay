@@ -7,23 +7,20 @@
 //! uses — over an in-process `architect::LocalServer` link.
 
 use std::process::ExitCode;
+use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
 use architect::host::{EngineHost, WebBundle};
 use dioxus::prelude::*;
 use patchbay::PatchbayBackend;
+use patchbay_proto::PatchbayServiceClient;
 use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay_proto::{DeviceEventWire, GraphEvent, PatchbayServiceClient};
-use patchbay_ui::{PatchbayApp, PatchbayHandle};
+use patchbay_ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
 
 #[cfg(target_os = "macos")]
 mod macos;
 
 const DEFAULT_ADDR: &str = "0.0.0.0:4046";
-
-/// How often the UI reconciles against a full snapshot, as a backstop
-/// for anything the event stream dropped.
-const RECONCILE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The staged web bundle, compiled into the binary (`just
 /// patchbay-web-stage` copies the dx build into `web-dist/`).
@@ -147,6 +144,9 @@ fn bootstrap_blocking() -> eyre::Result<()> {
                  or set PATCHBAY_WEB_DIST) — /health and /vox still work"
             },
         );
+        // Advertise to (when LAN-reachable) and look for other engines, so
+        // a UI attached here can offer to switch to them.
+        patchbay::start_peer_discovery(&addr);
         tokio::spawn(async move {
             EngineHost::new(router, addr).web(web).serve().await;
         });
@@ -220,76 +220,51 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Dial another machine's engine over WebSocket — the same two links a
+/// browser remote opens. Home is in-process and never goes through this.
+async fn dial(url: String) -> Result<EngineLink, String> {
+    let link = vox_websocket::WsLink::connect(&url)
+        .await
+        .map_err(|e| format!("connect {url}: {e}"))?;
+    let client: PatchbayServiceClient = vox_core::initiator_on(link)
+        .establish()
+        .await
+        .map_err(|e| format!("handshake with {url}: {e:?}"))?;
+    let stream_link = vox_websocket::WsLink::connect(&url)
+        .await
+        .map_err(|e| format!("connect (stream) {url}: {e}"))?;
+    let stream: PatchbayServiceStreamClient = vox_core::initiator_on(stream_link)
+        .establish()
+        .await
+        .map_err(|e| format!("handshake (stream) with {url}: {e:?}"))?;
+    Ok(EngineLink {
+        handle: PatchbayHandle(Arc::new(client)),
+        stream: Rc::new(stream),
+    })
+}
+
 #[component]
 fn App() -> Element {
     let Some(engine) = bootstrapped() else {
         return rsx! { div { "patchbay engine not bootstrapped" } };
     };
-    use_context_provider(|| PatchbayHandle(Arc::new(engine.client.clone())));
+    // All a shell provides: its own engine, and a way to reach others.
+    // Bridging the event streams into the UI (and switching between
+    // engines) is `patchbay_ui`'s.
+    use_context_provider(|| Shell {
+        home: EngineLink {
+            handle: PatchbayHandle(Arc::new(engine.client.clone())),
+            stream: Rc::new(engine.stream_client.clone()),
+        },
+        dial: Some(Dialer(Rc::new(|url| Box::pin(dial(url))))),
+        // In-process: if this link ends, so has the app.
+        on_home_lost: Callback::new(|()| tracing::error!("in-process engine link ended")),
+    });
 
     // AppKit is registered now: safe to prompt for permissions (doing it
     // during launch races NSApplication's own registration).
     #[cfg(target_os = "macos")]
     use_hook(macos::AppPermissions::on_window_ready);
-
-    // Bridge: initial snapshot + `#[subscribe]` events → UI signals.
-    use_future(move || async move {
-        let Some(engine) = bootstrapped() else { return };
-        let handle = PatchbayHandle(Arc::new(engine.client.clone()));
-
-        // Consume the stream through the stream client so the vox lane
-        // pumps it (a raw Tx attached to the hub is never drained).
-        let (tx, mut rx) = vox::channel::<GraphEvent>();
-        spawn(async move {
-            let Some(engine) = bootstrapped() else { return };
-            if let Err(e) = engine.stream_client.graph_events(tx).await {
-                tracing::warn!("graph_events subscription ended: {e:?}");
-            }
-        });
-
-        patchbay_ui::refresh_all(&handle).await;
-
-        while let Ok(Some(ev)) = rx.recv().await {
-            let ev = ev.get();
-            patchbay_ui::apply_graph_event(ev);
-            // A Reset means the engine rebuilt its mirror (PipeWire
-            // restart) — the follow-up flood can overrun any buffer,
-            // so reconcile from the snapshot instead of trusting it.
-            if matches!(ev, GraphEvent::Reset) {
-                patchbay_ui::refresh_all(&handle).await;
-            }
-        }
-        tracing::warn!("graph event stream ended");
-    });
-
-    // External-device events (Galaxy32, …) → the Devices view.
-    use_future(move || async move {
-        let (tx, mut rx) = vox::channel::<DeviceEventWire>();
-        spawn(async move {
-            let Some(engine) = bootstrapped() else { return };
-            if let Err(e) = engine.stream_client.device_events(tx).await {
-                tracing::warn!("device_events subscription ended: {e:?}");
-            }
-        });
-        while let Ok(Some(ev)) = rx.recv().await {
-            patchbay_ui::apply_device_event(ev.get());
-        }
-    });
-
-    // Belt-and-suspenders reconcile: streams can drop under burst
-    // (an app connecting = hundreds of events at once); a periodic
-    // snapshot swap guarantees the UI converges within seconds even
-    // if the event path lost something.
-    use_future(move || async move {
-        let Some(engine) = bootstrapped() else { return };
-        loop {
-            tokio::time::sleep(RECONCILE_INTERVAL).await;
-            match engine.client.graph().await {
-                Ok(snap) => patchbay_ui::replace_graph(snap),
-                Err(e) => tracing::warn!("graph reconcile failed: {e:?}"),
-            }
-        }
-    });
 
     rsx! {
         PatchbayApp {}

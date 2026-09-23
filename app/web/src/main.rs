@@ -8,9 +8,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use patchbay_proto::PatchbayServiceClient;
 use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay_proto::{DeviceEventWire, GraphEvent, PatchbayServiceClient};
-use patchbay_ui::{PatchbayApp, PatchbayHandle};
+use patchbay_ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
 
 /// Same-origin `/vox` (the engine that served this page serves the
 /// service too); a `dx serve` dev page on a non-4046 localhost port
@@ -39,33 +39,30 @@ fn server_url() -> String {
     std::env::var("PATCHBAY_URL").unwrap_or_else(|_| "ws://127.0.0.1:4046/vox".to_string())
 }
 
-/// The connected clients, passed by props (wasm vox clients are !Send,
-/// so no statics). Pointer equality — the connection never changes
-/// identity without remounting.
+/// The home connection as a prop: equal when it is the same connection
+/// (wasm vox clients are !Send, so no statics).
 #[derive(Clone)]
-struct EngineHandles {
-    handle: PatchbayHandle,
-    stream: Rc<PatchbayServiceStreamClient>,
-}
+struct Home(EngineLink);
 
-impl PartialEq for EngineHandles {
+impl PartialEq for Home {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.handle.0, &other.handle.0) && Rc::ptr_eq(&self.stream, &other.stream)
+        Arc::ptr_eq(&self.0.handle.0, &other.0.handle.0)
+            && Rc::ptr_eq(&self.0.stream, &other.0.stream)
     }
 }
 
-async fn connect() -> Result<EngineHandles, String> {
-    let url = server_url();
+/// Dial one engine: a client for calls, a second link for its event
+/// streams. Used for home and — through the [`Dialer`] handed to the UI —
+/// for every other engine it switches to.
+async fn connect(url: String) -> Result<EngineLink, String> {
     tracing::info!("patchbay-web: dialing {url}");
     let link = vox_websocket::WsLink::connect(&url)
         .await
         .map_err(|e| format!("connect {url}: {e:?}"))?;
-    tracing::info!("patchbay-web: link up, establishing service client");
     let client: PatchbayServiceClient = vox_core::initiator_on(link)
         .establish()
         .await
         .map_err(|e| format!("establish service: {e:?}"))?;
-    tracing::info!("patchbay-web: service client established");
     let stream_link = vox_websocket::WsLink::connect(&url)
         .await
         .map_err(|e| format!("connect (stream) {url}: {e:?}"))?;
@@ -73,7 +70,8 @@ async fn connect() -> Result<EngineHandles, String> {
         .establish()
         .await
         .map_err(|e| format!("establish stream: {e:?}"))?;
-    Ok(EngineHandles {
+    tracing::info!("patchbay-web: {url} established");
+    Ok(EngineLink {
         handle: PatchbayHandle(Arc::new(client)),
         stream: Rc::new(stream),
     })
@@ -84,100 +82,75 @@ fn main() {
     dioxus::launch(App);
 }
 
+/// First retry delay after the link drops or a dial fails, and the cap
+/// it backs off to. A phone that was asleep reconnects within a second
+/// of waking; an engine that is down isn't hammered.
+const RETRY_MIN_SECS: u64 = 1;
+const RETRY_MAX_SECS: u64 = 8;
+
 #[component]
 fn App() -> Element {
-    let mut engine = use_signal(|| None::<EngineHandles>);
+    let mut engine = use_signal(|| None::<Home>);
     let mut error = use_signal(String::new);
+    // Bumped to remount `Connected` on every new connection: its
+    // context, streams and tasks all belong to one set of clients.
+    let mut generation = use_signal(|| 0_u32);
+    // Set by `Connected` when its event stream ends — a phone that slept,
+    // an engine that restarted. The dial loop below picks it up.
+    let mut lost = use_signal(|| false);
 
     use_future(move || async move {
-        match connect().await {
-            Ok(handles) => engine.set(Some(handles)),
-            Err(e) => error.set(e),
+        let mut delay = RETRY_MIN_SECS;
+        loop {
+            match connect(server_url()).await {
+                Ok(link) => {
+                    delay = RETRY_MIN_SECS;
+                    error.set(String::new());
+                    lost.set(false);
+                    generation.with_mut(|g| *g = g.wrapping_add(1));
+                    engine.set(Some(Home(link)));
+                    while !*lost.peek() {
+                        patchbay_ui::sleep_secs(1).await;
+                    }
+                    engine.set(None);
+                    error.set("the connection to the engine dropped".to_owned());
+                }
+                Err(e) => error.set(e),
+            }
+            patchbay_ui::sleep_secs(delay).await;
+            delay = delay.saturating_mul(2).min(RETRY_MAX_SECS);
         }
     });
 
-    if let Some(handles) = engine.read().clone() {
-        return rsx! { Connected { engine: handles } };
-    }
-    rsx! {
-        div {
-            style: "display:flex;align-items:center;justify-content:center;\
-                    width:100vw;height:100vh;background:#14171c;color:#7a8494;\
-                    font-family:system-ui;font-size:14px;",
-            if error.read().is_empty() {
-                "connecting to the patchbay engine…"
-            } else {
-                "engine unreachable: {error}"
+    if let Some(home) = engine.read().clone() {
+        return rsx! {
+            Connected {
+                key: "{generation}",
+                home,
+                on_lost: move |()| lost.set(true),
             }
+        };
+    }
+    let failed = !error.read().is_empty();
+    rsx! {
+        patchbay_ui::Splash {
+            title: if failed { "Reconnecting…" } else { "Connecting…" },
+            detail: if failed { format!("{error} — trying again.") } else { server_url() },
+            failed,
         }
     }
 }
 
-/// Mounted once the clients exist: provides the handle, bridges the
-/// event stream, reconciles periodically — the same wiring as the
-/// desktop shell.
+/// Mounted once home is connected: hands the UI its engine, a way to
+/// dial others, and a way to say the link dropped. Everything else —
+/// bridging event streams, switching engines — is the UI crate's.
 #[component]
-fn Connected(engine: EngineHandles) -> Element {
-    use_context_provider(|| engine.handle.clone());
-
-    let bridge = engine.clone();
-    use_future(move || {
-        let engine = bridge.clone();
-        async move {
-            let (tx, mut rx) = vox::channel::<GraphEvent>();
-            let stream = engine.stream.clone();
-            spawn(async move {
-                if let Err(e) = stream.graph_events(tx).await {
-                    tracing::warn!("graph_events subscription ended: {e:?}");
-                }
-            });
-
-            patchbay_ui::refresh_all(&engine.handle).await;
-
-            while let Ok(Some(ev)) = rx.recv().await {
-                let ev = ev.get();
-                patchbay_ui::apply_graph_event(ev);
-                if matches!(ev, GraphEvent::Reset) {
-                    patchbay_ui::refresh_all(&engine.handle).await;
-                }
-            }
-            tracing::warn!("graph event stream ended");
-        }
+fn Connected(home: Home, on_lost: EventHandler<()>) -> Element {
+    use_context_provider(|| Shell {
+        home: home.0.clone(),
+        dial: Some(Dialer(Rc::new(|url| Box::pin(connect(url))))),
+        on_home_lost: Callback::new(move |()| on_lost.call(())),
     });
-
-    // External-device events → the Devices view.
-    let devices = engine.clone();
-    use_future(move || {
-        let engine = devices.clone();
-        async move {
-            let (tx, mut rx) = vox::channel::<DeviceEventWire>();
-            let stream = engine.stream.clone();
-            spawn(async move {
-                if let Err(e) = stream.device_events(tx).await {
-                    tracing::warn!("device_events subscription ended: {e:?}");
-                }
-            });
-            while let Ok(Some(ev)) = rx.recv().await {
-                patchbay_ui::apply_device_event(ev.get());
-            }
-        }
-    });
-
-    // Periodic reconcile — streams can drop under burst.
-    let reconcile = engine;
-    use_future(move || {
-        let engine = reconcile.clone();
-        async move {
-            loop {
-                patchbay_ui::sleep_secs(10).await;
-                match engine.handle.0.graph().await {
-                    Ok(snap) => patchbay_ui::replace_graph(snap),
-                    Err(e) => tracing::warn!("graph reconcile failed: {e:?}"),
-                }
-            }
-        }
-    });
-
     rsx! {
         PatchbayApp {}
     }

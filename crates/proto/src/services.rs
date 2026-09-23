@@ -18,9 +18,9 @@ use crate::mixes::{
 };
 use crate::types::{
     AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
-    DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, IconEntry, LatencyRule,
-    ListenAddress, MeterLevel, NamedRoute, PermissionsStatus, RoutingPreset, ServiceAction,
-    ServiceStatus, VirtualSink,
+    DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, HostsStatus, IconEntry,
+    LatencyRule, ListenAddress, MeterLevel, NamedRoute, PermissionsStatus, RoutingPreset,
+    ServiceAction, ServiceStatus, VirtualSink,
 };
 
 // `Facet`'s derive for a `#[repr(C)]` enum generates discriminant
@@ -572,6 +572,20 @@ pub mod patchbay_service {
         /// the device adapters are connected to, so only open it on a
         /// network you control.
         async fn set_listen_address(&self, bind: String) -> Result<ListenAddress, PatchbayError>;
+
+        // ── Other engines ────────────────────────────────────────────
+
+        /// The other Patchbay engines a UI can switch to: this engine's
+        /// saved list plus whatever is advertising on the local network.
+        /// An address book only — the UI connects to them itself.
+        async fn hosts(&self) -> Result<HostsStatus, PatchbayError>;
+
+        /// Save a host (`thebattleship.local`, `10.0.0.12:4046`; the port
+        /// defaults to 4046). Idempotent.
+        async fn add_host(&self, addr: String) -> Result<HostsStatus, PatchbayError>;
+
+        /// Forget a saved host. It stays listed while it is discovered.
+        async fn remove_host(&self, addr: String) -> Result<HostsStatus, PatchbayError>;
 
         // ── Host privacy permissions (macOS) ─────────────────────────
 

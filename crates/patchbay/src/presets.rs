@@ -83,6 +83,11 @@ pub struct NetworkConfig {
     #[serde(default)]
     #[facet(default)]
     pub bind: String,
+    /// Other Patchbay engines (`host:port`) the UIs attached to this one
+    /// offer to switch to. An address book: this engine never dials them.
+    #[serde(default)]
+    #[facet(default)]
+    pub hosts: Vec<String>,
 }
 
 /// First-run channel names for a stock REAPER JACK client: the main
@@ -455,6 +460,34 @@ impl PresetStore {
         let mut data = self.data.lock();
         data.network.bind = bind;
         self.persist(&data);
+    }
+
+    /// Saved peer engines, in the order they were added.
+    pub fn hosts(&self) -> Vec<String> {
+        self.data.lock().network.hosts.clone()
+    }
+
+    /// Save a peer engine (already normalised to `host:port`). Idempotent.
+    pub fn add_host(&self, addr: String) {
+        let mut data = self.data.lock();
+        if !data
+            .network
+            .hosts
+            .iter()
+            .any(|h| h.eq_ignore_ascii_case(&addr))
+        {
+            data.network.hosts.push(addr);
+            self.persist(&data);
+        }
+    }
+
+    pub fn remove_host(&self, addr: &str) {
+        let mut data = self.data.lock();
+        let before = data.network.hosts.len();
+        data.network.hosts.retain(|h| !h.eq_ignore_ascii_case(addr));
+        if data.network.hosts.len() != before {
+            self.persist(&data);
+        }
     }
 
     /// Upsert a mix (by `name`).

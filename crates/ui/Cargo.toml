@@ -10,6 +10,7 @@ dioxus.workspace = true
 tracing.workspace = true
 music-catalog.workspace = true
 futures-util.workspace = true
+vox.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["time"] }

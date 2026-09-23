@@ -602,6 +602,48 @@ pub struct PermissionsStatus {
     pub note: String,
 }
 
+/// Another Patchbay engine on the network — another machine whose audio
+/// this UI can switch to.
+///
+/// Engines never talk to each other: this is only an address book (plus
+/// what Bonjour can see), served so that every UI attached to this
+/// engine — the desktop window, a phone — offers the same machines. The
+/// UI dials `addr` itself.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Facet)]
+pub struct PatchbayHost {
+    /// What to call it: the machine's name without `.local` (`airlock`).
+    pub name: String,
+    /// `host:port` of its RPC (`thebattleship.local:4046`) — what it is
+    /// known by, and the first thing to dial.
+    pub addr: String,
+    /// Other `ip:port`s it advertises. A machine on several networks is
+    /// only reachable on one of them from any given phone, and not every
+    /// client can resolve `.local`, so a UI races these with `addr`.
+    #[serde(default)]
+    #[facet(default)]
+    pub addrs: Vec<String>,
+    /// In this engine's saved list (added by someone, survives restarts).
+    pub saved: bool,
+    /// Currently advertising itself on the local network.
+    pub discovered: bool,
+}
+
+/// The engines a UI can switch between, as this engine knows them.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Facet)]
+pub struct HostsStatus {
+    /// This engine's own machine name (`airlock`).
+    pub this: String,
+    /// Saved hosts first (in the order they were added), then hosts that
+    /// are only discovered. Never includes this engine itself.
+    #[serde(default)]
+    #[facet(default)]
+    pub hosts: Vec<PatchbayHost>,
+    /// Why discovery isn't finding anything, when it can't (empty = fine).
+    #[serde(default)]
+    #[facet(default)]
+    pub discovery_note: String,
+}
+
 /// Where the RPC and the browser remote listen.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Facet)]
 pub struct ListenAddress {

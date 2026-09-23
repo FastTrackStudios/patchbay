@@ -4694,6 +4694,7 @@ dependencies = [
  "facet",
  "facet-styx",
  "inferno-net",
+ "mdns-sd",
  "parking_lot",
  "patchbay-antelope",
  "patchbay-dante",
@@ -4819,6 +4820,7 @@ dependencies = [
  "patchbay-proto",
  "tokio",
  "tracing",
+ "vox",
  "vox-core",
  "vox-websocket",
 ]

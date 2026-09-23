@@ -22,6 +22,7 @@ mod latency;
 mod meters;
 mod mixes;
 mod net;
+mod peers;
 pub mod permissions;
 /// Pure decision logic — graph + config in, engine commands out.
 mod plan;
@@ -37,6 +38,7 @@ pub use patchbay_proto as proto;
 pub use service::PatchbayBackend;
 
 pub use net::record_bound;
+pub use peers::start as start_peer_discovery;
 
 /// The listen address saved in the config, if any.
 ///

@@ -33,6 +33,9 @@ tokio.workspace = true
 tracing.workspace = true
 dirs = "6"
 inferno-net.workspace = true
+# Peer-engine discovery (`_patchbay._tcp`). Same version inferno-net
+# already brings in for Dante, so this adds no new crate to the build.
+mdns-sd = "0.13"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pipewire = "0.10"

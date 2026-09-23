@@ -1236,6 +1236,26 @@ impl PatchbayService for PatchbayBackend {
         Ok(crate::net::listen_address(self.inner.presets.bind()))
     }
 
+    async fn hosts(&self) -> Result<patchbay_proto::HostsStatus, PatchbayError> {
+        Ok(crate::peers::status(&self.inner.presets.hosts()))
+    }
+
+    async fn add_host(&self, addr: String) -> Result<patchbay_proto::HostsStatus, PatchbayError> {
+        let addr = crate::peers::normalize(&addr).map_err(PatchbayError::Internal)?;
+        self.inner.presets.add_host(addr);
+        Ok(crate::peers::status(&self.inner.presets.hosts()))
+    }
+
+    async fn remove_host(
+        &self,
+        addr: String,
+    ) -> Result<patchbay_proto::HostsStatus, PatchbayError> {
+        // Whatever form it was given in, remove what `add_host` stored.
+        let addr = crate::peers::normalize(&addr).unwrap_or(addr);
+        self.inner.presets.remove_host(&addr);
+        Ok(crate::peers::status(&self.inner.presets.hosts()))
+    }
+
     async fn permissions(&self) -> Result<PermissionsStatus, PatchbayError> {
         Ok(self
             .inner

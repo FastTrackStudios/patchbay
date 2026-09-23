@@ -28,12 +28,12 @@ pub fn record_bound(addr: &str, web_note: &str) {
 }
 
 /// Whether `addr` is reachable from another machine.
-fn is_lan(addr: &str) -> bool {
+pub(crate) fn is_lan(addr: &str) -> bool {
     addr.parse::<SocketAddr>()
         .is_ok_and(|a| !a.ip().is_loopback())
 }
 
-fn port_of(addr: &str) -> u16 {
+pub(crate) fn port_of(addr: &str) -> u16 {
     addr.parse::<SocketAddr>().map_or(4046, |a| a.port())
 }
 
@@ -55,6 +55,18 @@ fn local_hostname() -> Option<String> {
     } else {
         format!("{host}.local")
     })
+}
+
+/// This machine's short name (`airlock`), without any domain.
+pub(crate) fn short_hostname() -> Option<String> {
+    let host = hostname()?;
+    let short = host
+        .trim()
+        .trim_end_matches('.')
+        .split('.')
+        .next()?
+        .to_ascii_lowercase();
+    (!short.is_empty()).then_some(short)
 }
 
 fn hostname() -> Option<String> {
