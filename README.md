@@ -20,17 +20,26 @@ on today" needs answering in seconds, not by reading `pw-link -l` output.
 The engine is headless and the UI is a client, so the desktop app and the
 browser remote are the same program seen through different windows.
 
-The window is a rail of views:
+The window is built around one question — *which device?* — and two
+things to do to it. The rail shows the current device (with its link
+state) and switches it; under it:
+
+| | **Route** — where signals go | **Mix** — levels |
+|---|---|---|
+| **Core Audio** (this Mac) | every app with audio, its level, the device it plays to, one click to capture it into a mix | Loopback/OBS-style mixes: sources summed into virtual devices |
+| **PipeWire** (a Linux host) | the node canvas | — |
+| **Dante** | the subscription grid: zoomable, with a safe-edit mode for touch | — (Dante only routes, and says so) |
+| **Galaxy 32** | its router | its four mixers, line-in trims, AFX inserts, clock |
+| **Yamaha TF** | — (the adapter exposes no patching) | channel strips with the desk's own names, colours, icons, faders and ON keys |
+
+Devices are named for what they are, not "System": the rail is meant to
+hold several hosts side by side. Below those, two places that aren't
+about any one device:
 
 | view | what it is for |
 |---|---|
-| **Now** | what is making sound right now: every app with audio, its level, the device it plays to, and one click to capture it into a mix |
-| **Mixes** | Loopback/OBS-style mixes — sources summed into virtual devices (macOS) |
-| **Devices** | the hardware as itself: a TF's channel strips, a Galaxy 32's router and mixers, the host's device list |
-| **Network** | the Dante subscription grid |
-| **Graph** | the PipeWire node canvas (Linux; hidden where there is no graph) |
-| **Scenes** | everything that can be saved and put back: presets, device snapshots, the Dante network |
-| **Settings** | privacy grants, the virtual-device driver, who can reach this Patchbay, the graph clock |
+| **Scenes** | everything that can be saved and put back, for every device: presets, device snapshots, the Dante network, mixes |
+| **Settings** | appearance, privacy grants, the virtual-device driver, who can reach this Patchbay, the graph clock |
 
 ## Running it
 
@@ -51,6 +60,63 @@ Use `--local` only for an intentional private/headless engine:
 ```bash
 cargo run -p fts-patchbay --bin patchbay -- --local graph --json
 ```
+
+### Several machines, one window
+
+Each Patchbay engine serves one machine. Put them in **Settings → Hosts**
+(`thebattleship.local`, an IP, or a pasted URL — engines that are open to
+the network also find each other over Bonjour, `_patchbay._tcp`, and show
+up there to be saved) and the rail's device switcher lists every device
+on every one of them, grouped by machine. Picking a device on another
+machine makes *that* engine the live one: Route, Mix, Scenes and Settings
+are then about it, and the rail says which machine you are on.
+
+The window connects to each engine itself — nothing is proxied and the
+engines never talk to each other, so whatever you are holding has to be
+able to reach each host on its RPC port, and each host has to be open to
+the network. A machine on several networks is dialled on all its
+addresses at once and the first to answer wins. The host list is kept by
+the engine the window came from, so the desktop app and a phone pointed
+at the same machine offer the same hosts. If a remote engine drops, the
+window comes back home and keeps retrying it.
+
+What you were doing — view, device, machine, Dante grid zoom — is
+remembered per browser, so a phone that reloads lands where it was.
+
+### After a change
+
+```bash
+just install
+```
+
+builds, installs and **restarts** Patchbay on this machine and waits until
+it answers — on macOS that is build + sign + install + relaunch
+(`packaging/macos/deploy.sh`, runnable directly where `just` isn't
+installed). The browser remote is compiled into the app, so this is also
+how a UI change reaches a phone. The engine drops for a couple of seconds;
+saved mixes come back on their own.
+
+### On a phone or tablet
+
+The browser remote is the same interface, laid out for the screen it is
+on: below 760px the rail becomes a tab bar inside the safe area, Mixes
+turns into a list that opens an editor, strips and grids scroll sideways
+under sticky headers, and anything you touch is sized for a finger (this
+follows the pointer, not the width, so a touch laptop gets it too). The
+Graph canvas pans with one finger and zooms with two.
+
+To reach it from another device: Settings → Network → *open to the
+network*, restart Patchbay, then open one of the listed URLs
+(`http://<this-machine's-ip>:4046/`). "Add to Home Screen" runs it
+full-screen. If the phone sleeps or the engine restarts, the remote
+reconnects by itself.
+
+Settings → Appearance picks a theme (Midnight by default; Auto, Studio,
+Console, Daylight, Contrast), an accent and a density. It is stored per device in
+the browser, never in the engine config — the phone on the music stand
+can be true black while the desktop stays as it was. A theme is ~30
+lines of base colours in `crates/ui/src/theme/tokens.css`; every tint,
+glow and hairline is mixed from those.
 
 The RPC endpoint is currently unauthenticated. Keep it on loopback
 (`PATCHBAY_ADDR=127.0.0.1:4046`) or an isolated trusted studio network until
@@ -84,10 +150,10 @@ rewrite Dante hardware routing. `dante save` snapshots the live routing and
 
 Hardware with its own router or mixer (Antelope Galaxy32, Yamaha TF, the
 Dante network, …) and the machine's own audio system are controlled through
-the same RPC surface — the `Devices` tab in the app, and `patchbay device`
-for agents.
+the same RPC surface — the device switcher in the app's rail, and
+`patchbay device` for agents.
 
-The tab shows each device as the thing it is: a **Yamaha TF** as channel
+**Mix** shows each device as the thing it is: a **Yamaha TF** as channel
 strips carrying the desk's own names, colours, icons, faders and ON keys; a
 **Galaxy 32** as its router, its four mixers, the line-in trims and the AFX
 insert grid; the host's own audio layer as a device list. Everything the
