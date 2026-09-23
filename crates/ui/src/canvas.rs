@@ -21,6 +21,45 @@ struct Cable {
     in_node: u32,
 }
 
+/// The fingers on the canvas, reduced to what pan and pinch need.
+#[derive(Clone, Copy, PartialEq)]
+struct TouchGesture {
+    fingers: usize,
+    /// Centre of the touches, client coordinates.
+    x: f64,
+    y: f64,
+    /// Distance between the first two (0 for one finger).
+    spread: f64,
+}
+
+impl TouchGesture {
+    fn read(touches: &[dioxus::html::TouchPoint]) -> Option<Self> {
+        let pts: Vec<(f64, f64)> = touches
+            .iter()
+            .take(2)
+            .map(|t| {
+                let c = t.client_coordinates();
+                (c.x, c.y)
+            })
+            .collect();
+        match pts.as_slice() {
+            [] => None,
+            [(x, y)] => Some(Self {
+                fingers: 1,
+                x: *x,
+                y: *y,
+                spread: 0.0,
+            }),
+            [(x1, y1), (x2, y2), ..] => Some(Self {
+                fingers: 2,
+                x: (x1 + x2) / 2.0,
+                y: (y1 + y2) / 2.0,
+                spread: (x2 - x1).hypot(y2 - y1),
+            }),
+        }
+    }
+}
+
 #[component]
 pub fn GraphCanvas() -> Element {
     // Fetch application icons for nodes we haven't looked up yet
@@ -178,6 +217,13 @@ pub fn GraphCanvas() -> Element {
     let (pan_x, pan_y) = *PAN.read();
     // Middle-drag pan state: last pointer position in client coords.
     let mut drag_last = use_signal(|| None::<(f64, f64)>);
+    // Touch: one finger pans, two pinch-zoom about the point between
+    // them. Touch events only carry client coordinates, so the viewport's
+    // own origin is measured (on mount, and again as a gesture starts —
+    // the layout above it can have changed) to anchor the zoom.
+    let mut touch = use_signal(|| None::<TouchGesture>);
+    let mut viewport = use_signal(|| None::<std::rc::Rc<MountedData>>);
+    let mut origin = use_signal(|| (0.0_f64, 0.0_f64));
 
     rsx! {
         div { class: "canvas-scroll",
@@ -201,6 +247,44 @@ pub fn GraphCanvas() -> Element {
                 );
                 *ZOOM.write() = new;
             },
+            onmounted: move |e: Event<MountedData>| viewport.set(Some(e.data())),
+            ontouchstart: move |e: Event<TouchData>| {
+                touch.set(TouchGesture::read(&e.touches()));
+                let mounted = viewport.peek().clone();
+                spawn(async move {
+                    if let Some(m) = mounted
+                        && let Ok(rect) = m.get_client_rect().await
+                    {
+                        origin.set((rect.origin.x, rect.origin.y));
+                    }
+                });
+            },
+            ontouchmove: move |e: Event<TouchData>| {
+                let now = TouchGesture::read(&e.touches());
+                let before = *touch.peek();
+                if let (Some(before), Some(now)) = (before, now)
+                    && before.fingers == now.fingers
+                {
+                    let (px, py) = *PAN.peek();
+                    let (px, py) = (px + (now.x - before.x), py + (now.y - before.y));
+                    if now.fingers >= 2 && before.spread > 1.0 {
+                        let old = *ZOOM.peek();
+                        let new = (old * now.spread / before.spread).clamp(0.15, 3.0);
+                        let scale = new / old;
+                        let (ox, oy) = *origin.peek();
+                        let (cx, cy) = (now.x - ox, now.y - oy);
+                        *PAN.write() = (cx - (cx - px) * scale, cy - (cy - py) * scale);
+                        *ZOOM.write() = new;
+                    } else {
+                        *PAN.write() = (px, py);
+                    }
+                }
+                touch.set(now);
+            },
+            // A finger lifting mid-pinch leaves a pan; re-read what is left
+            // so the view doesn't jump to the remaining finger.
+            ontouchend: move |e: Event<TouchData>| touch.set(TouchGesture::read(&e.touches())),
+            ontouchcancel: move |_| touch.set(None),
             onmousedown: move |e: Event<MouseData>| {
                 if e.trigger_button() == Some(dioxus::html::input_data::MouseButton::Auxiliary) {
                     e.prevent_default();
