@@ -6,10 +6,10 @@
 # the Mac drops for a second or two; apps like REAPER may need to reset
 # their audio device afterwards.
 #
-#   packaging/macos/install-driver.sh            install / update
-#   packaging/macos/install-driver.sh --remove   uninstall
+#   apps/patchbay/packaging/macos/install-driver.sh            install / update
+#   apps/patchbay/packaging/macos/install-driver.sh --remove   uninstall
 set -euo pipefail
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/../../../.." && pwd)"
 # After `allow-driver-reload.sh` the bundle is ours and coreaudiod can be
 # restarted without a password, so no step needs sudo.
 as_root() { if [[ -w "$hal" || -w "$hal/Patchbay.driver" ]]; then "$@"; else sudo "$@"; fi; }

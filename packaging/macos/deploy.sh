@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build, sign, install and RESTART Patchbay on this Mac, then wait until
-# the new one is answering. Used by `just install`.
+# the new one is answering. Used by `just patchbay-install`.
 #
 # One command because the browser remote is compiled into the app: a UI
 # change reaches a phone on the LAN only after all four steps, and doing
@@ -13,15 +13,15 @@
 #   PATCHBAY_APP_DIR   install location (default ~/Applications)
 #   PATCHBAY_PORT      port to wait on   (default 4046)
 set -euo pipefail
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/../../../.." && pwd)"
 cd "$root"
 [[ "$(uname -s)" == Darwin ]] || { echo "deploy: macOS only" >&2; exit 1; }
 
-packaging/macos/build-app.sh
+apps/patchbay/packaging/macos/build-app.sh
 # stdin closed: a locked signing keychain fails here instead of hanging
 # on a password prompt nobody is watching.
-packaging/macos/sign.sh < /dev/null
-packaging/macos/install.sh
+apps/patchbay/packaging/macos/sign.sh < /dev/null
+apps/patchbay/packaging/macos/install.sh
 
 app="${PATCHBAY_APP_DIR:-$HOME/Applications}/Patchbay.app"
 port="${PATCHBAY_PORT:-4046}"

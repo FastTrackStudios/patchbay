@@ -7,10 +7,10 @@
 # otherwise. Signing: $PATCHBAY_SIGN_ID, $PATCHBAY_KEYCHAIN,
 # $PATCHBAY_KEYCHAIN_PW (as sign.sh).
 set -euo pipefail
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/../../../.." && pwd)"
 out="$root/target/macos/drivers"
 bundle="$out/Patchbay.driver"
-icon="$root/packaging/macos/AppIcon.icns"
+icon="$root/apps/patchbay/packaging/macos/AppIcon.icns"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)"
 id="${PATCHBAY_SIGN_ID:-Developer ID Application: CODY JAMES WRIGHT (28C2G63DA7)}"
 bid="app.fasttrackstudio.patchbay.driver"

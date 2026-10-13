@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Patchbay.app Info.plist template. `just macos-app` substitutes
-  @VERSION@ (app/Cargo.toml) and @BUILD@ (a monotonically increasing
+  Patchbay.app Info.plist template. `just patchbay-macos-app` substitutes
+  @VERSION@ (apps/patchbay/Cargo.toml) and @BUILD@ (a monotonically increasing
   build number) and copies the result to Contents/Info.plist.
 -->
 <plist version="1.0">

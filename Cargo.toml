@@ -3,6 +3,7 @@ name = "fts-patchbay"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
+description = "FTS Patchbay: the PipeWire studio-routing app, its agent CLI, and its browser remote"
 default-run = "fts-patchbay"
 
 [[bin]]
@@ -12,41 +13,55 @@ path = "src/main.rs"
 [[bin]]
 name = "patchbay-cli"
 path = "src/cli_compat.rs"
+required-features = ["native"]
 
 [[bin]]
 name = "patchbay"
 path = "src/cli.rs"
+required-features = ["native"]
+
+[features]
+default = ["desktop"]
+# The engine and the agent CLIs: everything that runs on the host.
+native = [
+    "dep:architect", "dep:architect-telemetry", "dep:clap", "dep:eyre",
+    "dep:serde", "dep:serde_json", "dep:tokio", "patchbay/server",
+]
+# The desktop app: the engine plus its window.
+desktop = ["dioxus/desktop", "native"]
+# The browser remote. `dx build --platform web` turns this on and the
+# defaults off; the engine serves the result (see `embed-web`).
+web = ["dep:web-sys", "dioxus/web"]
+# Compile the staged web bundle (web-dist/, `just patchbay-web-stage`)
+# into the desktop binary.
+embed-web = ["dep:include_dir", "desktop"]
 
 [dependencies]
-patchbay = { workspace = true, features = ["server", "ui"] }
-architect = { workspace = true, features = ["vox", "local", "host", "server-axum"] }
-# Console logs plus OTLP export of traces/logs/metrics when
-# OTEL_EXPORTER_OTLP_ENDPOINT is set — every FTS process exports (W10).
-architect-telemetry = { workspace = true, features = ["otel"] }
+patchbay = { workspace = true, features = ["ui"] }
+dioxus = { workspace = true, default-features = true, features = ["launch"] }
 vox.workspace = true
-clap = { workspace = true, features = ["env"] }
-dioxus = { workspace = true, default-features = true, features = ["desktop", "launch"] }
-eyre.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-tokio.workspace = true
-tracing.workspace = true
 vox-core.workspace = true
 vox-websocket.workspace = true
+tracing.workspace = true
 
+architect = { workspace = true, features = ["vox", "local", "host", "server-axum"], optional = true }
+# Console logs plus OTLP export of traces/logs/metrics when
+# OTEL_EXPORTER_OTLP_ENDPOINT is set — every FTS process exports (W10).
+architect-telemetry = { workspace = true, features = ["otel"], optional = true }
+clap = { workspace = true, features = ["env"], optional = true }
+eyre = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 include_dir = { workspace = true, optional = true }
 
-# Patchbay.app glue (src/macos.rs): permission prompts, log redirect.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["Window", "Location"], optional = true }
+
+# Patchbay.app glue (src/desktop/macos.rs): permission prompts, log redirect.
 [target.'cfg(target_os = "macos")'.dependencies]
 patchbay = { workspace = true, features = ["server", "tcc-spi"] }
 libc = "0.2"
-
-[features]
-default = []
-# Embed the staged web bundle (`web-dist/`, copied from the dx web build
-# by `just patchbay-web-stage`) so the ONE binary serves the browser
-# remote at http://<host>:4046/.
-embed-web = ["dep:include_dir"]
 
 [lints]
 workspace = true

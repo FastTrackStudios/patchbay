@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate AppIcon.icns from app/assets/icon.svg. Only needed when the
+# Regenerate AppIcon.icns from apps/patchbay/assets/icon.svg. Only needed when the
 # SVG changes — the .icns is checked in so builds need no converter.
 # Needs rsvg-convert (brew install librsvg); sips/iconutil ship with macOS.
 # The artwork is inset to Apple's 824/1024 icon grid so macOS doesn't

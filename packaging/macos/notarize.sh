@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Notarize + staple the signed target/macos/Patchbay.app so it opens on
-# other Macs without Gatekeeper warnings. Used by `just macos-notarize`.
+# other Macs without Gatekeeper warnings. Used by `just patchbay-macos-notarize`.
 #
 # One-time setup (stores an app-specific password in the login keychain):
 #   xcrun notarytool store-credentials patchbay-notary \
@@ -8,11 +8,11 @@
 #       --password <app-specific password from appleid.apple.com>
 # ($PATCHBAY_NOTARY_PROFILE overrides the profile name.)
 set -euo pipefail
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/../../../.." && pwd)"
 app="$root/target/macos/Patchbay.app"
 profile="${PATCHBAY_NOTARY_PROFILE:-patchbay-notary}"
 zip="$root/target/macos/Patchbay.zip"
-[[ -d "$app" ]] || { echo "no $app — run 'just macos-sign' first" >&2; exit 1; }
+[[ -d "$app" ]] || { echo "no $app — run 'just patchbay-macos-sign' first" >&2; exit 1; }
 codesign --verify --deep --strict "$app"
 # notarytool reads the stored profile from the keychain; unlock the build
 # keychain (see sign.sh) when present so it never prompts. Profiles

@@ -16,8 +16,8 @@
 # single-user studio machine you control, not for a shared or untrusted
 # one. `--undo` puts both back.
 #
-#   sudo packaging/macos/allow-driver-reload.sh          set up
-#   sudo packaging/macos/allow-driver-reload.sh --undo   revert
+#   sudo apps/patchbay/packaging/macos/allow-driver-reload.sh          set up
+#   sudo apps/patchbay/packaging/macos/allow-driver-reload.sh --undo   revert
 set -euo pipefail
 hal=/Library/Audio/Plug-Ins/HAL
 bundle="$hal/Patchbay.driver"
@@ -39,9 +39,9 @@ chown -R "$user":staff "$bundle"
 # Only these two commands, only for this user, only without a password.
 tmp="$(mktemp)"
 cat >"$tmp" <<EOF
-# Added by patchbay packaging/macos/allow-driver-reload.sh
+# Added by patchbay apps/patchbay/packaging/macos/allow-driver-reload.sh
 # Lets $user reload Patchbay.driver without a password. Remove with:
-#   sudo packaging/macos/allow-driver-reload.sh --undo
+#   sudo apps/patchbay/packaging/macos/allow-driver-reload.sh --undo
 Cmnd_Alias PATCHBAY_AUDIO_RELOAD = /usr/bin/killall coreaudiod, \\
     /bin/launchctl kickstart -kp system/com.apple.audio.coreaudiod
 $user ALL=(root) NOPASSWD: PATCHBAY_AUDIO_RELOAD
@@ -53,4 +53,4 @@ rm -f "$tmp"
 echo "done:"
 echo "  $bundle is owned by $user (updates need no sudo)"
 echo "  $sudoers allows restarting coreaudiod without a password"
-echo "  revert with: sudo packaging/macos/allow-driver-reload.sh --undo"
+echo "  revert with: sudo apps/patchbay/packaging/macos/allow-driver-reload.sh --undo"

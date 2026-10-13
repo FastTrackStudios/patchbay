@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the signed target/macos/Patchbay.app. Used by `just macos-install`.
+# Install the signed target/macos/Patchbay.app. Used by `just patchbay-macos-install`.
 #
 #   ~/Applications/Patchbay.app   ($PATCHBAY_APP_DIR overrides the folder,
 #                                  e.g. PATCHBAY_APP_DIR=/Applications)
@@ -7,11 +7,11 @@
 #
 # Replaces an existing copy atomically (staged next to it, then renamed).
 set -euo pipefail
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/../../../.." && pwd)"
 src="$root/target/macos/Patchbay.app"
 dest_dir="${PATCHBAY_APP_DIR:-$HOME/Applications}"
 dest="$dest_dir/Patchbay.app"
-[[ -d "$src" ]] || { echo "no $src — run 'just macos-sign' first" >&2; exit 1; }
+[[ -d "$src" ]] || { echo "no $src — run 'just patchbay-macos-sign' first" >&2; exit 1; }
 codesign --verify --deep --strict "$src" || { echo "$src is not validly signed" >&2; exit 1; }
 
 if pgrep -xq Patchbay; then
