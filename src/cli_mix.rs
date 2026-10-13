@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 use std::io::Write as _;
 
 use clap::Subcommand;
-use patchbay_proto::{
+use patchbay::proto::{
     HostTargets, MixConfig, MixMeters, MixOutputConfig, MixSourceConfig, MixView,
     PatchbayServiceClient, default_map, source_kind,
 };
@@ -144,7 +144,7 @@ fn resolve_app(targets: &HostTargets, q: &str) -> eyre::Result<String> {
 
 fn resolve_device(targets: &HostTargets, q: &str, output: bool) -> eyre::Result<String> {
     let ql = q.to_lowercase();
-    let usable = |d: &&patchbay_proto::HostDevice| {
+    let usable = |d: &&patchbay::proto::HostDevice| {
         if output {
             d.output_channels > 0
         } else {
@@ -748,7 +748,7 @@ pub async fn run_now(c: &PatchbayServiceClient, all: bool, json: bool) -> eyre::
             .find(|d| d.uid == uid)
             .map_or_else(|| uid.to_owned(), |d| d.name.clone())
     };
-    let shown: Vec<&patchbay_proto::HostApp> = o
+    let shown: Vec<&patchbay::proto::HostApp> = o
         .apps
         .iter()
         .filter(|a| all || a.playing || a.recording)

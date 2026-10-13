@@ -18,9 +18,7 @@ name = "patchbay"
 path = "src/cli.rs"
 
 [dependencies]
-patchbay.workspace = true
-patchbay-proto.workspace = true
-patchbay-ui.workspace = true
+patchbay = { workspace = true, features = ["server", "ui"] }
 architect = { workspace = true, features = ["vox", "local", "host", "server-axum"] }
 # Console logs plus OTLP export of traces/logs/metrics when
 # OTEL_EXPORTER_OTLP_ENDPOINT is set — every FTS process exports (W10).
@@ -40,7 +38,7 @@ include_dir = { workspace = true, optional = true }
 
 # Patchbay.app glue (src/macos.rs): permission prompts, log redirect.
 [target.'cfg(target_os = "macos")'.dependencies]
-patchbay-host-coreaudio = { workspace = true, features = ["tcc-spi"] }
+patchbay = { workspace = true, features = ["server", "tcc-spi"] }
 libc = "0.2"
 
 [features]

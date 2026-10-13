@@ -9,8 +9,7 @@ name = "patchbay-web"
 path = "src/main.rs"
 
 [dependencies]
-patchbay-proto.workspace = true
-patchbay-ui.workspace = true
+patchbay = { workspace = true, features = ["ui"] }
 dioxus = { workspace = true, default-features = true, features = ["web", "launch"] }
 vox.workspace = true
 vox-core.workspace = true

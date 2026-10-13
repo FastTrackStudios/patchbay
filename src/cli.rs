@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay_proto::{
+use patchbay::proto::services::patchbay_service::PatchbayServiceStreamClient;
+use patchbay::proto::{
     ClockInfo, DanteDevice, DanteStatus, GraphSnapshot, LatencyRule, NamedRoute,
     PatchbayServiceClient, PortDirection, PwNode, RouteEndpoint, ServiceAction, ServiceStatus,
 };
@@ -370,7 +370,7 @@ async fn client(url: &str, local: bool) -> eyre::Result<PatchbayServiceClient> {
         }
     }
     eprintln!("(--local: running a private in-process engine)");
-    let backend = patchbay::PatchbayBackend::new();
+    let backend = patchbay::server::PatchbayBackend::new();
     let scope = architect::Scope::new();
     let server = architect::LocalServer::serve(backend.router(), Arc::clone(&scope));
     let caller = server
@@ -408,7 +408,7 @@ async fn stream_client(url: String) -> eyre::Result<PatchbayServiceStreamClient>
 
 /// `patchbay serve`: the engine without a window.
 async fn serve(bind: String) -> eyre::Result<()> {
-    let backend = patchbay::PatchbayBackend::new();
+    let backend = patchbay::server::PatchbayBackend::new();
     eprintln!("patchbay engine serving ws://{bind}/vox (ctrl-c to stop)");
     architect::host::EngineHost::new(backend.router(), bind)
         .serve()
@@ -481,7 +481,7 @@ fn find_port(
     }
 }
 
-fn alias_map(entries: Vec<patchbay_proto::AliasEntry>) -> HashMap<String, String> {
+fn alias_map(entries: Vec<patchbay::proto::AliasEntry>) -> HashMap<String, String> {
     entries.into_iter().map(|a| (a.target, a.alias)).collect()
 }
 

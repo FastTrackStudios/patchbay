@@ -26,13 +26,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use patchbay::permissions::PermissionProvider;
-use patchbay_host_coreaudio::{
+use patchbay::coreaudio::{
     CapturePermission, MicrophonePermission, capture_permission, microphone_permission,
     open_capture_settings, open_microphone_settings, permission_alert, request_capture_permission,
     request_microphone_permission,
 };
-use patchbay_proto::PermissionsStatus;
+use patchbay::proto::PermissionsStatus;
+use patchbay::server::permissions::PermissionProvider;
 use serde::{Deserialize, Serialize};
 
 /// Re-run the permission flow even after "Not Now".

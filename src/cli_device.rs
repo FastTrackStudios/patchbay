@@ -9,8 +9,8 @@
 //! substring of id / model / serial (e.g. `galaxy`, `4202524`).
 
 use clap::Subcommand;
-use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay_proto::{
+use patchbay::proto::services::patchbay_service::PatchbayServiceStreamClient;
+use patchbay::proto::{
     DeviceChannel, DeviceEventKind, DeviceEventWire, DeviceLinkState, DevicePortGroup,
     DeviceRestoreReport, DeviceRestoreStatus, DeviceSummary, DeviceView, ParamView,
     PatchbayServiceClient, source_label,

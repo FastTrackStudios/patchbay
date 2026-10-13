@@ -1,4 +1,4 @@
-//! Patchbay browser remote — the exact same [`patchbay_ui::PatchbayApp`]
+//! Patchbay browser remote — the exact same [`patchbay::ui::PatchbayApp`]
 //! the desktop shell mounts, connected over vox WebSocket instead of an
 //! in-process link. Served BY the engine (fts-patchbay embeds this
 //! bundle behind `--features embed-web`), so any device on the LAN
@@ -8,9 +8,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use patchbay_proto::PatchbayServiceClient;
-use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay_ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
+use patchbay::proto::PatchbayServiceClient;
+use patchbay::proto::services::patchbay_service::PatchbayServiceStreamClient;
+use patchbay::ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
 
 /// Same-origin `/vox` (the engine that served this page serves the
 /// service too); a `dx serve` dev page on a non-4046 localhost port
@@ -110,14 +110,14 @@ fn App() -> Element {
                     generation.with_mut(|g| *g = g.wrapping_add(1));
                     engine.set(Some(Home(link)));
                     while !*lost.peek() {
-                        patchbay_ui::sleep_secs(1).await;
+                        patchbay::ui::sleep_secs(1).await;
                     }
                     engine.set(None);
                     error.set("the connection to the engine dropped".to_owned());
                 }
                 Err(e) => error.set(e),
             }
-            patchbay_ui::sleep_secs(delay).await;
+            patchbay::ui::sleep_secs(delay).await;
             delay = delay.saturating_mul(2).min(RETRY_MAX_SECS);
         }
     });
@@ -133,7 +133,7 @@ fn App() -> Element {
     }
     let failed = !error.read().is_empty();
     rsx! {
-        patchbay_ui::Splash {
+        patchbay::ui::Splash {
             title: if failed { "Reconnecting…" } else { "Connecting…" },
             detail: if failed { format!("{error} — trying again.") } else { server_url() },
             failed,

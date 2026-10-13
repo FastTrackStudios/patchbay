@@ -1,6 +1,6 @@
 //! FTS Patchbay — the `PipeWire` studio-routing desktop app.
 //!
-//! The [`patchbay::PatchbayBackend`] engine runs in-process and is ALSO
+//! The [`patchbay::server::PatchbayBackend`] engine runs in-process and is ALSO
 //! served at `ws://0.0.0.0:4046/vox` (override `PATCHBAY_ADDR`), so any
 //! browser/tablet on the LAN can drive the same graph later. The UI
 //! talks to it through the exact same generated client every remote
@@ -12,10 +12,10 @@ use std::sync::{Arc, OnceLock};
 
 use architect::host::{EngineHost, WebBundle};
 use dioxus::prelude::*;
-use patchbay::PatchbayBackend;
-use patchbay_proto::PatchbayServiceClient;
-use patchbay_proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay_ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
+use patchbay::proto::PatchbayServiceClient;
+use patchbay::proto::services::patchbay_service::PatchbayServiceStreamClient;
+use patchbay::server::PatchbayBackend;
+use patchbay::ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -92,7 +92,7 @@ fn bind_addr() -> String {
     let default = DEFAULT_ADDR;
     std::env::var("PATCHBAY_ADDR")
         .ok()
-        .or_else(patchbay::configured_bind)
+        .or_else(patchbay::server::configured_bind)
         .unwrap_or_else(|| default.to_string())
 }
 
@@ -135,7 +135,7 @@ fn bootstrap_blocking() -> eyre::Result<()> {
         let web = web_bundle();
         // Record what we're serving so `patchbay listen` can report it
         // (and tell the user which URLs would actually answer).
-        patchbay::record_bound(
+        patchbay::server::record_bound(
             &addr,
             if web.is_some() {
                 ""
@@ -146,7 +146,7 @@ fn bootstrap_blocking() -> eyre::Result<()> {
         );
         // Advertise to (when LAN-reachable) and look for other engines, so
         // a UI attached here can offer to switch to them.
-        patchbay::start_peer_discovery(&addr);
+        patchbay::server::start_peer_discovery(&addr);
         tokio::spawn(async move {
             EngineHost::new(router, addr).web(web).serve().await;
         });
