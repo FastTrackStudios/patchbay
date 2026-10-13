@@ -1,0 +1,51 @@
+[package]
+name = "patchbay"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+patchbay-proto.workspace = true
+# External-device layer: the generic model + one crate per adapter family.
+patchbay-device.workspace = true
+patchbay-antelope.workspace = true
+patchbay-yamaha.workspace = true
+patchbay-dante.workspace = true
+# System Audio (read-only host summary): the host model + Core Audio backend.
+patchbay-host.workspace = true
+patchbay-host-coreaudio.workspace = true
+architect = { workspace = true, features = ["vox"] }
+# Wide-event enrichment. `wide::set` is a no-op unless the binary turns
+# on the `otel` feature, so the engine can call it unconditionally.
+architect-telemetry.workspace = true
+vox.workspace = true
+eyre.workspace = true
+parking_lot.workspace = true
+facet.workspace = true
+facet-styx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+dirs = "6"
+inferno-net.workspace = true
+# Peer-engine discovery (`_patchbay._tcp`). Same version inferno-net
+# already brings in for Dante, so this adds no new crate to the build.
+mdns-sd = "0.13"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = "0.10"
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+vox-websocket.workspace = true
+vox-core.workspace = true

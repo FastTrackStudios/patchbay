@@ -1,0 +1,602 @@
+{
+ "InCh/0": {
+  "Name": "\"SYSTEM\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"PC\"",
+  "Category": "\"Vocal\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "InCh/1": {
+  "Name": "\"SYSTEM\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"PC\"",
+  "Category": "\"Vocal\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "InCh/2": {
+  "Name": "\"BASS\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"E.Bass\"",
+  "Category": "\"Guitars\"",
+  "Level": "-32768",
+  "On": "0"
+ },
+ "InCh/3": {
+  "Name": "\"4- test\"",
+  "Color": "\"Red\"",
+  "Icon": "\"PC\"",
+  "Category": "\"Others\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/4": {
+  "Name": "\"AXE L\"",
+  "Color": "\"SkyBlue\"",
+  "Icon": "\"E.Guitar\"",
+  "Category": "\"Guitars\"",
+  "Level": "-5",
+  "On": "1"
+ },
+ "InCh/5": {
+  "Name": "\"AXE R\"",
+  "Color": "\"SkyBlue\"",
+  "Icon": "\"E.Guitar\"",
+  "Category": "\"Guitars\"",
+  "Level": "-5",
+  "On": "1"
+ },
+ "InCh/6": {
+  "Name": "\"GTR 2\"",
+  "Color": "\"SkyBlue\"",
+  "Icon": "\"E.Guitar\"",
+  "Category": "\"Vocal\"",
+  "Level": "670",
+  "On": "0"
+ },
+ "InCh/7": {
+  "Name": "\"GTR 2 R\"",
+  "Color": "\"SkyBlue\"",
+  "Icon": "\"E.Guitar\"",
+  "Category": "\"Vocal\"",
+  "Level": "670",
+  "On": "0"
+ },
+ "InCh/8": {
+  "Name": "\"KEYS\"",
+  "Color": "\"Green\"",
+  "Icon": "\"Piano\"",
+  "Category": "\"Vocal\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "InCh/9": {
+  "Name": "\"KEYS R\"",
+  "Color": "\"Green\"",
+  "Icon": "\"Piano\"",
+  "Category": "\"Vocal\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "InCh/10": {
+  "Name": "\"SYNTH 1L\"",
+  "Color": "\"Green\"",
+  "Icon": "\"Keyboard\"",
+  "Category": "\"Vocal\"",
+  "Level": "125",
+  "On": "1"
+ },
+ "InCh/11": {
+  "Name": "\"SYNTH 1R\"",
+  "Color": "\"Green\"",
+  "Icon": "\"Keyboard\"",
+  "Category": "\"Vocal\"",
+  "Level": "125",
+  "On": "1"
+ },
+ "InCh/12": {
+  "Name": "\"SYNTH 2\"",
+  "Color": "\"Green\"",
+  "Icon": "\"Organ\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/13": {
+  "Name": "\"SYNTH 2R\"",
+  "Color": "\"Green\"",
+  "Icon": "\"Organ\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/14": {
+  "Name": "\"WVOX 1\"",
+  "Color": "\"Purple\"",
+  "Icon": "\"WirelessMic\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/15": {
+  "Name": "\"TALKBACK\"",
+  "Color": "\"Purple\"",
+  "Icon": "\"WirelessMic\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/16": {
+  "Name": "\"V SPHERE\"",
+  "Color": "\"Purple\"",
+  "Icon": "\"DynamicMic\"",
+  "Category": "\"Vocal\"",
+  "Level": "-7900",
+  "On": "1"
+ },
+ "InCh/17": {
+  "Name": "\"V DRUMS\"",
+  "Color": "\"Purple\"",
+  "Icon": "\"DynamicMic\"",
+  "Category": "\"Vocal\"",
+  "Level": "-70",
+  "On": "1"
+ },
+ "InCh/18": {
+  "Name": "\"V BASS\"",
+  "Color": "\"Purple\"",
+  "Icon": "\"DynamicMic\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/19": {
+  "Name": "\"V GTR 1\"",
+  "Color": "\"Purple\"",
+  "Icon": "\"DynamicMic\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/20": {
+  "Name": "\"V GTR 2\"",
+  "Color": "\"Purple\"",
+  "Icon": "\"DynamicMic\"",
+  "Category": "\"Vocal\"",
+  "Level": "-5",
+  "On": "1"
+ },
+ "InCh/21": {
+  "Name": "\"V KEYS\"",
+  "Color": "\"Purple\"",
+  "Icon": "\"DynamicMic\"",
+  "Category": "\"Vocal\"",
+  "Level": "-5",
+  "On": "1"
+ },
+ "InCh/22": {
+  "Name": "\"DRUMS\"",
+  "Color": "\"Red\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-360",
+  "On": "1"
+ },
+ "InCh/23": {
+  "Name": "\"DRUMS\"",
+  "Color": "\"Red\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-360",
+  "On": "1"
+ },
+ "InCh/24": {
+  "Name": "\"Shotgun\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/25": {
+  "Name": "\"DAW VOX\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/26": {
+  "Name": "\"DAW INST\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/27": {
+  "Name": "\"DAW INST\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/28": {
+  "Name": "\"FX INPUT\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/29": {
+  "Name": "\"FX INPUT\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/30": {
+  "Name": "\"BROADCST\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "InCh/31": {
+  "Name": "\"BROADCST\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Vocal\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "StInCh/0": {
+  "Name": "\"StIn 1\"",
+  "Color": "\"Blue\"",
+  "Icon": "\"Media3\"",
+  "Category": "\"Others\"",
+  "Level": "-1600",
+  "On": "1"
+ },
+ "StInCh/1": {
+  "Name": "\"StIn 1\"",
+  "Color": "\"Blue\"",
+  "Icon": "\"Media3\"",
+  "Category": "\"Others\"",
+  "Level": "-1600",
+  "On": "1"
+ },
+ "StInCh/2": {
+  "Name": "\"DAW IN\"",
+  "Color": "\"Blue\"",
+  "Icon": "\"Media2\"",
+  "Category": "\"Others\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "StInCh/3": {
+  "Name": "\"DAW IN\"",
+  "Color": "\"Blue\"",
+  "Icon": "\"Media2\"",
+  "Category": "\"Others\"",
+  "Level": "-32768",
+  "On": "1"
+ },
+ "FxRtnCh/0": {
+  "Name": "\"Rev\"",
+  "Color": "\"Blue\"",
+  "Icon": "\"Effect\"",
+  "Category": "\"FX RTN\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "FxRtnCh/1": {
+  "Name": "\"Rev\"",
+  "Color": "\"Blue\"",
+  "Icon": "\"Effect\"",
+  "Category": "\"FX RTN\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "FxRtnCh/2": {
+  "Name": "\"Delay\"",
+  "Color": "\"Blue\"",
+  "Icon": "\"Effect\"",
+  "Category": "\"FX RTN\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "FxRtnCh/3": {
+  "Name": "\"Delay\"",
+  "Color": "\"Blue\"",
+  "Icon": "\"Effect\"",
+  "Category": "\"FX RTN\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/0": {
+  "Name": "\"BROADCST\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Wedge\"",
+  "Category": "\"Output\"",
+  "Level": "-20",
+  "On": "0"
+ },
+ "Mix/1": {
+  "Name": "\"BROADCST\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Wedge\"",
+  "Category": "\"Output\"",
+  "Level": "-20",
+  "On": "0"
+ },
+ "Mix/2": {
+  "Name": "\"TALKBACK\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Wedge\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/3": {
+  "Name": "\"TALKBACK\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Wedge\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/4": {
+  "Name": "\"WIRELESS\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Wedge\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/5": {
+  "Name": "\"WIRELESS\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Wedge\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/6": {
+  "Name": "\"PROD MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Wedge\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/7": {
+  "Name": "\"PROD MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Wedge\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/8": {
+  "Name": "\"DRUM MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/9": {
+  "Name": "\"DRUM MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/10": {
+  "Name": "\"BASS MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "130",
+  "On": "1"
+ },
+ "Mix/11": {
+  "Name": "\"BASS MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "130",
+  "On": "1"
+ },
+ "Mix/12": {
+  "Name": "\"GTR1 MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/13": {
+  "Name": "\"GTR1 MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/14": {
+  "Name": "\"GTR2 MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/15": {
+  "Name": "\"GTR2 MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/16": {
+  "Name": "\"KEYS MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/17": {
+  "Name": "\"KEYS MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/18": {
+  "Name": "\"VOX MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mix/19": {
+  "Name": "\"VOX MIX\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"In-Ear\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mtrx/0": {
+  "Name": "\"BROADCST\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mtrx/1": {
+  "Name": "\"Matrix 2\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mtrx/2": {
+  "Name": "\"Matrix 3\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "Mtrx/3": {
+  "Name": "\"\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Output\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "St/0": {
+  "Name": "\"Stereo\"",
+  "Color": "\"Red\"",
+  "Icon": "\"Speaker\"",
+  "Category": "\"Output\"",
+  "Level": "45",
+  "On": "1"
+ },
+ "St/1": {
+  "Name": "\"Stereo\"",
+  "Color": "\"Red\"",
+  "Icon": "\"Speaker\"",
+  "Category": "\"Output\"",
+  "Level": "45",
+  "On": "1"
+ },
+ "Mono/0": {
+  "Name": "\"Sub\"",
+  "Color": "\"Yellow\"",
+  "Icon": "\"SubWoofer\"",
+  "Category": "\"Output\"",
+  "Level": "45",
+  "On": "1"
+ },
+ "DCA/0": {
+  "Name": "\"DRUMS\"",
+  "Color": "\"Red\"",
+  "Icon": "\"Drumkit\"",
+  "Category": "\"Others\"",
+  "Level": "-90",
+  "On": "1"
+ },
+ "DCA/1": {
+  "Name": "\"\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Others\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "DCA/2": {
+  "Name": "\"\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Others\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "DCA/3": {
+  "Name": "\"KEYS\"",
+  "Color": "\"Green\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Others\"",
+  "Level": "-350",
+  "On": "1"
+ },
+ "DCA/4": {
+  "Name": "\"\"",
+  "Color": "\"Green\"",
+  "Icon": "\"Keyboard\"",
+  "Category": "\"Others\"",
+  "Level": "55",
+  "On": "1"
+ },
+ "DCA/5": {
+  "Name": "\"DCA 6\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Others\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "DCA/6": {
+  "Name": "\"DCA 7\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Others\"",
+  "Level": "0",
+  "On": "1"
+ },
+ "DCA/7": {
+  "Name": "\"DCA 8\"",
+  "Color": "\"Orange\"",
+  "Icon": "\"Blank\"",
+  "Category": "\"Others\"",
+  "Level": "0",
+  "On": "1"
+ }
+}
