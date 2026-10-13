@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the bundled `patchbay` CLI
+  (Contents/Helpers/patchbay). It is only an RPC client of Patchbay.app,
+  so it needs no audio/privacy entitlements — but it links the same vox
+  (de)serialiser, which JIT-compiles codecs into MAP_JIT pages
+  (phon -> weavy -> copypatch). Without allow-jit it panics with
+  "mmap(MAP_JIT) failed".
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+</dict>
+</plist>
