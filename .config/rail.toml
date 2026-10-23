@@ -1,0 +1,35 @@
+# cargo-rail policy (0.32). Sparse: only what differs from rail's defaults.
+# Docs: https://github.com/loadingalias/cargo-rail/blob/v0.32.0/docs/config.md
+#
+# patchbay uses rail for release intent (fleet release flow v4): every PR
+# that changes a crate carries a change file (`cargo rail change add
+# <crates> --bump <none|patch|minor|major> -m "<note>"`, written to
+# .changes/), checked in CI by `cargo rail change check`.
+# scripts/release.sh builds CHANGELOG.md from them. Commands stay in the
+# Justfile; this file only declares inputs.
+
+# The browser remote (fts-patchbay, `--features web`) must stay
+# wasm-clean, so target-aware decisions resolve for the browser too.
+targets = ["wasm32-unknown-unknown"]
+
+# Releases go through scripts/release.sh: rail 0.32 cannot bump crates
+# that inherit `version.workspace = true`, which is every crate here. Make
+# `cargo rail release` inert (no crates.io, no GitHub release of its own)
+# and name the change files (.changes/) as the release source.
+[release]
+publish = "none"
+github_release = false
+checks = "none"
+source = "changes"
+
+# Inputs outside the Cargo graph that change what CI itself does: any of
+# these changing means the full set.
+[plan.work.ci-infra]
+scope = "repository"
+paths = [
+  ".github/**",
+  "Justfile",
+  "flake.nix",
+  "flake.lock",
+  "scripts/**",
+]

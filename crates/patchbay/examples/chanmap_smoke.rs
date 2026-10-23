@@ -17,7 +17,7 @@
 //! "Inferno source"), prints a few aliases, then exports them to a
 //! scratch chanmap and reports the count.
 
-use patchbay::proto::PatchbayService as _;
+use patchbay::server::proto::PatchbayService as _;
 
 #[tokio::main]
 async fn main() {
@@ -29,7 +29,7 @@ async fn main() {
         .nth(1)
         .unwrap_or_else(|| "Inferno source".to_string());
 
-    let backend = patchbay::PatchbayBackend::new();
+    let backend = patchbay::server::PatchbayBackend::new();
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     let imported = backend

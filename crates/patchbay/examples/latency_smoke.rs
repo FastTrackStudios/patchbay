@@ -15,7 +15,7 @@
 //!
 //! `PATCHBAY_CONFIG`=<scratch> cargo run -p patchbay --example `latency_smoke`
 
-use patchbay::proto::{LatencyRule, PatchbayService as _};
+use patchbay::server::proto::{LatencyRule, PatchbayService as _};
 
 #[tokio::main]
 async fn main() {
@@ -23,7 +23,7 @@ async fn main() {
         std::env::var("PATCHBAY_CONFIG").is_ok(),
         "set PATCHBAY_CONFIG to a scratch path"
     );
-    let backend = patchbay::PatchbayBackend::new();
+    let backend = patchbay::server::PatchbayBackend::new();
     let dropin = dirs::config_dir()
         .unwrap()
         .join("wireplumber/wireplumber.conf.d/99-fts-patchbay-latency.conf");

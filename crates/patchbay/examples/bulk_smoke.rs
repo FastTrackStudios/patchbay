@@ -16,7 +16,7 @@
 
 use std::process::Command;
 
-use patchbay::proto::PatchbayService as _;
+use patchbay::server::proto::PatchbayService as _;
 
 fn spawn_sink(name: &str) {
     let args = format!(
@@ -32,7 +32,7 @@ fn spawn_sink(name: &str) {
 
 #[tokio::main]
 async fn main() {
-    let backend = patchbay::PatchbayBackend::new();
+    let backend = patchbay::server::PatchbayBackend::new();
     spawn_sink("pbtest_a");
     spawn_sink("pbtest_b");
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;

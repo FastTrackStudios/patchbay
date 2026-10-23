@@ -14,7 +14,7 @@
 //!
 //! cargo run -p patchbay --example `probe_running` [<ws://127.0.0.1:4046/vox>]
 
-use patchbay::proto::PatchbayServiceClient;
+use patchbay::server::proto::PatchbayServiceClient;
 
 #[tokio::main]
 async fn main() {

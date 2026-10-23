@@ -10,12 +10,9 @@ on today" needs answering in seconds, not by reading `pw-link -l` output.
 
 | crate | what it is |
 |---|---|
-| `patchbay-proto` | the wire contract |
-| `patchbay` (crate) | the engine — PipeWire graph state, links, persistence |
-| `patchbay-ui` | the Dioxus interface |
-| `fts-patchbay` | the desktop app + RPC server (`ws://:4046`) |
-| `patchbay` (binary) | the agent/script CLI for the same RPC surface |
-| `patchbay-web` | the browser remote |
+| `patchbay` (`crates/patchbay`) | the engine — PipeWire graph state, links, persistence, the Core Audio / Dante / Yamaha / Antelope adapters — plus its wire types (`vox`) and its Dioxus interface (`ui`), as cargo features |
+| `patchbay-driver` (`crates/patchbay/driver`) | the macOS AudioServerPlugIn behind the virtual devices |
+| `fts-patchbay` (`apps/patchbay`) | the desktop app + RPC server (`ws://:4046`), the `patchbay` agent/script CLI, and the browser remote (`--platform web`) |
 
 The engine is headless and the UI is a client, so the desktop app and the
 browser remote are the same program seen through different windows.
@@ -91,7 +88,7 @@ just install
 
 builds, installs and **restarts** Patchbay on this machine and waits until
 it answers — on macOS that is build + sign + install + relaunch
-(`packaging/macos/deploy.sh`, runnable directly where `just` isn't
+(`apps/patchbay/packaging/macos/deploy.sh`, runnable directly where `just` isn't
 installed). The browser remote is compiled into the app, so this is also
 how a UI change reaches a phone. The engine drops for a couple of seconds;
 saved mixes come back on their own.
@@ -115,7 +112,7 @@ Settings → Appearance picks a theme (Midnight by default; Auto, Studio,
 Console, Daylight, Contrast), an accent and a density. It is stored per device in
 the browser, never in the engine config — the phone on the music stand
 can be true black while the desktop stays as it was. A theme is ~30
-lines of base colours in `crates/ui/src/theme/tokens.css`; every tint,
+lines of base colours in `crates/patchbay/src/ui/theme/tokens.css`; every tint,
 glow and hairline is mixed from those.
 
 The RPC endpoint is currently unauthenticated. Keep it on loopback
@@ -190,7 +187,7 @@ devices ({name system-audio, kind system-audio}
 ```
 
 `PATCHBAY_DEVICES=off` disables the device layer entirely. See
-`docs/devices.md`.
+[docs/devices.md](docs/devices.md).
 On a host without PipeWire (macOS), `patchbay serve` runs the engine
 headless so the device layer is reachable without the desktop window.
 
@@ -237,12 +234,12 @@ patchbay health --json      # ~/.local/bin/patchbay -> the CLI inside the app
 | `just macos-sign` | `macos-app`, then hardened-runtime Developer ID signing, then `codesign --verify --deep --strict` and `spctl` |
 | `just macos-install` | `macos-sign`, then an atomic replace of `~/Applications/Patchbay.app` (`PATCHBAY_APP_DIR=/Applications` to change the folder) and the `~/.local/bin/patchbay` symlink |
 | `just macos-notarize` | notarize and staple the signed app, for other Macs |
-| `just macos-icon` | regenerate `AppIcon.icns` from `app/assets/icon.svg` (the `.icns` is checked in) |
+| `just macos-icon` | regenerate `AppIcon.icns` from `apps/patchbay/assets/icon.svg` (the `.icns` is checked in) |
 
 Bundle layout: `Contents/MacOS/Patchbay` is the app and engine.
 `Contents/Helpers/patchbay` is the CLI. It sits in `Helpers/` because on
 case-insensitive APFS, `patchbay` and `Patchbay` in the same folder would
-be the same file. The packaging sources are in `packaging/macos/`: the
+be the same file. The packaging sources are in `apps/patchbay/packaging/macos/`: the
 `Info.plist` template, the entitlements and the scripts.
 
 **The bundled app, compared with `cargo run`:**
@@ -264,7 +261,7 @@ it calls `codesign --keychain …`. With `PATCHBAY_KEYCHAIN_PW` exported
 (e.g. in your shell profile) it is non-interactive; without it `security`
 asks for the password once per session. The password is never stored in
 this repo. The keychain is `fts-build.keychain`, created by
-`signal/apps/desktop/ios/setup-keychain.sh` with a key partition list for
+studio's `apps/signal/desktop/ios/setup-keychain.sh` with a key partition list for
 `apple-tool:`/`apple:`. These variables override the defaults:
 
 - `PATCHBAY_KEYCHAIN`: the keychain name.
@@ -320,7 +317,7 @@ staples the ticket and leaves `target/macos/Patchbay.zip` ready to
 share. `PATCHBAY_NOTARY_PROFILE` overrides the profile name.
 
 `dx` builds the browser remote. When `dx` isn't installed and
-`app/web-dist/` isn't staged, `macos-app` builds without `embed-web`.
+`apps/patchbay/web-dist/` isn't staged, `macos-app` builds without `embed-web`.
 The desktop window and the RPC still work, but `http://127.0.0.1:4046/`
 serves no web UI.
 
@@ -345,9 +342,9 @@ input. Out of the box:
 | **Broadcast** | 2 | apps pick it as their **input/mic** (Discord, `FaceTime`, Zoom) |
 
 ```bash
-packaging/macos/install-driver.sh     # once (admin; restarts coreaudiod)
+apps/patchbay/packaging/macos/install-driver.sh     # once (admin; restarts coreaudiod)
 # optional: no password for later driver reloads (see the script's header)
-sudo packaging/macos/allow-driver-reload.sh
+sudo apps/patchbay/packaging/macos/allow-driver-reload.sh
 
 patchbay mix targets                  # apps and devices a mix can use
 patchbay mix create Discord --source 'app:REAPER:Galaxy32@0:0,1:1' --output Broadcast
@@ -404,27 +401,37 @@ connected to — the Galaxy 32's router and the TF-1's faders included.
 That is reasonable on a studio network you control and not on a shared
 one. `PATCHBAY_ADDR` still overrides the saved setting, and the browser
 remote needs a build with `dx` installed (`cargo install dioxus-cli`),
-which `packaging/macos/build-app.sh` embeds automatically.
+which `apps/patchbay/packaging/macos/build-app.sh` embeds automatically.
 
 ## Where it came from
 
-Extracted from the [FastTrackStudio
-monorepo](https://github.com/FastTrackStudios/FastTrackStudio) in August
-2026. It was always a leaf — the monorepo's CI already gave it its own
-gate, separate from the workspace one — and it depends on nothing from
-the audio-production stack around it.
-
-Dependencies that remain, all external:
+Extracted from the FastTrackStudio monorepo in August 2026 as its own
+repo, folded into the studio monorepo in October 2026 (as
+`features/patchbay` + `apps/patchbay`, where it became one crate), and
+brought back here, with that layout and history, later the same month.
+It is a leaf: it depends on nothing from the audio-production stack
+around it, and builds on its own. Its external dependencies:
 
 - [architect](https://github.com/FastTrackStudios/architect) — RPC, entity
   framework, transports
 - [music-convention](https://github.com/FastTrackStudios/music-convention)
   — `music-catalog`, used to colour ports by instrument name
-- [inferno-control](https://codeberg.org/FastTrackStudios/inferno-control)
+- [inferno-control](https://github.com/FastTrackStudios/inferno-control)
   — `inferno-net`, for Dante/AoIP devices
 - [vendor](https://github.com/FastTrackStudios/vendor) — patched `phon` /
-  `phon-jit` / `styx-format`
+  `phon-jit` / `facet-core` / `styx-format` / `vox-phon`
+
+## Development and releases
+
+`nix develop` (or direnv) gives the pinned toolchain on Linux and macOS.
+`just check`, `just test`, `just fmt`; `just ci` runs what CI runs.
+Every PR into `main` carries a change file (`cargo rail change add …`), and
+releases are CalVer tags (`vYY.M.MICRO`) cut with `just release-prepare`
+/ `release-pr` / `release-merge` / `release-tag`. See
+[AGENTS.md](AGENTS.md).
 
 ## Licence
 
-MIT OR Apache-2.0.
+GPL-3.0-or-later (`LICENSE`). The virtual-device driver
+(`crates/patchbay/driver`) is forked from MARS mars-hal and keeps its
+MIT notice alongside (`GPL-3.0-or-later AND MIT`).

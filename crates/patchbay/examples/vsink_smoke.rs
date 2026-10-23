@@ -15,8 +15,8 @@
 //! Uses a scratch config (never the real one):
 //! `PATCHBAY_CONFIG=/tmp/pb-vsink.json cargo run -p patchbay --example vsink_smoke`
 
-use patchbay::PatchbayBackend;
-use patchbay::proto::{PatchbayService as _, VirtualSink, sink_node_name};
+use patchbay::server::PatchbayBackend;
+use patchbay::server::proto::{PatchbayService as _, VirtualSink, sink_node_name};
 
 #[tokio::main]
 async fn main() {

@@ -7,8 +7,5 @@ result
 result-*
 *.profraw
 .DS_Store
-/web-dist
-/app/web-dist
-
-# direnv (see .envrc / flake.nix)
-.direnv/
+# The staged browser remote (`just web-stage`), embedded by `embed-web`.
+/apps/patchbay/web-dist

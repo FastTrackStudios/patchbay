@@ -1,0 +1,38 @@
+# Setup for a job on a GitHub-hosted runner (ubuntu-latest) that works in
+# the repo's nix dev shell: free the image's disk, install nix, trust
+# fasttrackstudio.cachix.org (read only: the toolchain and cargo-rail are
+# the same store paths the studio monorepo's CI pushes there), and realise
+# the dev shell up front so its download shows as its own step.
+
+name: hosted nix
+description: Free disk, install nix + the fasttrackstudio cachix, realise the dev shell.
+
+runs:
+  using: composite
+  steps:
+    # The image's preinstalled SDKs we never use (the toolchain comes from
+    # nix): ~25 GB back, in the background so nothing waits on it.
+    - name: Free disk (background)
+      shell: bash
+      run: |
+        df -h / | tail -n 1
+        nohup sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+          /usr/local/.ghcup /opt/hostedtoolcache /usr/share/swift \
+          /usr/local/share/powershell /usr/local/share/chromium \
+          /usr/local/share/boost /opt/microsoft /opt/google \
+          </dev/null >/dev/null 2>&1 &
+    - name: Install nix
+      uses: cachix/install-nix-action@v31
+      with:
+        # Flake inputs come from the GitHub API; unauthenticated, 60/h per IP.
+        github_access_token: ${{ github.token }}
+        extra_nix_config: |
+          accept-flake-config = true
+    - name: fasttrackstudio cachix (read only)
+      uses: cachix/cachix-action@v17
+      with:
+        name: fasttrackstudio
+        skipPush: true
+    - name: Realise the dev shell
+      shell: bash
+      run: nix develop --accept-flake-config -c true
