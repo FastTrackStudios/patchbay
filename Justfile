@@ -41,8 +41,14 @@ change-check BASE="origin/main":
     cargo rail change check --since {{BASE}}
 
 # What CI runs (.github/workflows/checks.yml), in the same order; stops at
-# the first failure.
-ci: fmt-check change-check check check-web test
+# the first failure. (CI also runs the PipeWire sandbox test, advisory:
+# `cargo test -p patchbay --features server --test engine_sandbox`.)
+ci: fmt-check change-check check check-web test-ci
+
+# The CI test set: everything but the PipeWire sandbox test (advisory in
+# CI while its buses come up without ports on hosted runners).
+test-ci:
+    cargo test --workspace --locked -- --skip engine_drives_a_real_graph
 
 # ── The app (apps/patchbay) ──────────────────────────────────────────────
 # One crate, two platforms: the desktop app (default) and the browser

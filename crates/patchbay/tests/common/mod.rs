@@ -108,7 +108,7 @@ impl Sandbox {
             .env("PIPEWIRE_RUNTIME_DIR", &dir)
             .env("PULSE_RUNTIME_PATH", dir.join("pulse"))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(log_file(&dir, PIPEWIRE_LOG))
             .spawn()
             .expect("spawn sandbox pipewire");
 
@@ -124,8 +124,12 @@ impl Sandbox {
         sandbox.wireplumber = Command::new("wireplumber")
             .env("PIPEWIRE_RUNTIME_DIR", &sandbox.dir)
             .env("XDG_RUNTIME_DIR", &sandbox.dir)
+            // Info level, into the sandbox's log: what a failing test
+            // prints (see `Drop`) when the session manager never set the
+            // ports up.
+            .env("WIREPLUMBER_DEBUG", "3")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(log_file(&sandbox.dir, WIREPLUMBER_LOG))
             .spawn()
             .ok();
 
@@ -224,14 +228,45 @@ impl Sandbox {
 
 impl Drop for Sandbox {
     fn drop(&mut self) {
+        // A failing test shows the daemons' own account of what went
+        // wrong (the test harness prints captured output on failure).
+        let report = std::thread::panicking();
         if let Some(mut wp) = self.wireplumber.take() {
+            if report {
+                eprintln!("sandbox wireplumber: {:?}", wp.try_wait());
+            }
             let _ = wp.kill();
             let _ = wp.wait();
+        } else if report {
+            eprintln!("sandbox wireplumber: not started (not on PATH?)");
+        }
+        if report {
+            eprintln!("sandbox pipewire: {:?}", self.pipewire.try_wait());
         }
         let _ = self.pipewire.kill();
         let _ = self.pipewire.wait();
+        if report {
+            for name in [PIPEWIRE_LOG, WIREPLUMBER_LOG] {
+                let log = std::fs::read_to_string(self.dir.join(name)).unwrap_or_default();
+                let lines: Vec<&str> = log.lines().collect();
+                let tail = lines.len().saturating_sub(80);
+                eprintln!("── {name} (last {} lines) ──", lines.len().min(80));
+                for line in lines.iter().skip(tail) {
+                    eprintln!("{line}");
+                }
+            }
+        }
         let _ = std::fs::remove_dir_all(&self.dir);
     }
+}
+
+const PIPEWIRE_LOG: &str = "pipewire.log";
+const WIREPLUMBER_LOG: &str = "wireplumber.log";
+
+/// A daemon's stderr, kept in the sandbox dir; discarded if it can't be
+/// created.
+fn log_file(dir: &Path, name: &str) -> Stdio {
+    std::fs::File::create(dir.join(name)).map_or_else(|_| Stdio::null(), Stdio::from)
 }
 
 /// Is `program` on PATH?

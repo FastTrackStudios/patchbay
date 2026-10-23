@@ -74,7 +74,7 @@ just check        # cargo check --workspace --all-targets
 just check-web    # the browser remote for wasm32
 just test         # cargo test --workspace (+ the PipeWire sandbox tests on Linux)
 just fmt          # cargo fmt --all
-just ci           # what CI runs: fmt-check, change-check, check, check-web, test
+just ci           # what CI runs: fmt-check, change-check, check, check-web, test-ci
 just run          # the app from source (ws://:4046)
 just cli health   # the agent CLI against a running engine
 just install      # build, install and restart Patchbay on this machine
