@@ -1,0 +1,28 @@
+Change files: release intent, one per PR (fleet release flow v4).
+
+Every PR that changes a crate adds one here with cargo-rail:
+
+    cargo rail change add <every crate you changed> \
+      --bump <none|patch|minor|major> -m "<release note>"
+
+and commits the .changes/<slug>.md it writes. CI (`cargo rail change
+check`, in checks.yml's Build + test job) fails a PR whose changed crates have
+none.
+
+- The note is for the user: start with a verb (Added / Fixed / Improved /
+  Changed / Removed / Security) and end with `(patchbay)`.
+- --bump none: nothing a user would notice (refactor, CI, tests, docs).
+  It satisfies the check and adds no changelog line.
+- --bump major: a breaking change (a title with `!`, anything under
+  migrations/). Add a `Migration:` paragraph to the file body: what
+  changed, why, the exact steps.
+
+`just release-prepare` (scripts/release.sh) turns the pending files into
+the CHANGELOG.md section (major -> Breaking / Migration, minor -> Added,
+patch -> Fixed and improved) and deletes them. Nobody edits CHANGELOG.md
+outside a release PR.
+
+This file has no .md extension on purpose: cargo-rail reads every .md
+here as a change file and rejects one without the front matter.
+
+The fleet rules: the `release-workflow` skill (references/changelog.md).

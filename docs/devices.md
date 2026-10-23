@@ -5,15 +5,18 @@ around it — interfaces, mixers, network audio — so one app can route and
 control everything. It has two parts:
 
 ```
-crates/device              patchbay-device    generic model + DeviceAdapter trait (no vendor code)
-crates/adapters/antelope   patchbay-antelope  Antelope Galaxy32 via Antelope Manager Server
-crates/adapters/yamaha     patchbay-yamaha    Yamaha TF-series over RCP (+ subnet discovery)
-crates/adapters/dante      patchbay-dante     the Dante network over inferno-net (mDNS + ARC)
-crates/adapters/<family>   patchbay-<family>  one crate per hardware family
+crates/patchbay/src/device     generic model + DeviceAdapter trait (no vendor code)
+crates/patchbay/src/antelope   Antelope Galaxy32 via Antelope Manager Server
+crates/patchbay/src/yamaha     Yamaha TF-series over RCP (+ subnet discovery)
+crates/patchbay/src/dante      the Dante network over inferno-net (mDNS + ARC)
+crates/patchbay/src/<family>   one module per hardware family
 ```
 
-Adapters depend on `patchbay-device`. `patchbay-device` never depends on an
-adapter, and `patchbay-proto` depends on neither: the engine converts the
+These were separate crates (`patchbay-device`, `patchbay-antelope`, …)
+until patchbay became one crate; the names below still say
+`patchbay-device` for the `device` module and `patchbay-proto` for
+`proto`. Adapters depend on `device`; `device` never depends on an
+adapter, and `proto` depends on neither: the engine converts the
 model into Facet wire types (see [In the app](#in-the-app-hub-rpc-cli-ui)).
 
 ## The generic model (`patchbay-device`)
@@ -194,7 +197,7 @@ id `dante:network:<config name>`) — the Dante Controller matrix:
 ## System Audio (`system-audio`)
 
 The machine's own audio system appears as a **read-only** device
-(`crates/patchbay/src/devices/system_audio.rs`): id
+(`crates/patchbay/src/server/devices/system_audio.rs`): id
 `host:coreaudio:<name>` on macOS (`patchbay-host-coreaudio`'s
 `CoreAudioBackend`), `host:pipewire:<name>` elsewhere (the existing
 PipeWire engine's graph mirror, polled; engine behaviour unchanged).
@@ -221,17 +224,17 @@ Humans (desktop app, browser remote) and agents (`patchbay device … --json`)
 use the same surface: `PatchbayService` in `patchbay-proto`.
 
 ```
-crates/proto/src/devices.rs             wire types: DeviceSummary, DeviceView, ParamView,
+crates/patchbay/src/proto/devices.rs    wire types: DeviceSummary, DeviceView, ParamView,
                                         DeviceParamValue/Kind, DeviceEventWire, DeviceConfig,
                                         DeviceSettingSnapshot, DeviceRestoreReport
-crates/patchbay/src/devices/registry.rs config `kind` → connect fn (one entry per family), default set
-crates/patchbay/src/devices/cache.rs    last-found address of auto-discovered devices (<config>.state.json)
-crates/patchbay/src/devices/system_audio.rs  the host audio system as a read-only device
-crates/patchbay/src/devices/hub.rs      DeviceHub: supervision, events, calls, snapshots
-crates/patchbay/src/devices/wire.rs     patchbay-device ↔ proto conversion
-crates/patchbay/src/plan/devices.rs     pure snapshot capture + restore planner
-app/src/cli_device.rs                   `patchbay device …`
-crates/ui/src/devices.rs                the Devices tab
+crates/patchbay/src/server/devices/registry.rs config `kind` → connect fn (one entry per family), default set
+crates/patchbay/src/server/devices/cache.rs    last-found address of auto-discovered devices (<config>.state.json)
+crates/patchbay/src/server/devices/system_audio.rs  the host audio system as a read-only device
+crates/patchbay/src/server/devices/hub.rs      DeviceHub: supervision, events, calls, snapshots
+crates/patchbay/src/server/devices/wire.rs     patchbay-device ↔ proto conversion
+crates/patchbay/src/server/plan/devices.rs  pure snapshot capture + restore planner
+apps/patchbay/src/cli_device.rs         `patchbay device …`
+crates/patchbay/src/ui/devices/         the Devices tab
 ```
 
 - **Defaults.** With no `devices` section the hub starts four entries,
@@ -286,12 +289,11 @@ crates/ui/src/devices.rs                the Devices tab
 
 ## Adding an adapter
 
-1. Create `crates/adapters/<family>` (package `patchbay-<family>`) with
-   `[lints] workspace = true`. Register it in the root `members` and
-   `[workspace.dependencies]`, then add one `AdapterKind` entry (`kind`,
+1. Create the module `crates/patchbay/src/<family>` (behind the `server`
+   feature, like the others), then add one `AdapterKind` entry (`kind`,
    `discovers`, and its `connect(DeviceConfig, ConnectCtx)` function
    returning `ConnectError::NotFound` / `::Failed`) to
-   `crates/patchbay/src/devices/registry.rs`. The hub,
+   `crates/patchbay/src/server/devices/registry.rs`. The hub,
    RPC, CLI, UI and snapshots then work without further changes.
 2. Keep modules private and expose a small `pub use` surface from `lib.rs`:
    the adapter type, discovery, a typed ops handle and a raw escape hatch.
@@ -302,7 +304,7 @@ crates/ui/src/devices.rs                the Devices tab
    contract above).
 4. Capture real traffic into `tests/fixtures/` and test encoders byte-exact
    against what the vendor's own software sends. Test the adapter against an
-   in-process fake server. `crates/adapters/antelope/tests/fake_server.rs` is
+   in-process fake server. `crates/patchbay/tests/antelope_fake_server.rs` is
    the template.
 5. Live testing: read-only first. Write only to targets the operator has
    cleared, and always restore them: read, write, verify, restore, verify.

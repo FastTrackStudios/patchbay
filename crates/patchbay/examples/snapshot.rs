@@ -15,11 +15,11 @@
 
 #[tokio::main]
 async fn main() {
-    let backend = patchbay::PatchbayBackend::new();
+    let backend = patchbay::server::PatchbayBackend::new();
     // Long enough for the first node-state poll (~2s cadence) to land.
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-    use patchbay::proto::PatchbayService as _;
+    use patchbay::server::proto::PatchbayService as _;
     let snap = backend.graph().await.expect("snapshot");
     println!(
         "nodes={} ports={} links={}",

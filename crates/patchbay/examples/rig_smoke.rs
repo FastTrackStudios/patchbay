@@ -14,11 +14,11 @@
 //!
 //! `cargo run -p patchbay --example rig_smoke`
 
-use patchbay::proto::PatchbayService as _;
+use patchbay::server::proto::PatchbayService as _;
 
 #[tokio::main]
 async fn main() {
-    let backend = patchbay::PatchbayBackend::new();
+    let backend = patchbay::server::PatchbayBackend::new();
 
     let services = backend.services().await.expect("services");
     println!("services:");

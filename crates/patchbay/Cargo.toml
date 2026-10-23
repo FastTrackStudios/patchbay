@@ -1,51 +1,183 @@
 [package]
 name = "patchbay"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 license.workspace = true
-
-[features]
-default = []
-
-[dependencies]
-patchbay-proto.workspace = true
-# External-device layer: the generic model + one crate per adapter family.
-patchbay-device.workspace = true
-patchbay-antelope.workspace = true
-patchbay-yamaha.workspace = true
-patchbay-dante.workspace = true
-# System Audio (read-only host summary): the host model + Core Audio backend.
-patchbay-host.workspace = true
-patchbay-host-coreaudio.workspace = true
-architect = { workspace = true, features = ["vox"] }
-# Wide-event enrichment. `wide::set` is a no-op unless the binary turns
-# on the `otel` feature, so the engine can call it unconditionally.
-architect-telemetry.workspace = true
-vox.workspace = true
-eyre.workspace = true
-parking_lot.workspace = true
-facet.workspace = true
-facet-styx.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-dirs = "6"
-inferno-net.workspace = true
-# Peer-engine discovery (`_patchbay._tcp`). Same version inferno-net
-# already brings in for Dante, so this adds no new crate to the build.
-mdns-sd = "0.13"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-pipewire = "0.10"
-
-[lib]
-doctest = false
+repository.workspace = true
+description = "Studio routing: the patchbay server (host audio graph, Core Audio, Dante, Yamaha and Antelope adapters), its wire types, and its UI"
 
 [lints]
 workspace = true
 
+[features]
+default = ["vox"]
+server = ["dep:architect-telemetry", "dep:dirs", "dep:eyre", "dep:facet-styx", "dep:futures-util", "dep:if-addrs", "dep:inferno-net", "dep:mdns-sd", "dep:parking_lot", "dep:serde_json", "dep:socket2", "dep:tokio", "dep:tracing"]
+tcc-spi = []
+ui = ["dep:dioxus", "dep:futures-util", "dep:music-catalog", "dep:tracing"]
+vox = []
+
+[dependencies]
+architect = { workspace = true, features = ["vox"] }
+architect-telemetry = { workspace = true, optional = true }
+dioxus = { workspace = true, optional = true }
+dirs = { version = "6", optional = true }
+eyre = { workspace = true, optional = true }
+facet = { workspace = true }
+facet-styx = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+if-addrs = { version = "0.13", optional = true }
+inferno-net = { workspace = true, optional = true }
+mdns-sd = { version = "0.13", optional = true }
+music-catalog = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+socket2 = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["sync", "time"] }
+tracing = { workspace = true, optional = true }
+vox = { workspace = true }
+vox-types = { workspace = true }
+
 [dev-dependencies]
-vox-websocket.workspace = true
-vox-core.workspace = true
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+vox-core = { workspace = true }
+vox-websocket = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = { version = "0.10" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = { version = "0.6" }
+dispatch2 = { version = "0.3" }
+libc = { version = "0.2" }
+objc2 = { version = "0.6" }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSRunningApplication", "NSView", "NSWorkspace"] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2", "objc2-foundation", "objc2-core-audio-types"] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFString", "CFNumber", "CFArray", "CFDictionary", "CFData"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSUUID", "NSValue", "NSURL"] }
+
+[[test]]
+name = "chanmap"
+path = "tests/chanmap.rs"
+required-features = ["server"]
+
+[[test]]
+name = "engine_sandbox"
+path = "tests/engine_sandbox.rs"
+required-features = ["server"]
+
+[[example]]
+name = "bulk_smoke"
+path = "examples/bulk_smoke.rs"
+required-features = ["server"]
+
+[[example]]
+name = "chanmap_smoke"
+path = "examples/chanmap_smoke.rs"
+required-features = ["server"]
+
+[[example]]
+name = "latency_smoke"
+path = "examples/latency_smoke.rs"
+required-features = ["server"]
+
+[[example]]
+name = "probe_running"
+path = "examples/probe_running.rs"
+required-features = ["server"]
+
+[[example]]
+name = "rig_smoke"
+path = "examples/rig_smoke.rs"
+required-features = ["server"]
+
+[[example]]
+name = "snapshot"
+path = "examples/snapshot.rs"
+required-features = ["server"]
+
+[[example]]
+name = "vsink_smoke"
+path = "examples/vsink_smoke.rs"
+required-features = ["server"]
+
+[[test]]
+name = "model"
+path = "tests/model.rs"
+required-features = ["server"]
+
+[[example]]
+name = "ca_list"
+path = "examples/ca_list.rs"
+required-features = ["server"]
+
+[[example]]
+name = "ca_mix"
+path = "examples/ca_mix.rs"
+required-features = ["server"]
+
+[[example]]
+name = "ca_tap_monitor"
+path = "examples/ca_tap_monitor.rs"
+required-features = ["server"]
+
+[[example]]
+name = "ca_virtual"
+path = "examples/ca_virtual.rs"
+required-features = ["server"]
+
+[[test]]
+name = "fake_server"
+path = "tests/fake_server.rs"
+required-features = ["server"]
+
+[[test]]
+name = "rcp"
+path = "tests/rcp.rs"
+required-features = ["server"]
+
+[[test]]
+name = "table"
+path = "tests/table.rs"
+required-features = ["server"]
+
+[[example]]
+name = "tf_discover"
+path = "examples/tf_discover.rs"
+required-features = ["server"]
+
+[[example]]
+name = "tf_read"
+path = "examples/tf_read.rs"
+required-features = ["server"]
+
+[[test]]
+name = "antelope_fake_server"
+path = "tests/antelope_fake_server.rs"
+required-features = ["server"]
+
+[[test]]
+name = "protocol"
+path = "tests/protocol.rs"
+required-features = ["server"]
+
+[[example]]
+name = "galaxy_read"
+path = "examples/galaxy_read.rs"
+required-features = ["server"]
+
+[[example]]
+name = "galaxy_write_test"
+path = "examples/galaxy_write_test.rs"
+required-features = ["server"]

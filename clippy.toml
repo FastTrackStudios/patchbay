@@ -1,5 +1,3 @@
-# Strict lint baseline (see [workspace.lints.clippy] in Cargo.toml).
-# Fast prototyping belongs in tests — panicking is fine there.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true

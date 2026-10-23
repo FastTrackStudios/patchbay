@@ -1,37 +1,123 @@
+# Checks — every PR into main (or a release/v* hotfix line) and every push
+# to them. One job on a hosted runner, in the nix dev shell (the same
+# toolchain, PipeWire and cargo-rail as `nix develop`), each step guarded
+# with `!cancelled()` so one run reports everything:
+#
+#   fmt --check, `cargo rail change check` (PRs: every changed crate has a
+#   change file), cargo check (all targets), the browser remote's wasm
+#   check, cargo test (with the sandboxed PipeWire integration tests:
+#   PATCHBAY_REQUIRE_SANDBOX, set by the dev shell, makes a missing daemon
+#   a failure rather than a skip).
+#
+# A release PR (head `release/pending`) is only a version + changelog
+# commit: the release guard (run from the BASE commit's script) decides
+# it, and the heavy steps skip. `Build + test` is the REQUIRED check (the
+# aggregator): it never skips, and fails unless the checks job succeeded.
+# `just release-tag` and the tag guard require it green on a release.
+# `just ci` runs the same steps locally.
+
 name: checks
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main, "release/**"]
+  push:
+    branches: [main, "release/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+  NIX_DEV: nix develop --accept-flake-config -c
 
 jobs:
   checks:
+    name: Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the change check and the release guard need the
+          # PR's base and head.
+          fetch-depth: 0
 
-      # The dev shell owns the toolchain (pinned by rust-toolchain.toml)
-      # AND the system libraries AND the tools the code shells out to —
-      # pipewire, wireplumber, pactl/parec. That last group is why this
-      # replaced the apt list: they aren't link-time deps, so a missing
-      # one didn't fail the build, it just made features silently no-op.
-      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Release PR? (the base commit's release guard)
+        id: release
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -u
+          # 0 = a sound release PR (skip the rest), 1 = not a release PR,
+          # anything else = a release PR the guard refuses (fail).
+          rc=1
+          if git show "${BASE_SHA}:scripts/release.sh" > "${RUNNER_TEMP}/release-base.sh" 2>/dev/null; then
+            bash "${RUNNER_TEMP}/release-base.sh" release-only || rc=$?
+          fi
+          case "$rc" in
+            0) echo "skip=true" >> "$GITHUB_OUTPUT"
+               echo "release commit only (${HEAD_REF} -> ${BASE_REF}): version + changelog, nothing to build" ;;
+            1) echo "skip=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::${HEAD_REF} -> ${BASE_REF} is a release PR the release guard refuses (see above)"
+               exit 1 ;;
+          esac
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/hosted-nix
+        if: ${{ steps.release.outputs.skip != 'true' }}
 
-      - name: cargo fmt
-        run: nix develop --command cargo fmt --all -- --check
+      - name: Rust cache (main saves)
+        if: ${{ steps.release.outputs.skip != 'true' }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: cargo clippy
-        run: nix develop --command cargo clippy --workspace --all-targets
+      - name: cargo fmt --check
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        run: ${NIX_DEV} cargo fmt --all -- --check
 
-      # Includes the sandboxed integration tests, which spawn a private
-      # PipeWire daemon. PATCHBAY_REQUIRE_SANDBOX (set by the dev shell)
-      # makes a missing daemon a failure rather than a silent skip.
-      - name: cargo test
-        run: nix develop --command cargo test --workspace
+      - name: cargo rail change check
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.release.outputs.skip != 'true' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # --since the PR's base commit: --merge-base cannot find the
+        # default branch in a CI checkout.
+        run: ${NIX_DEV} cargo rail change check --since "${BASE_SHA}"
+
+      - name: cargo check --workspace
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        run: ${NIX_DEV} cargo check --workspace --all-targets --locked
+
+      - name: wasm check (browser remote)
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        run: ${NIX_DEV} cargo check -p fts-patchbay --target wasm32-unknown-unknown --no-default-features --features web --locked
+
+      - name: cargo test --workspace
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        run: ${NIX_DEV} cargo test --workspace --locked
+
+  # The REQUIRED check. A required check that is skipped counts as passing,
+  # so this never skips: it fails unless the checks job succeeded.
+  build-and-test:
+    name: Build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [checks]
+    if: ${{ always() }}
+    steps:
+      - name: The checks job succeeded
+        env:
+          CHECKS: ${{ needs.checks.result }}
+        run: |
+          echo "checks: ${CHECKS}"
+          [ "${CHECKS}" = success ] || { echo "::error::checks: ${CHECKS}"; exit 1; }

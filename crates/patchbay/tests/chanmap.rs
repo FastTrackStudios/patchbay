@@ -14,7 +14,7 @@ fn roundtrip_preserves_foreign_lines() {
     .unwrap();
     let path_str = path.to_str().unwrap();
 
-    let names = patchbay::chanmap::read_names(path_str).unwrap();
+    let names = patchbay::server::chanmap::read_names(path_str).unwrap();
     assert_eq!(names.get(&1).unwrap(), "1 - Kick In");
     assert_eq!(names.get(&6).unwrap(), "6 - Old Name");
 
@@ -22,7 +22,7 @@ fn roundtrip_preserves_foreign_lines() {
     let mut update = BTreeMap::new();
     update.insert(6, "Bass".to_string());
     update.insert(23, "Guitar".to_string());
-    patchbay::chanmap::write_names(path_str, &update).unwrap();
+    patchbay::server::chanmap::write_names(path_str, &update).unwrap();
 
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.contains("[reaper_chanmap]"));
@@ -32,7 +32,7 @@ fn roundtrip_preserves_foreign_lines() {
     assert!(text.contains("name22=Guitar"));
     assert!(!text.contains("Old Name"));
 
-    let names = patchbay::chanmap::read_names(path_str).unwrap();
+    let names = patchbay::server::chanmap::read_names(path_str).unwrap();
     assert_eq!(names.get(&23).unwrap(), "Guitar");
 
     std::fs::remove_dir_all(&dir).ok();
@@ -45,7 +45,7 @@ fn creates_identity_map_when_missing() {
     let path = dir.join("fresh.ReaperChanMap");
     let mut names = BTreeMap::new();
     names.insert(23, "Guitar".to_string());
-    patchbay::chanmap::write_names(path.to_str().unwrap(), &names).unwrap();
+    patchbay::server::chanmap::write_names(path.to_str().unwrap(), &names).unwrap();
 
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.starts_with("[reaper_chanmap]"));
@@ -57,9 +57,18 @@ fn creates_identity_map_when_missing() {
 
 #[test]
 fn channel_of_port() {
-    assert_eq!(patchbay::chanmap::channel_of_port("playback_97"), Some(97));
-    assert_eq!(patchbay::chanmap::channel_of_port("capture_1"), Some(1));
-    assert_eq!(patchbay::chanmap::channel_of_port("monitor_12"), Some(12));
-    assert_eq!(patchbay::chanmap::channel_of_port("midi_out"), None);
-    assert_eq!(patchbay::chanmap::channel_of_port("42"), None);
+    assert_eq!(
+        patchbay::server::chanmap::channel_of_port("playback_97"),
+        Some(97)
+    );
+    assert_eq!(
+        patchbay::server::chanmap::channel_of_port("capture_1"),
+        Some(1)
+    );
+    assert_eq!(
+        patchbay::server::chanmap::channel_of_port("monitor_12"),
+        Some(12)
+    );
+    assert_eq!(patchbay::server::chanmap::channel_of_port("midi_out"), None);
+    assert_eq!(patchbay::server::chanmap::channel_of_port("42"), None);
 }

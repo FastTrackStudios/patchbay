@@ -25,8 +25,8 @@ mod common;
 use std::time::Duration;
 
 use common::{Sandbox, eventually};
-use patchbay::PatchbayBackend;
-use patchbay_proto::{NamedRoute, PatchbayService, RouteEndpoint, VirtualSink, sink_node_name};
+use patchbay::proto::{NamedRoute, PatchbayService, RouteEndpoint, VirtualSink, sink_node_name};
+use patchbay::server::PatchbayBackend;
 
 /// Generous, because it covers daemon round-trips plus patchbay's own
 /// settle window — not a guess at how long a burst takes.
@@ -176,7 +176,7 @@ async fn engine_drives_a_real_graph() {
             .await
             .expect("add capturable sink");
 
-        let want = patchbay_proto::capture_source_name(&sink_node_name(obs_bus));
+        let want = patchbay::proto::capture_source_name(&sink_node_name(obs_bus));
         eventually("the OBS capture source to be created", SETTLE, || {
             pactl_sources().iter().any(|s| s.contains(&want))
         });

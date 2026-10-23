@@ -1,8 +1,0 @@
-# dx config for the patchbay desktop app (Linux webview shell). The web
-# build is a separate crate (apps/patchbay/web); this file only carries
-# bundle identity for `dx bundle` (release .deb).
-[application]
-
-[bundle]
-identifier = "app.fasttrackstudio.patchbay"
-publisher = "FastTrackStudio"
