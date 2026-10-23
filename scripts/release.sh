@@ -661,7 +661,11 @@ release_diff_only() { # <base> <head>
     vb="$(version_at "$base")"; vh="$(version_at "$head")"
     while read -r st f; do
         case "$f" in
-            Cargo.toml|Cargo.lock|CHANGELOG.md) [ "$st" = M ] || { echo "$f: status $st"; return 1; } ;;
+            Cargo.toml|Cargo.lock) [ "$st" = M ] || { echo "$f: status $st"; return 1; } ;;
+            # The first release creates the changelog; every later one edits it.
+            CHANGELOG.md)
+                [ "$st" = M ] || { [ "$st" = A ] && ! git cat-file -e "$base:CHANGELOG.md" 2>/dev/null; } \
+                    || { echo "$f: status $st"; return 1; } ;;
             "$CHANGES_DIR"/*.md) [ "$st" = D ] || { echo "$f: a change file may only be deleted (consumed)"; return 1; } ;;
             *) echo "$f: not a release file"; return 1 ;;
         esac
