@@ -78,20 +78,20 @@ jobs:
           esac
 
       - uses: ./.github/actions/hosted-nix
-        if: ${{ steps.release.outputs.skip != 'true' }}
+        if: ${{ steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
 
       - name: Rust cache (main saves)
-        if: ${{ steps.release.outputs.skip != 'true' }}
+        if: ${{ steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: cargo fmt --check
-        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
         run: ${NIX_DEV} cargo fmt --all -- --check
 
       - name: cargo rail change check
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.release.outputs.skip != 'true' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         # --since the PR's base commit: --merge-base cannot find the
@@ -99,15 +99,15 @@ jobs:
         run: ${NIX_DEV} cargo rail change check --since "${BASE_SHA}"
 
       - name: cargo check --workspace
-        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
         run: ${NIX_DEV} cargo check --workspace --all-targets --locked
 
       - name: wasm check (browser remote)
-        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
         run: ${NIX_DEV} cargo check -p fts-patchbay --target wasm32-unknown-unknown --no-default-features --features web --locked
 
       - name: cargo test --workspace
-        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
         # The PipeWire sandbox test runs in its own step below.
         run: ${NIX_DEV} cargo test --workspace --locked -- --skip engine_drives_a_real_graph
 
@@ -117,7 +117,7 @@ jobs:
       # and prints the daemons' logs, but does not fail the check until it
       # is fixed.
       - name: PipeWire sandbox test (advisory)
-        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' }}
+        if: ${{ !cancelled() && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
         continue-on-error: true
         run: ${NIX_DEV} cargo test -p patchbay --features server --test engine_sandbox --locked
 
