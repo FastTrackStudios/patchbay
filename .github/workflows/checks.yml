@@ -20,13 +20,18 @@ name: checks
 on:
   pull_request:
     branches: [main, "release/**"]
+  # Hotfix lines only: `release/pending` is a PR head, decided by its PR's
+  # run (the release guard), not a full push build of its own.
   push:
-    branches: [main, "release/**"]
+    branches: [main, "release/v*"]
   workflow_dispatch:
 
+# A PR's newer push supersedes its older run. Pushes to main / release/v*
+# are never cancelled: `just release-tag` needs the release merge commit's
+# own `Build + test` green, and a cancelled run reads as not green.
 concurrency:
-  group: checks-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: checks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

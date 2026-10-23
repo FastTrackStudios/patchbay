@@ -187,7 +187,7 @@ devices ({name system-audio, kind system-audio}
 ```
 
 `PATCHBAY_DEVICES=off` disables the device layer entirely. See
-[devices.md](devices.md).
+[docs/devices.md](docs/devices.md).
 On a host without PipeWire (macOS), `patchbay serve` runs the engine
 headless so the device layer is reachable without the desktop window.
 

@@ -1301,6 +1301,7 @@ mod live_probe {
     /// Ground truth against the LIVE `PipeWire` graph via an in-process
     /// backend (no separate app needed):
     /// `cargo test -p patchbay-ui inproc_layout -- --ignored --nocapture`
+    #[cfg(feature = "server")]
     #[tokio::test]
     #[ignore = "needs live PipeWire"]
     async fn inproc_layout() {
