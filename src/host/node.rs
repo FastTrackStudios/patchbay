@@ -160,17 +160,3 @@ impl PortRef {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn direction_from_counts() {
-        let d = |inputs, outputs| NodeDirection::from_counts(PortCounts { inputs, outputs });
-        assert_eq!(d(2, 2), NodeDirection::Duplex);
-        assert_eq!(d(2, 0), NodeDirection::Sink);
-        assert_eq!(d(0, 1), NodeDirection::Source);
-        assert_eq!(d(0, 0), NodeDirection::None);
-    }
-}

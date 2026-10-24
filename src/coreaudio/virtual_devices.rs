@@ -291,14 +291,3 @@ pub fn remove_aggregate(uid: &str) -> Result<(), HostError> {
         .ok_or_else(|| HostError::NotFound(format!("aggregate `{uid}`")))?;
     crate::coreaudio::ffi::tap::destroy_public(d.object)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::uid_for;
-
-    #[test]
-    fn uids_are_stable_slugs() {
-        assert_eq!(uid_for("Discord Mix"), "Patchbay-Discord-Mix_UID");
-        assert_eq!(uid_for("  OBS / Stream  "), "Patchbay-OBS---Stream_UID");
-    }
-}

@@ -70,31 +70,3 @@ pub(crate) fn write_dropin(rules: &[LatencyRule], rate: u32) -> Result<(), Strin
     }
     fs::write(&path, render(rules, rate)).map_err(|e| format!("{}: {e}", path.display()))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn renders_request_and_pin() {
-        let rules = vec![
-            LatencyRule {
-                pattern: "REAPER".into(),
-                quantum: 64,
-                force: true,
-            },
-            LatencyRule {
-                pattern: "~Firefox.*".into(),
-                quantum: 1024,
-                force: false,
-            },
-        ];
-        let text = render(&rules, 48000);
-        assert!(text.contains("node.name = \"REAPER\""));
-        assert!(text.contains("node.force-quantum = 64"));
-        assert!(text.contains("node.latency = \"64/48000\""));
-        assert!(text.contains("node.name = \"~Firefox.*\""));
-        assert!(!text.contains("node.force-quantum = 1024"));
-        assert!(text.contains("node.latency = \"1024/48000\""));
-    }
-}

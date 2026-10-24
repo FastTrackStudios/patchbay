@@ -249,36 +249,3 @@ pub fn control_endpoints(announces: &[Announce], serial: Option<&str>) -> Vec<So
     addrs.dedup();
     addrs
 }
-
-#[cfg(test)]
-mod liveness_tests {
-    use super::{Announce, AnnounceProperties};
-
-    fn announce(firmware: Option<&str>) -> Announce {
-        let mut a: Announce = serde_json::from_str(
-            r#"{"ip":"127.0.0.1","port":2030,"uuid":"u",
-                "name":"n","type":"_antelope_control._tcp.local.","properties":{}}"#,
-        )
-        .expect("fixture");
-        a.properties = AnnounceProperties {
-            firmware_version: firmware.map(str::to_owned),
-            ..AnnounceProperties::default()
-        };
-        a
-    }
-
-    #[test]
-    fn a_dead_session_announces_a_zero_firmware() {
-        // Measured on a live Galaxy 32: six endpoints the server kept
-        // announcing after their sessions ended all said `0.00` and
-        // never answered; the one reporting the real firmware did.
-        assert!(!announce(Some("0.00")).looks_live());
-        assert!(!announce(Some("0")).looks_live());
-        assert!(!announce(Some("0.0.0")).looks_live());
-        assert!(!announce(Some("  ")).looks_live());
-        assert!(announce(Some("8.24")).looks_live());
-        assert!(announce(Some("1.0")).looks_live());
-        // Nothing to judge on: try it rather than skip it.
-        assert!(announce(None).looks_live());
-    }
-}

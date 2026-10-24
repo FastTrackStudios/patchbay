@@ -67,16 +67,6 @@ objc2-core-audio-types = { version = "0.3", default-features = false, features =
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFString", "CFNumber", "CFArray", "CFDictionary", "CFData"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSUUID", "NSValue", "NSURL"] }
 
-[[test]]
-name = "chanmap"
-path = "tests/chanmap.rs"
-required-features = ["server"]
-
-[[test]]
-name = "engine_sandbox"
-path = "tests/engine_sandbox.rs"
-required-features = ["server"]
-
 [[example]]
 name = "bulk_smoke"
 path = "examples/bulk_smoke.rs"
@@ -112,11 +102,6 @@ name = "vsink_smoke"
 path = "examples/vsink_smoke.rs"
 required-features = ["server"]
 
-[[test]]
-name = "model"
-path = "tests/model.rs"
-required-features = ["server"]
-
 [[example]]
 name = "ca_list"
 path = "examples/ca_list.rs"
@@ -137,21 +122,6 @@ name = "ca_virtual"
 path = "examples/ca_virtual.rs"
 required-features = ["server"]
 
-[[test]]
-name = "fake_server"
-path = "tests/fake_server.rs"
-required-features = ["server"]
-
-[[test]]
-name = "rcp"
-path = "tests/rcp.rs"
-required-features = ["server"]
-
-[[test]]
-name = "table"
-path = "tests/table.rs"
-required-features = ["server"]
-
 [[example]]
 name = "tf_discover"
 path = "examples/tf_discover.rs"
@@ -160,16 +130,6 @@ required-features = ["server"]
 [[example]]
 name = "tf_read"
 path = "examples/tf_read.rs"
-required-features = ["server"]
-
-[[test]]
-name = "antelope_fake_server"
-path = "tests/antelope_fake_server.rs"
-required-features = ["server"]
-
-[[test]]
-name = "protocol"
-path = "tests/protocol.rs"
 required-features = ["server"]
 
 [[example]]

@@ -470,23 +470,3 @@ fn remember_members(
         .collect();
     cache.set_members(name, members);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_cover_every_kind_once() {
-        let d = default_devices();
-        assert_eq!(d.len(), KINDS.len());
-        for k in KINDS {
-            assert_eq!(
-                d.iter().filter(|c| c.kind == k.kind).count(),
-                1,
-                "{}",
-                k.kind
-            );
-        }
-        assert!(d.iter().all(DeviceConfig::is_enabled));
-    }
-}

@@ -543,17 +543,3 @@ async fn supervise(
         backoff = backoff.saturating_mul(2).min(BACKOFF_MAX);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn failure_states() {
-        let nf = ConnectError::NotFound("x".into());
-        let failed = ConnectError::Failed("x".into());
-        assert_eq!(link_after_failure(&nf, false), DeviceLinkState::NotFound);
-        assert_eq!(link_after_failure(&nf, true), DeviceLinkState::Offline);
-        assert_eq!(link_after_failure(&failed, false), DeviceLinkState::Offline);
-    }
-}

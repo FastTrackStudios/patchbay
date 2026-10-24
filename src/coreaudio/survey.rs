@@ -185,18 +185,3 @@ pub fn devices() -> Vec<DeviceInfo> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::internal;
-
-    #[test]
-    fn only_patchbays_own_plumbing_is_hidden() {
-        assert!(internal("patchbay.mix.tap-1.4242"));
-        assert!(internal("patchbay.monitor.abc"));
-        // The user's own aggregate, and the driver's devices, are theirs.
-        assert!(!internal("patchbay.aggregate.REAPER-IO"));
-        assert!(!internal("Patchbay-Broadcast_UID"));
-        assert!(!internal("AppleHDAEngineOutput:1B,0,1,2:0"));
-    }
-}

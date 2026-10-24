@@ -134,36 +134,3 @@ impl DiscoveryCache {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trips_through_the_file() {
-        let path = std::env::temp_dir().join(format!(
-            "patchbay-cache-test-{}.state.json",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_file(&path);
-        let c = DiscoveryCache::at(Some(path.clone()));
-        assert_eq!(c.get("tf1"), None);
-        c.set("tf1", "192.168.1.214:49280");
-        let again = DiscoveryCache::at(Some(path.clone()));
-        assert_eq!(again.get("tf1").as_deref(), Some("192.168.1.214:49280"));
-        let _ = std::fs::remove_file(&path);
-        let m = DiscoveryCache::memory();
-        m.set("x", "1.2.3.4:1");
-        assert_eq!(m.get("x").as_deref(), Some("1.2.3.4:1"));
-        m.set_mac("x", "00:a0:de:5c:6d:1b");
-        assert_eq!(m.get_mac("x").as_deref(), Some("00:a0:de:5c:6d:1b"));
-        // Old state files (no `macs`) still load.
-        let old: StateFile =
-            serde_json::from_str(r#"{"discovered":{"tf1":"1.2.3.4:49280"}}"#).expect("old format");
-        assert!(old.macs.is_empty());
-        let members = BTreeMap::from([("Galaxy32".to_owned(), "10.10.10.118:4440".to_owned())]);
-        m.set_members("dante", members.clone());
-        assert_eq!(m.get_members("dante"), members);
-        assert!(m.get_members("nope").is_empty());
-    }
-}

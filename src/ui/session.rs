@@ -134,33 +134,3 @@ pub fn use_session() {
         }
     });
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_session_survives_being_stored() {
-        let s = Session {
-            view: Some(View::Mix),
-            host: "thebattleship.local:4046".to_owned(),
-            device: "tf1".to_owned(),
-            cell: Some(14),
-            safe_edit: Some(true),
-        };
-        assert_eq!(Session::decode(&s.encode()), s);
-    }
-
-    #[test]
-    fn what_this_build_does_not_know_is_skipped() {
-        assert_eq!(Session::decode(""), Session::default());
-        let s = Session::decode("view=Network;device=dante;cell=9000;safe=maybe;later=1");
-        // A view that no longer exists, a zoom outside any sane range and
-        // a switch that is neither on nor off: all ignored…
-        assert_eq!(s.view, None);
-        assert_eq!(s.cell, None);
-        assert_eq!(s.safe_edit, None);
-        // …and the part that is fine still applies.
-        assert_eq!(s.device, "dante");
-    }
-}

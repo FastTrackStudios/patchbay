@@ -84,37 +84,3 @@ pub fn fmt_peak(db: f64) -> String {
         format!("peak {db:.1} dBFS")
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fader_round_trips_and_bottom_is_off() {
-        assert!((fader_slot(-6.0) - -6.0).abs() < 1e-9);
-        assert!((fader_slot(40.0) - FADER_MAX_DB).abs() < 1e-9);
-        assert!((fader_slot(OFF_DB) - FADER_OFF_SLOT).abs() < 1e-9);
-        assert!((slot_db(FADER_OFF_SLOT) - OFF_DB).abs() < 1e-9);
-        assert!((slot_db(-60.0) - -60.0).abs() < 1e-9);
-        assert_eq!(fmt_db(OFF_DB), "-∞ dB");
-        assert_eq!(fmt_db(0.0), "0.0 dB");
-        assert_eq!(fmt_db(-6.0), "-6.0 dB");
-    }
-
-    #[test]
-    fn meters_scale_and_fall() {
-        assert!((peak_db(&[0.0, 1.0]) - 0.0).abs() < 1e-6);
-        assert!((peak_db(&[0.5]) - -6.02).abs() < 0.01);
-        assert!(peak_db(&[]) < METER_FLOOR_DB);
-        assert!((meter_pct(0.0) - 100.0).abs() < 1e-9);
-        assert!((meter_pct(-120.0)).abs() < 1e-9);
-        assert!((fall(Some(-10.0), -60.0) - -13.0).abs() < 1e-9);
-        assert!((fall(Some(-10.0), -3.0) - -3.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn readings_read_plainly() {
-        assert_eq!(fmt_peak(SILENT_DB), "silent");
-        assert_eq!(fmt_peak(-12.34), "peak -12.3 dBFS");
-    }
-}

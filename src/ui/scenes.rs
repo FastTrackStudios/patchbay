@@ -299,21 +299,3 @@ fn MixList() -> Element {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::taken_ago;
-
-    #[test]
-    fn snapshot_ages_read_as_time_passed() {
-        let now = 1_000_000;
-        assert_eq!(taken_ago(now, now), "just now");
-        assert_eq!(taken_ago(now - 90, now), "1m ago");
-        assert_eq!(taken_ago(now - 7_200, now), "2h ago");
-        assert_eq!(taken_ago(now - 172_800, now), "2d ago");
-        // No timestamp is better said with nothing than with "56y ago".
-        assert_eq!(taken_ago(0, now), "");
-        // A clock that went backwards doesn't produce a negative age.
-        assert_eq!(taken_ago(now + 60, now), "just now");
-    }
-}

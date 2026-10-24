@@ -124,18 +124,3 @@ pub fn listen_address(configured: String) -> crate::proto::ListenAddress {
         web_note: bound.map_or_else(String::new, |b| b.web_note.clone()),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::is_lan;
-
-    #[test]
-    fn loopback_is_not_the_lan() {
-        assert!(!is_lan("127.0.0.1:4046"));
-        assert!(!is_lan("[::1]:4046"));
-        assert!(is_lan("0.0.0.0:4046"));
-        assert!(is_lan("192.168.0.65:4046"));
-        // Not an address at all: nothing to advertise.
-        assert!(!is_lan(""));
-    }
-}

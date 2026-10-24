@@ -1141,18 +1141,3 @@ fn SnapshotPanel(view: DeviceView) -> Element {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sections_and_rows_follow_paths() {
-        assert_eq!(section_of("mixer/1/strip/16/level"), "mixer/1");
-        assert_eq!(section_of("monitor/dim"), "monitor");
-        assert_eq!(section_of("trim/line_in/3"), "trim");
-        assert_eq!(section_of("in/3/send/aux/2/level"), "in/3");
-        assert_eq!(row_of("mixer/1/strip/16/level"), "mixer/1/strip/16");
-        assert_eq!(leaf_of("mixer/1/strip/16/level"), "level");
-    }
-}

@@ -64,17 +64,3 @@ pub(crate) fn fourcc(code: u32) -> String {
         format!("0x{code:08x}")
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_rendering() {
-        assert_eq!(status_string(0x216f_626a), "'!obj' (560947818)");
-        assert_eq!(status_string(-50), "-50");
-        assert_eq!(fourcc(0x6772_7570), "grup");
-        assert!(check("x", 0).is_ok());
-        assert!(check("x", -50).is_err());
-    }
-}

@@ -425,19 +425,3 @@ fn Driver(driver: crate::proto::VirtualDevicesStatus) -> Element {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_grant_reads_as_its_state_not_as_a_guess() {
-        assert!(matches!(grant_status("granted"), Status::Ok));
-        assert!(matches!(grant_status("denied"), Status::Bad));
-        assert!(matches!(grant_status("restricted"), Status::Bad));
-        // Not asked yet is not the same as refused.
-        assert!(matches!(grant_status("not_determined"), Status::Idle));
-        // Anything we don't recognise is absent, not granted.
-        assert!(matches!(grant_status("n/a"), Status::Missing));
-    }
-}

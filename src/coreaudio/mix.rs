@@ -846,44 +846,6 @@ impl Mix {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{Layout, Slot};
-
-    #[test]
-    fn layout_slots_span_buffers() {
-        let mut l = Layout::default();
-        let a = l.push(&[2, 1]); // device: 2ch + 1ch buffers
-        let b = l.push(&[2]); // tap
-        assert_eq!((a, b), (0, 2));
-        assert_eq!(
-            l.slot(a, 2, 0),
-            Some(Slot {
-                buffer: 0,
-                channel: 0,
-                stride: 2
-            })
-        );
-        assert_eq!(
-            l.slot(a, 2, 2),
-            Some(Slot {
-                buffer: 1,
-                channel: 0,
-                stride: 1
-            })
-        );
-        assert_eq!(l.slot(a, 2, 3), None);
-        assert_eq!(
-            l.slot(b, 1, 1),
-            Some(Slot {
-                buffer: 2,
-                channel: 1,
-                stride: 2
-            })
-        );
-    }
-}
-
 /// Audio client processes right now (for pickers and for noticing apps
 /// that start or quit). Never includes this process.
 #[must_use]

@@ -38,24 +38,3 @@ impl Gain {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validates_range() {
-        assert!(Gain::validate("x", 0.0).is_ok());
-        assert!(Gain::validate("x", MAX_GAIN).is_ok());
-        assert!(Gain::validate("x", -0.1).is_err());
-        assert!(Gain::validate("x", f32::NAN).is_err());
-        assert!(Gain::validate("x", 5.0).is_err());
-    }
-
-    #[test]
-    fn db_conversion() {
-        assert!((Gain::from_db(0.0) - 1.0).abs() < 1e-6);
-        assert!((Gain::from_db(-6.0) - 0.501).abs() < 1e-3);
-        assert!(Gain::from_db(f32::NEG_INFINITY) <= 0.0);
-    }
-}

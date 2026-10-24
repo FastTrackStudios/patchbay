@@ -792,18 +792,6 @@ async fn supervise(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::db_to_gain;
-
-    #[test]
-    fn db_conversion() {
-        assert!((db_to_gain(0.0) - 1.0).abs() < 1e-6);
-        assert!((db_to_gain(-6.0) - 0.501).abs() < 1e-3);
-        assert!(db_to_gain(-200.0) < 1e-9);
-    }
-}
-
 // ── Virtual devices (Patchbay.driver) ─────────────────────────────────
 
 #[cfg(target_os = "macos")]

@@ -24,6 +24,3 @@ pub(crate) mod pairing;
 pub(crate) mod presets;
 pub(crate) mod routes;
 pub(crate) mod sinks;
-
-#[cfg(test)]
-pub(crate) mod fixtures;

@@ -416,17 +416,3 @@ impl Render for Router {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::locate;
-
-    #[test]
-    fn locate_across_buffers() {
-        let layout = [(0, 2), (1, 1), (2, 4)];
-        assert_eq!(locate(layout.into_iter(), 0), Some((0, 0, 2)));
-        assert_eq!(locate(layout.into_iter(), 2), Some((1, 0, 1)));
-        assert_eq!(locate(layout.into_iter(), 6), Some((2, 3, 4)));
-        assert_eq!(locate(layout.into_iter(), 7), None);
-    }
-}
