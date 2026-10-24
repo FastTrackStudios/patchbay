@@ -56,12 +56,12 @@ tokio = { workspace = true, optional = true }
 include_dir = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window", "Location"], optional = true }
+web-sys = { workspace = true, features = ["Window", "Location"], optional = true }
 
 # Patchbay.app glue (src/desktop/macos.rs): permission prompts, log redirect.
 [target.'cfg(target_os = "macos")'.dependencies]
 patchbay = { workspace = true, features = ["server", "tcc-spi"] }
-libc = "0.2"
+libc = { workspace = true }
 
 [lints]
 workspace = true
