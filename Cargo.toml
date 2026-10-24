@@ -21,14 +21,14 @@ vox = []
 architect = { workspace = true, features = ["vox"] }
 architect-telemetry = { workspace = true, optional = true }
 dioxus = { workspace = true, optional = true }
-dirs = { version = "6", optional = true }
+dirs = { workspace = true, optional = true }
 eyre = { workspace = true, optional = true }
 facet = { workspace = true }
 facet-styx = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
-if-addrs = { version = "0.13", optional = true }
+if-addrs = { workspace = true, optional = true }
 inferno-net = { workspace = true, optional = true }
-mdns-sd = { version = "0.13", optional = true }
+mdns-sd = { workspace = true, optional = true }
 music-catalog = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
 serde = { workspace = true }
@@ -50,22 +50,22 @@ vox-websocket = { workspace = true }
 tokio = { version = "1", features = ["time"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-gloo-timers = { version = "0.3", features = ["futures"] }
+gloo-timers = { workspace = true, features = ["futures"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-pipewire = { version = "0.10" }
+pipewire = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-block2 = { version = "0.6" }
-dispatch2 = { version = "0.3" }
-libc = { version = "0.2" }
-objc2 = { version = "0.6" }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSRunningApplication", "NSView", "NSWorkspace"] }
-objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
-objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2", "objc2-foundation", "objc2-core-audio-types"] }
-objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFString", "CFNumber", "CFArray", "CFDictionary", "CFData"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSUUID", "NSValue", "NSURL"] }
+block2 = { workspace = true }
+dispatch2 = { workspace = true }
+libc = { workspace = true }
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["std", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSRunningApplication", "NSView", "NSWorkspace"] }
+objc2-av-foundation = { workspace = true, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
+objc2-core-audio = { workspace = true, features = ["std", "AudioHardware", "objc2", "objc2-foundation", "objc2-core-audio-types"] }
+objc2-core-audio-types = { workspace = true, features = ["std", "CoreAudioBaseTypes"] }
+objc2-core-foundation = { workspace = true, features = ["std", "CFString", "CFNumber", "CFArray", "CFDictionary", "CFData"] }
+objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSString", "NSUUID", "NSValue", "NSURL"] }
 
 [[example]]
 name = "bulk_smoke"
