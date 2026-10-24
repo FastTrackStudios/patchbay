@@ -29,8 +29,11 @@ use patchbay::proto::{NamedRoute, PatchbayService, RouteEndpoint, VirtualSink, s
 use patchbay::server::PatchbayBackend;
 
 /// Generous, because it covers daemon round-trips plus patchbay's own
-/// settle window — not a guess at how long a burst takes.
-const SETTLE: Duration = Duration::from_secs(20);
+/// settle window — not a guess at how long a burst takes. A bound, not a
+/// sleep: `eventually` returns the moment the graph is there, so only a
+/// broken graph waits it out. Twenty seconds ran out on a CI VM at full
+/// load (the sandbox bus took longer to appear, 2026-10-23).
+const SETTLE: Duration = Duration::from_secs(60);
 
 #[tokio::test(flavor = "multi_thread")]
 async fn engine_drives_a_real_graph() {
