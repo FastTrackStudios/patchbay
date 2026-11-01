@@ -1,5 +1,6 @@
-# Checks — every PR into main (or a release/v* hotfix line) and every push
-# to them. One job on a hosted runner, in the nix dev shell (the same
+# Checks — main builds on shared THEBATTLESHIP slots; public PRs stay hosted.
+# Every PR into main (or a release/v* hotfix line) and every push
+# to them. One build job in the nix dev shell (the same
 # toolchain, PipeWire and cargo-rail as `nix develop`), each step guarded
 # with `!cancelled()` so one run reports everything:
 #
@@ -43,7 +44,7 @@ env:
 jobs:
   checks:
     name: Checks
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","thebattleship"]') }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -77,11 +78,24 @@ jobs:
                exit 1 ;;
           esac
 
+      - uses: ./.github/actions/shared-tools
+        if: ${{ runner.environment == 'self-hosted' }}
+
+      - name: Shared slot target and host cache
+        if: ${{ runner.environment == 'self-hosted' && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
+        run: |
+          set -euo pipefail
+          dir="${CI_CACHE_DIR:?not a shared THEBATTLESHIP runner}/checks/$RUNNER_NAME/target"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          test -n "${RUSTC_WRAPPER:?host kache wrapper is required}"
+          nix develop --accept-flake-config -c true
+
       - uses: ./.github/actions/hosted-nix
-        if: ${{ steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
+        if: ${{ runner.environment == 'github-hosted' && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
 
       - name: Rust cache (main saves)
-        if: ${{ steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
+        if: ${{ runner.environment == 'github-hosted' && steps.release.outputs.skip != 'true' && steps.release.outcome != 'failure' }}
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}

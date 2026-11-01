@@ -1,0 +1,13 @@
+name: Shared runner tools
+description: Expose pinned GitHub CLI and Python on shared NixOS slots.
+runs:
+  using: composite
+  steps:
+    - name: CLI tools from this repository's nixpkgs
+      shell: bash
+      run: |
+        set -euo pipefail
+        nix shell --accept-flake-config --inputs-from . nixpkgs#gh nixpkgs#python3 --command bash -c '
+          dirname "$(command -v gh)" >> "$GITHUB_PATH"
+          dirname "$(command -v python3)" >> "$GITHUB_PATH"
+        '
