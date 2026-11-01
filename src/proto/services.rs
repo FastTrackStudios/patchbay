@@ -8,21 +8,6 @@
 use facet::Facet;
 use serde::{Deserialize, Serialize};
 
-use crate::proto::devices::{
-    DeviceChannel, DeviceCrosspoint, DeviceEventWire, DeviceParamValue, DeviceRestoreReport,
-    DeviceSnapshotInfo, DeviceSummary, DeviceView, ParamView,
-};
-use crate::proto::mixes::{
-    AggregateView, AppMeter, HostOverview, HostTargets, MixConfig, MixMeters, MixView,
-    VirtualDeviceView, VirtualDevicesStatus,
-};
-use crate::proto::types::{
-    AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
-    DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, HostsStatus, IconEntry,
-    LatencyRule, ListenAddress, MeterLevel, NamedRoute, PermissionsStatus, RoutingPreset,
-    ServiceAction, ServiceStatus, VirtualSink,
-};
-
 // `Facet`'s derive for a `#[repr(C)]` enum generates discriminant
 // arithmetic we don't control, and the lint attributes to the derive
 // token rather than the item — so the allow has to scope a module.
@@ -88,10 +73,26 @@ pub use error::PatchbayError;
 
 pub mod patchbay_service {
     // The `#[architect::rpc]` macro expands to items that reference
-    // every type in the trait signature plus the derive traits, so the
-    // glob is load-bearing here rather than laziness.
-    #[allow(clippy::wildcard_imports)]
-    use super::*;
+    // every type in the trait signature, so they are all named here. Not `use super::*`: that glob would also bring
+    // back the aliases the parent re-exports from this module
+    // (`PatchbayServiceDispatcher`, `patchbay_service_service_descriptor`),
+    // which collide with the macro's own items of the same names
+    // (`ambiguous_import_visibilities`, rust-lang/rust#149145).
+    use super::PatchbayError;
+    use crate::proto::devices::{
+        DeviceChannel, DeviceCrosspoint, DeviceEventWire, DeviceParamValue, DeviceRestoreReport,
+        DeviceSnapshotInfo, DeviceSummary, DeviceView, ParamView,
+    };
+    use crate::proto::mixes::{
+        AggregateView, AppMeter, HostOverview, HostTargets, MixConfig, MixMeters, MixView,
+        VirtualDeviceView, VirtualDevicesStatus,
+    };
+    use crate::proto::types::{
+        AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
+        DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, HostsStatus,
+        IconEntry, LatencyRule, ListenAddress, MeterLevel, NamedRoute, PermissionsStatus,
+        RoutingPreset, ServiceAction, ServiceStatus, VirtualSink,
+    };
 
     #[architect::rpc]
     pub trait PatchbayService {
