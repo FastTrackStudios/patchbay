@@ -1,0 +1,5 @@
+# Shared Linux capacity; release slots are reserved from ordinary CI.
+self-hosted-runner:
+  labels:
+    - thebattleship
+    - thebattleship-release
