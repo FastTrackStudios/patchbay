@@ -184,11 +184,11 @@ pub fn TextField(
             },
             onkeydown: move |e: Event<KeyboardData>| {
                 match e.key() {
-                    Key::Enter => {
+                    Key::Named(NamedKey::Enter) => {
                         editing.set(false);
                         on_commit.call(draft.peek().clone());
                     }
-                    Key::Escape => {
+                    Key::Named(NamedKey::Escape) => {
                         editing.set(false);
                         draft.set(value.clone());
                     }

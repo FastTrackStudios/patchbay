@@ -59,7 +59,7 @@ fn Workspace() -> Element {
             "data-density": look.density,
             tabindex: "0",
             onkeydown: move |e: Event<KeyboardData>| {
-                if e.key() == Key::Escape {
+                if e.key() == Key::Named(NamedKey::Escape) {
                     ARMED_OUTPUTS.write().clear();
                     *crate::ui::state::DRAG.write() = None;
                 }

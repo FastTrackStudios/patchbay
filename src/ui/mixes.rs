@@ -559,7 +559,7 @@ pub fn MixesView() -> Element {
                         value: "{NEW_NAME}",
                         oninput: move |e| *NEW_NAME.write() = e.value(),
                         onkeydown: move |e: Event<KeyboardData>| {
-                            if e.key() == Key::Enter {
+                            if e.key() == Key::Named(NamedKey::Enter) {
                                 create_key();
                             }
                         },
@@ -1293,9 +1293,9 @@ fn VirtualDevicesPanel() -> Element {
                                         }
                                     },
                                     onkeydown: move |e: Event<KeyboardData>| {
-                                        if e.key() == Key::Enter {
+                                        if e.key() == Key::Named(NamedKey::Enter) {
                                             vdev_rename(h1.clone());
-                                        } else if e.key() == Key::Escape {
+                                        } else if e.key() == Key::Named(NamedKey::Escape) {
                                             *VRENAME.write() = None;
                                         }
                                     },

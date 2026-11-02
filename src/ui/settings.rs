@@ -227,7 +227,7 @@ fn Hosts() -> Element {
                     value: "{NEW_HOST}",
                     oninput: move |e| *NEW_HOST.write() = e.value(),
                     onkeydown: move |e: Event<KeyboardData>| {
-                        if e.key() == Key::Enter {
+                        if e.key() == Key::Named(NamedKey::Enter) {
                             add_key();
                         }
                     },

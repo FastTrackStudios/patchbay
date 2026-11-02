@@ -1046,7 +1046,7 @@ fn AliasEditor(target: String, placeholder: String, current: String) -> Element 
             value: "{draft}",
             oninput: move |e| draft.set(e.value()),
             onkeydown: move |e| {
-                if e.key() == Key::Enter {
+                if e.key() == Key::Named(NamedKey::Enter) {
                     commit();
                 }
             },

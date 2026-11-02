@@ -560,15 +560,15 @@ pub fn DanteGrid() -> Element {
         let rx_rows = rx_rows.clone();
         move |e: Event<KeyboardData>| {
             let moved = match e.key() {
-                Key::ArrowLeft => move_tx(&tx_cols, false),
-                Key::ArrowRight => move_tx(&tx_cols, true),
-                Key::ArrowUp => move_rx(&rx_rows, false),
-                Key::ArrowDown => move_rx(&rx_rows, true),
-                Key::Enter => {
+                Key::Named(NamedKey::ArrowLeft) => move_tx(&tx_cols, false),
+                Key::Named(NamedKey::ArrowRight) => move_tx(&tx_cols, true),
+                Key::Named(NamedKey::ArrowUp) => move_rx(&rx_rows, false),
+                Key::Named(NamedKey::ArrowDown) => move_rx(&rx_rows, true),
+                Key::Named(NamedKey::Enter) => {
                     commit(handle.clone(), &devices, &tx_all);
                     false
                 }
-                Key::Escape => {
+                Key::Named(NamedKey::Escape) => {
                     *SELECTION.write() = Selection::default();
                     *BAR_OPEN.write() = false;
                     false
