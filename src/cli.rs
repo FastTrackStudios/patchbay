@@ -410,7 +410,8 @@ async fn stream_client(url: String) -> eyre::Result<PatchbayServiceStreamClient>
 async fn serve(bind: String) -> eyre::Result<()> {
     let backend = patchbay::server::PatchbayBackend::new();
     eprintln!("patchbay engine serving ws://{bind}/vox (ctrl-c to stop)");
-    architect::host::EngineHost::new(backend.router(), bind)
+    // Ungated as before: no PermissionsGate on this engine yet (FastTrackStudios/studio#362).
+    architect::host::EngineHost::ungated(backend.router(), bind)
         .serve()
         .await;
     Ok(())

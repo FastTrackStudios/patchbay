@@ -148,7 +148,8 @@ fn bootstrap_blocking() -> eyre::Result<()> {
         // a UI attached here can offer to switch to them.
         patchbay::server::start_peer_discovery(&addr);
         tokio::spawn(async move {
-            EngineHost::new(router, addr).web(web).serve().await;
+            // Ungated as before: no PermissionsGate on this engine yet (FastTrackStudios/studio#362).
+            EngineHost::ungated(router, addr).web(web).serve().await;
         });
 
         ENGINE
