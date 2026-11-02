@@ -1,4 +1,4 @@
-# Patchbay — Claude Code Instructions
+# Patchbay — agent instructions
 
 Patchbay is the PipeWire studio-routing domain: live graph
 (nodes/ports/links), routing presets (connection memory), display
