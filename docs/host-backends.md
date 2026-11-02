@@ -328,7 +328,7 @@ output or input need a **HAL AudioServerPlugIn**. It is a bundle in
 ## Migrating the PipeWire engine behind `HostBackend` (`patchbay-host-pipewire`)
 
 The engine in `crates/patchbay` stays the reference behaviour. The migration
-is mechanical and keeps the rules in `crates/CLAUDE.md`: one PipeWire thread,
+is mechanical and keeps the rules in `AGENTS.md`: one PipeWire thread,
 identity by names, lingering links, no cleanup at exit.
 
 1. **Adapter crate first.** Add `crates/host-pipewire` depending on `patchbay`. It implements `HostBackend` by translating the existing `GraphStore` mirror and `GraphEvent` stream:
