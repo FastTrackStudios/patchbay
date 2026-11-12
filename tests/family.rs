@@ -2,10 +2,10 @@
 //! one: implemented against `patchbay::family` alone, registered with
 //! `family::register`, connected by the engine's hub (studio#415).
 //!
-//! The engine never touches the machine: a free loopback port, a scratch
-//! config whose `devices` section lists only the outside family's device
-//! (so no built-in family goes looking on the network), and no `PipeWire`
-//! connection. A binary of its own: registrations and the engine are one
+//! The engine keeps off the machine's audio and its network: a free
+//! loopback port, a scratch config whose `devices` section lists only the
+//! outside family's device (so no built-in family goes looking), no
+//! `PipeWire` connection, and nothing onto the LAN (`PATCHBAY_LAN=off`). A binary of its own: registrations and the engine are one
 //! per process.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -150,6 +150,7 @@ fn a_family_registered_from_outside_the_crate_connects_through_the_hub() {
     unsafe {
         std::env::set_var("PATCHBAY_CONFIG", &config);
         std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        std::env::set_var("PATCHBAY_LAN", "off");
     }
 
     // Registering twice for one kind keeps the second, and hands back the

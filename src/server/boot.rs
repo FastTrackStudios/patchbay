@@ -92,14 +92,16 @@ pub struct EngineOptions {
 
 impl EngineOptions {
     /// Serve on `addr`, with no browser remote, no permission provider,
-    /// peer discovery on, and failing on a port held by something else.
+    /// peer discovery on (unless `PATCHBAY_LAN=off`), and failing on a
+    /// port held by something else.
     #[must_use]
     pub fn new(addr: impl Into<String>) -> Self {
         Self {
             addr: addr.into(),
             web: None,
             permissions: None,
-            discover_peers: true,
+            // Off where the LAN is (`PATCHBAY_LAN=off`).
+            discover_peers: crate::lan::enabled(),
             if_taken: IfTaken::Fail,
             join_deadline: JOIN_DEADLINE,
         }

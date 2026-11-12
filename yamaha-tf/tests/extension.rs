@@ -2,10 +2,11 @@
 //! core, its `build` adds the family to the core's engine, and the core's
 //! actions reach a console like any device.
 //!
-//! The engine never touches the machine: a free loopback port, a scratch
-//! config whose `devices` section lists only `tf1`, pinned to a fake TF1
-//! on another loopback port (so nothing scans the network), and no
-//! `PipeWire` connection. One test function: the engine and the family
+//! The engine keeps off the machine's audio and its network: a free
+//! loopback port, a scratch config whose `devices` section lists only
+//! `tf1`, pinned to a fake TF1 on another loopback port, no `PipeWire`
+//! connection, and nothing onto the LAN (`PATCHBAY_LAN=off`: no peer
+//! mDNS, no sweep). One test function: the engine and the family
 //! registrations are one per process.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -58,6 +59,7 @@ fn the_tf_extension_adds_the_family_and_its_console_reads_through_the_core() {
         std::env::set_var("PATCHBAY_CONFIG", &config);
         std::env::set_var("PATCHBAY_ADDR", &addr);
         std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        std::env::set_var("PATCHBAY_LAN", "off");
     }
 
     let list = ActionList::new();

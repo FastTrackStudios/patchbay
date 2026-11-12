@@ -47,6 +47,13 @@ pub fn start(bound: &str) {
 impl Peers {
     fn start(bound: &str) -> Self {
         let seen = Arc::new(Mutex::new(HashMap::new()));
+        if !crate::lan::enabled() {
+            return Self {
+                _daemon: None,
+                seen,
+                note: format!("{} — add hosts by name", crate::lan::OFF),
+            };
+        }
         let daemon = match ServiceDaemon::new() {
             Ok(d) => d,
             Err(e) => {

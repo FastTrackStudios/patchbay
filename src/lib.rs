@@ -16,6 +16,7 @@ pub mod family;
 pub mod home;
 #[cfg(feature = "server")]
 pub mod host;
+pub mod lan;
 pub mod proto;
 #[cfg(feature = "server")]
 pub mod report;

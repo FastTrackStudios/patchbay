@@ -1,9 +1,12 @@
 //! The Patchbay core as an Architect app hosts it: linked in, its actions
 //! on the app's list, over one engine per machine.
 //!
-//! The engines here never touch the machine: a free loopback port, a
-//! scratch config, the device layer off (`PATCHBAY_DEVICES=off`) and no
-//! `PipeWire` connection (`PATCHBAY_PIPEWIRE=off`).
+//! The engines here keep off the machine's audio and its network: a free
+//! loopback port, a scratch config, the device layer off
+//! (`PATCHBAY_DEVICES=off`), no `PipeWire` connection
+//! (`PATCHBAY_PIPEWIRE=off`), and nothing onto the LAN (`PATCHBAY_LAN=off`:
+//! no peer mDNS, and `PATCHBAY_HEALTH`'s Dante scan refused). They still
+//! read this machine's state (`pw-metadata`, `systemctl --user show`).
 //!
 //! The "other app" that owns the engine first is a child process: this
 //! binary run as [`owner_process`], killed when the test wants it gone.
@@ -56,6 +59,7 @@ fn isolate(cmd: Option<&mut Command>, config: &std::path::Path, addr: &str) {
         ("PATCHBAY_ADDR", addr),
         ("PATCHBAY_DEVICES", "off"),
         ("PATCHBAY_PIPEWIRE", "off"),
+        ("PATCHBAY_LAN", "off"),
     ];
     match cmd {
         Some(cmd) => {

@@ -237,6 +237,10 @@ pub async fn scan_addrs(targets: &[Ipv4Addr], opts: &ScanOptions) -> Vec<FoundCo
 /// As [`scan_addrs`], keeping the addresses that accepted a connection
 /// and then said nothing.
 pub async fn scan_addrs_detail(targets: &[Ipv4Addr], opts: &ScanOptions) -> Scan {
+    // No sweep where the LAN is off (`patchbay::lan`).
+    if !patchbay::lan::enabled() {
+        return Scan::default();
+    }
     let port = opts.port;
     let (ct, rt) = (opts.connect_timeout, opts.reply_timeout);
     let results: Vec<(SocketAddr, Probe)> = stream::iter(targets.iter().copied())
@@ -432,6 +436,9 @@ async fn with_macs(mut found: Vec<FoundConsole>) -> Vec<FoundConsole> {
 /// table and confirm the address with the read-only probe. This follows
 /// a console across DHCP address changes in one round trip.
 pub async fn find_by_mac(mac: [u8; 6], opts: &ScanOptions) -> Option<FoundConsole> {
+    if !patchbay::lan::enabled() {
+        return None;
+    }
     let table = neighbors().await;
     for n in table.iter().filter(|n| n.mac == mac) {
         let addr = SocketAddr::new(IpAddr::V4(n.ip), opts.port);

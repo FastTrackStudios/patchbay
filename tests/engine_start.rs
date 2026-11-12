@@ -41,6 +41,7 @@ fn failed_starts_leave_the_thread_count_flat() {
     // SAFETY: before any thread of this test process reads it.
     unsafe {
         std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        std::env::set_var("PATCHBAY_LAN", "off");
     }
     // The port, held by something that answers TCP and hangs up: not a
     // Patchbay engine.
@@ -85,6 +86,7 @@ fn a_holder_that_never_answers_is_waited_for_and_never_doubled() {
     // SAFETY: before any thread of this test process reads it.
     unsafe {
         std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        std::env::set_var("PATCHBAY_LAN", "off");
         std::env::set_var("PATCHBAY_DEVICES", "off");
     }
     // Kept bound for the whole test: connections queue, nobody answers.
@@ -110,6 +112,7 @@ fn a_holder_that_is_not_patchbay_runs_the_engine_unserved_only_when_asked() {
     // SAFETY: before any thread of this test process reads it.
     unsafe {
         std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        std::env::set_var("PATCHBAY_LAN", "off");
         std::env::set_var("PATCHBAY_DEVICES", "off");
         std::env::set_var(
             "PATCHBAY_CONFIG",
@@ -148,6 +151,7 @@ fn port_zero_starts_at_once_without_a_join() {
     // SAFETY: before any thread of this test process reads it.
     unsafe {
         std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        std::env::set_var("PATCHBAY_LAN", "off");
         std::env::set_var("PATCHBAY_DEVICES", "off");
         std::env::set_var(
             "PATCHBAY_CONFIG",

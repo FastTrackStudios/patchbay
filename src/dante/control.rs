@@ -192,9 +192,24 @@ impl InfernoControl {
     }
 }
 
+/// The refusal every network call makes under `PATCHBAY_LAN=off`.
+fn lan_off(op: &'static str) -> Result<(), DanteError> {
+    if crate::lan::enabled() {
+        Ok(())
+    } else {
+        Err(DanteError::Arc {
+            op,
+            message: crate::lan::OFF.to_owned(),
+        })
+    }
+}
+
 impl DanteControl for InfernoControl {
     fn discover(&self, timeout: Duration) -> BoxFuture<'_, Result<Vec<Endpoint>, DanteError>> {
         Box::pin(async move {
+            if !crate::lan::enabled() {
+                return Err(DanteError::Discovery(crate::lan::OFF.to_owned()));
+            }
             let found = inferno_net::discovery::browse(timeout)
                 .await
                 .map_err(|e| DanteError::Discovery(e.to_string()))?;
@@ -215,6 +230,9 @@ impl DanteControl for InfernoControl {
 
     fn read<'a>(&'a self, endpoint: &'a Endpoint) -> BoxFuture<'a, DanteDeviceState> {
         Box::pin(async move {
+            if !crate::lan::enabled() {
+                return DanteDeviceState::unreachable(endpoint.clone());
+            }
             let client = self.client(endpoint);
             let (tx, rx, settings, info, name) = tokio::join!(
                 client.all_tx_channels(),
@@ -280,6 +298,7 @@ impl DanteControl for InfernoControl {
         tx_device: &'a str,
     ) -> BoxFuture<'a, Result<(), DanteError>> {
         Box::pin(async move {
+            lan_off("add_subscription")?;
             self.client(endpoint)
                 .add_subscription(rx_channel, tx_channel, tx_device)
                 .await
@@ -293,6 +312,7 @@ impl DanteControl for InfernoControl {
         rx_channel: u16,
     ) -> BoxFuture<'a, Result<(), DanteError>> {
         Box::pin(async move {
+            lan_off("remove_subscription")?;
             self.client(endpoint)
                 .remove_subscription(u32::from(rx_channel))
                 .await
@@ -306,6 +326,7 @@ impl DanteControl for InfernoControl {
         name: &'a str,
     ) -> BoxFuture<'a, Result<(), DanteError>> {
         Box::pin(async move {
+            lan_off("set_device_name")?;
             self.client(endpoint)
                 .set_device_name(name)
                 .await
@@ -321,6 +342,7 @@ impl DanteControl for InfernoControl {
         name: &'a str,
     ) -> BoxFuture<'a, Result<(), DanteError>> {
         Box::pin(async move {
+            lan_off("set_channel_name")?;
             // The ARC rename command carries the channel as one byte.
             let n = u8::try_from(channel).map_err(|_| {
                 DanteError::Invalid(format!(

@@ -55,6 +55,14 @@ extension per device family, packaged as its own distribution
   `pipewire`: `on`/`off`/`unsupported`) says so. The tests use it. The
   engine's PipeWire client is always named `patchbay`
   (`pw-cli ls Client | rg -c 'application.name = "patchbay"'`).
+- `PATCHBAY_LAN=off` keeps a process off the local network (`lan.rs`):
+  no peer mDNS, no Dante browse or ARC, no Antelope multicast join, no
+  TF subnet sweep; each refuses at its lowest point. A device pinned to
+  an address (a fake on loopback in tests) is still connected. **Every
+  test that starts an engine, or calls a family's discovery, sets it**
+  beside `PATCHBAY_PIPEWIRE=off`, `PATCHBAY_DEVICES=off` where it can,
+  and a scratch `PATCHBAY_CONFIG`; a test must never put a multicast
+  join, an mDNS query or a fake announce on the LAN.
 - **The Patchbay distribution** (`apps/patchbay/src/distribution.rs`,
   `patchbay-app`, feature `app`, `just patchbay-app`): Architect's window
   with the `patchbay` bundle linked in, app and folder `patchbay`, bundle

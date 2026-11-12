@@ -144,7 +144,16 @@ impl Listener {
     ///
     /// # Errors
     /// Socket setup failure. Must be called inside a tokio runtime.
+    ///
+    /// Refused under `PATCHBAY_LAN=off`: binding the announce port and
+    /// joining its multicast group reaches the LAN (an IGMP membership
+    /// report on the group the Antelope panel uses).
     pub fn bind() -> Result<Self> {
+        if !crate::lan::enabled() {
+            return Err(crate::antelope::AntelopeError::Protocol(
+                crate::lan::OFF.to_owned(),
+            ));
+        }
         let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
         sock.set_reuse_address(true)?;
         sock.set_reuse_port(true)?;
