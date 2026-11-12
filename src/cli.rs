@@ -606,6 +606,9 @@ fn print_dante_health(
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
+    // The families that are extensions of their own, for the engines this
+    // CLI runs (`serve`, `--local`).
+    patchbay_yamaha_tf::register();
     if let Cmd::Serve { bind } = cli.cmd {
         return serve(bind).await;
     }

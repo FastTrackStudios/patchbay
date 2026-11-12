@@ -110,6 +110,10 @@ pub fn main() -> ExitCode {
         std::mem::forget(g);
     }
 
+    // The device families that are extensions of their own, before the
+    // engine starts and the window draws.
+    patchbay_yamaha_tf::register();
+
     // Start or join this machine's engine before the window opens, so a
     // failure is an exit code rather than an empty window.
     patchbay::home::configure(engine_options);

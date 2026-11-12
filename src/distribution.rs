@@ -30,12 +30,15 @@ pub const BUNDLE_ID: &str = "app.fasttrackstudio.patchbay";
 /// Its icon.
 pub const ICON: &str = include_str!("../assets/icon.svg");
 
-/// Patchbay's extensions, compiled in together: today the core
-/// (`patchbay::ext::Patchbay`); each device family joins it as it becomes
-/// an extension of its own (studio#410).
+/// Patchbay's extensions, compiled in together: the core
+/// (`patchbay::ext::Patchbay`) and the device families that are
+/// extensions of their own (the Yamaha TF); the rest join as they become
+/// one (studio#410).
 #[must_use]
 pub fn bundle() -> Bundle {
-    Bundle::new("patchbay", "Patchbay").member(&patchbay::ext::Patchbay)
+    Bundle::new("patchbay", "Patchbay")
+        .member(&patchbay::ext::Patchbay)
+        .member(&patchbay_yamaha_tf::ext::YamahaTf)
 }
 
 /// Patchbay: Architect's window with [`bundle`] compiled in.

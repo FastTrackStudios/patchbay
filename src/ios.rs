@@ -138,6 +138,10 @@ fn main() {
     // `fts-patchbay`'s; OTLP only when its endpoint is set, which nothing
     // on a phone sets.
     let _telemetry = architect_telemetry::init_tracing_full("patchbay-ios", "info");
+    // The family extensions' views, so another machine's console draws
+    // here; their families never run on a phone (`patchbay::family`'s gate,
+    // and this build has only their `ui` side).
+    patchbay_yamaha_tf::register();
     #[cfg(target_os = "ios")]
     app_shell::ios_scene::register(app_shell::ios_scene::Opening::AsHeld);
     let window = WindowAttributes::default().with_title(NAME);
