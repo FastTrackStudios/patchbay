@@ -606,6 +606,7 @@ fn print_dante_health(
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
+    patchbay_antelope::register();
     // The families that are extensions of their own, for the engines this
     // CLI runs (`serve`, `--local`).
     patchbay_yamaha_tf::register();

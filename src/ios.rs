@@ -141,6 +141,7 @@ fn main() {
     // The family extensions' views, so another machine's console draws
     // here; their families never run on a phone (`patchbay::family`'s gate,
     // and this build has only their `ui` side).
+    patchbay_antelope::register();
     patchbay_yamaha_tf::register();
     #[cfg(target_os = "ios")]
     app_shell::ios_scene::register(app_shell::ios_scene::Opening::AsHeld);

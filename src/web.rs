@@ -79,6 +79,7 @@ async fn connect(url: String) -> Result<EngineLink, String> {
 
 pub fn main() {
     dioxus::logger::initialize_default();
+    patchbay_antelope::register();
     // The family views that are extensions of their own.
     patchbay_yamaha_tf::register();
     dioxus::launch(App);

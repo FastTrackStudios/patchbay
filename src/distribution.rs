@@ -38,6 +38,7 @@ pub const ICON: &str = include_str!("../assets/icon.svg");
 pub fn bundle() -> Bundle {
     Bundle::new("patchbay", "Patchbay")
         .member(&patchbay::ext::Patchbay)
+        .member(&patchbay_antelope::ext::Antelope)
         .member(&patchbay_yamaha_tf::ext::YamahaTf)
 }
 

@@ -112,6 +112,7 @@ pub fn main() -> ExitCode {
 
     // The device families that are extensions of their own, before the
     // engine starts and the window draws.
+    patchbay_antelope::register();
     patchbay_yamaha_tf::register();
 
     // Start or join this machine's engine before the window opens, so a
