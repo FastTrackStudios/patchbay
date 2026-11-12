@@ -176,9 +176,30 @@ async fn load_selected(handle: &PatchbayHandle) {
     *LOADING.write() = false;
 }
 
+/// What a family's console writes with: [`ParamWriter::set`], a param
+/// on the device the page shows. The family's whole write contract; it
+/// gets no wider handle on the window's state.
+#[derive(Clone)]
+pub struct ParamWriter(PatchbayHandle);
+
+impl ParamWriter {
+    /// Write `path` on the device the page shows; the value the device
+    /// confirms goes into the view, an error to the page's error bar.
+    pub fn set(&self, path: String, value: DeviceParamValue) {
+        set_param(self.0.clone(), path, value);
+    }
+}
+
+/// A [`ParamWriter`] for a console (a hook: call it in the component's
+/// body, use the writer in its event handlers).
+#[must_use]
+pub fn use_param_writer() -> ParamWriter {
+    ParamWriter(state::use_patchbay())
+}
+
 /// Write `path` on the device the page shows, and put the value it
 /// confirms into the view (an error goes to the page's error bar).
-pub fn set_param(handle: PatchbayHandle, path: String, value: DeviceParamValue) {
+pub(crate) fn set_param(handle: PatchbayHandle, path: String, value: DeviceParamValue) {
     let Some(id) = VIEW.peek().as_ref().map(|v| v.summary.id.clone()) else {
         return;
     };
@@ -227,10 +248,9 @@ fn set_route(handle: PatchbayHandle, output: DeviceChannel, source: Option<Devic
 
 // ─── Grouping ───────────────────────────────────────────────────────────
 
-/// Section key: first segment, plus the second when it is an index
-/// (`mixer/1`, `in/3`), so a section is one mixer / one channel.
 /// An enum param's options as dropdown entries, valued by index (what
 /// the device takes).
+#[must_use]
 pub fn indexed(options: &[String]) -> Vec<ChoiceOption> {
     options
         .iter()
@@ -240,6 +260,7 @@ pub fn indexed(options: &[String]) -> Vec<ChoiceOption> {
 }
 
 /// The index (as a dropdown value) of the option labelled `label`.
+#[must_use]
 pub fn index_of(options: &[String], label: &str) -> String {
     options
         .iter()
@@ -248,6 +269,8 @@ pub fn index_of(options: &[String], label: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Section key: first segment, plus the second when it is an index
+/// (`mixer/1`, `in/3`), so a section is one mixer / one channel.
 fn section_of(path: &str) -> String {
     let mut it = path.split('/');
     let first = it.next().unwrap_or_default();
@@ -1165,5 +1188,93 @@ fn SnapshotPanel(view: DeviceView) -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod writer_tests {
+    //! A family's console writes through [`ParamWriter`] alone: the write
+    //! reaches the engine's `set_device_param` for the device the page
+    //! shows, and its answer lands on the page.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::proto::{DeviceLinkState, DeviceSummary, PatchbayServiceClient};
+
+    /// A console as a family writes one: the kit's writer, nothing else.
+    #[component]
+    fn WritingConsole() -> Element {
+        // The page shows a device the engine doesn't have.
+        use_hook(|| *VIEW.write() = Some(shown()));
+        let writer = use_param_writer();
+        rsx! {
+            button {
+                onclick: move |_| writer.set("mixer/1/level".to_owned(), DeviceParamValue::Level(-6.0)),
+                "write"
+            }
+            span { "data-error": "{ERROR}" }
+        }
+    }
+
+    fn shown() -> DeviceView {
+        DeviceView {
+            summary: DeviceSummary {
+                id: "fake:desk:1".to_owned(),
+                name: "desk".to_owned(),
+                kind: "fake-desk".to_owned(),
+                vendor: String::new(),
+                model: String::new(),
+                serial: String::new(),
+                firmware: String::new(),
+                transport: String::new(),
+                state: DeviceLinkState::Online,
+                error: String::new(),
+            },
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            routes: Vec::new(),
+            params: Vec::new(),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_consoles_writer_reaches_the_engine_for_the_device_shown() {
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: before the backend (or anything else in this test's
+        // process: nextest runs each test in its own) reads them.
+        unsafe {
+            std::env::set_var("PATCHBAY_CONFIG", dir.path().join("patchbay.styx"));
+            std::env::set_var("PATCHBAY_DEVICES", "off");
+            std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        }
+        let backend = crate::server::PatchbayBackend::new();
+        let scope = architect::Scope::new();
+        let server = architect::LocalServer::serve(backend.router(), Arc::clone(&scope));
+        let client = PatchbayServiceClient::new(server.caller().await.unwrap());
+        let doc = dioxus_test::render(WritingConsole)
+            .with_root_context(PatchbayHandle(Arc::new(client)))
+            .build();
+        doc.query("button").click().await.unwrap();
+        // The engine answers: no such device, on the page's error bar.
+        let mut shown_error = String::new();
+        for _ in 0..100 {
+            let _ = doc.pump().await;
+            shown_error = doc
+                .query("[data-error]")
+                .immediately()
+                .unwrap()
+                .attribute("data-error")
+                .unwrap_or_default();
+            if !shown_error.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(
+            shown_error.starts_with("mixer/1/level: "),
+            "{shown_error:?}"
+        );
     }
 }

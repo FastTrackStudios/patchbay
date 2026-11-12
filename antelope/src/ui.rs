@@ -15,7 +15,7 @@ use patchbay::proto::{DeviceParamValue, DeviceView};
 use patchbay::ui::FamilyViews;
 use patchbay::ui::kit::{
     ChannelStrip, Choice, Leaves, ParamFacts, Params, count_under, index_of, indexed, numbered,
-    set_param, strips, use_patchbay,
+    strips, use_param_writer,
 };
 
 /// What the Galaxy32 registers: its console above the generic device
@@ -145,7 +145,7 @@ fn Mixer(view: DeviceView, mixer: u32) -> Element {
 /// Line-in trims, and the ALL/MANUAL control that governs them.
 #[component]
 fn Trim(view: DeviceView) -> Element {
-    let handle = use_patchbay();
+    let writer = use_param_writer();
     let params = Params::index(&view);
     let mode = params.choice("trim/line_in/control").unwrap_or_default();
     let options = params.options("trim/line_in/control");
@@ -162,8 +162,7 @@ fn Trim(view: DeviceView) -> Element {
                 options: indexed(&options),
                 onpick: move |v: String| {
                     if let Ok(i) = v.parse::<u32>() {
-                        set_param(
-                            handle.clone(),
+                        writer.set(
                             "trim/line_in/control".to_owned(),
                             DeviceParamValue::Enum(i),
                         );
@@ -203,7 +202,7 @@ fn Trim(view: DeviceView) -> Element {
 /// The 32 × 8 insert grid: which effect sits in each slot.
 #[component]
 fn Afx(view: DeviceView) -> Element {
-    let handle = use_patchbay();
+    let writer = use_param_writer();
     let params = Params::index(&view);
     let strips_n = count_under(&view, "afx/strip");
     let slots = count_under(&view, "afx/strip/1/slot");
@@ -234,7 +233,7 @@ fn Afx(view: DeviceView) -> Element {
                                     let path = format!("afx/strip/{ch}/slot/{slot}/effect");
                                     let current = params.choice(&path).unwrap_or_default();
                                     let empty = current.is_empty() || current.eq_ignore_ascii_case("none");
-                                    let handle = handle.clone();
+                                    let writer = writer.clone();
                                     let options = options.clone();
                                     rsx! {
                                         td { key: "{path}", class: if empty { "afx-cell" } else { "afx-cell filled" },
@@ -244,8 +243,7 @@ fn Afx(view: DeviceView) -> Element {
                                                 options: indexed(&options),
                                                 onpick: move |v: String| {
                                                     if let Ok(i) = v.parse::<u32>() {
-                                                        set_param(
-                                                            handle.clone(),
+                                                        writer.set(
                                                             path.clone(),
                                                             DeviceParamValue::Enum(i),
                                                         );

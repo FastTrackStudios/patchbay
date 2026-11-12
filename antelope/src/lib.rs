@@ -89,16 +89,5 @@ pub mod tables {
 /// `server`), its console view to every window (feature `ui`). Once is
 /// enough; later calls do nothing.
 pub fn register() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        #[cfg(all(feature = "server", feature = "ui"))]
-        patchbay::family::register_with_views(
-            std::sync::Arc::new(family::AntelopeGalaxy32Family),
-            ui::views(),
-        );
-        #[cfg(all(feature = "server", not(feature = "ui")))]
-        let _ = patchbay::family::register(std::sync::Arc::new(family::AntelopeGalaxy32Family));
-        #[cfg(all(feature = "ui", not(feature = "server")))]
-        patchbay::ui::register_family_views(ui::views());
-    });
+    patchbay::register_family!(family: family::AntelopeGalaxy32Family, views: ui::views());
 }

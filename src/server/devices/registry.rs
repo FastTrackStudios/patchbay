@@ -39,29 +39,27 @@ pub(crate) fn builtin(graph: Arc<RwLock<GraphStore>>) -> Families {
     Families::new().with(SystemAudio { graph }).with(Dante)
 }
 
-/// The device families that are extensions of their own, as
-/// `(kind, label, extension id)`: what to tell someone whose config names
-/// one this process doesn't have. Each family that leaves the core adds
-/// its line (studio#410).
-const EXTENSION_FAMILIES: &[(&str, &str, &str)] = &[
-    ("yamaha-tf", "Yamaha TF", "patchbay-yamaha-tf"),
-    (
-        "antelope-galaxy32",
-        "Antelope Galaxy32",
-        "patchbay-antelope",
-    ),
-];
-
-/// Why a configured device has no family to connect it: an extension
-/// family that isn't installed in this process, or a kind nobody knows.
-pub(crate) fn no_family(kind: &str, known: &[&str]) -> String {
-    EXTENSION_FAMILIES
-        .iter()
-        .find(|(k, _, _)| *k == kind)
-        .map_or_else(
-            || format!("unknown device kind '{kind}' (known: {})", known.join(", ")),
-            |(_, label, id)| format!("the {label} extension ({id}) is not installed in this app"),
+/// Why a configured device has no family to connect it.
+///
+/// On a host that runs no families (a phone or tablet, `families_here`
+/// false) no kind connects here: it does on the machine that runs it.
+/// Elsewhere the kind's family is an extension this app doesn't have (or
+/// a kind nobody knows). The core keeps no list of extensions to name the
+/// missing one: adding a family is a registration, and a manifest that
+/// isn't installed can't be read.
+pub(crate) fn no_family(kind: &str, known: &[&str], families_here: bool) -> String {
+    if families_here {
+        format!(
+            "no device family for kind '{kind}' in this app: the extension that adds it is not \
+             installed (this app has: {})",
+            known.join(", ")
         )
+    } else {
+        format!(
+            "this device ({kind}) connects on the machine whose engine runs it: no device \
+             family runs on a phone or tablet"
+        )
+    }
 }
 
 /// A linked family's [`FamilyInfo`].
@@ -236,19 +234,18 @@ mod tests {
     #[test]
     fn a_kind_from_an_extension_that_isnt_installed_says_so() {
         let known = families().kinds();
-        assert_eq!(
-            no_family("yamaha-tf", &known),
-            "the Yamaha TF extension (patchbay-yamaha-tf) is not installed in this app"
-        );
-        assert_eq!(
-            no_family("antelope-galaxy32", &known),
-            "the Antelope Galaxy32 extension (patchbay-antelope) is not installed in this app"
-        );
-        let unknown = no_family("theremin", &known);
+        let missing = no_family("antelope-galaxy32", &known, true);
         assert!(
-            unknown.starts_with("unknown device kind 'theremin' (known: system-audio, "),
-            "{unknown}"
+            missing.starts_with(
+                "no device family for kind 'antelope-galaxy32' in this app: the extension that \
+                 adds it is not installed (this app has: system-audio, "
+            ),
+            "{missing}"
         );
+        // On a phone no kind is missing an extension: none runs there.
+        let phone = no_family("yamaha-tf", &[], false);
+        assert!(!phone.contains("not installed"), "{phone}");
+        assert!(phone.contains("phone or tablet"), "{phone}");
     }
 
     /// The built-ins all bring views: an engine with only them warns of

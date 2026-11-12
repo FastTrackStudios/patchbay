@@ -477,7 +477,7 @@ async fn a_family_whose_defaults_panic_adds_no_devices() {
     let dir = std::env::temp_dir().join(format!("patchbay-defaults-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let presets = Arc::new(PresetStore::open_at(dir.join("absent.styx")));
-    assert!(presets.device_configs().is_empty());
+    assert_eq!(presets.device_configs().len(), 0, "a devices section");
     let families = Families::new()
         .with(BrokenFamily)
         .with(FakeFamily(Desk::new()));

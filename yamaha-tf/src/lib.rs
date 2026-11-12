@@ -50,6 +50,9 @@ mod tf;
 #[cfg(feature = "ui")]
 pub mod ui;
 
+/// The config kind.
+pub const KIND: &str = "yamaha-tf";
+
 #[cfg(feature = "server")]
 pub use client::{Client, ClientEvent, ClientOptions, Notification, RCP_PORT, Reply};
 #[cfg(feature = "server")]
@@ -85,16 +88,5 @@ pub use tf::vocab::{TF_CATEGORIES, TF_COLORS, TF_ICONS, Vocab, VocabKind};
 /// enough; later calls do nothing, so the extension's `build` (run more
 /// than once by a host) and an app's `main` can both call it.
 pub fn register() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        #[cfg(all(feature = "server", feature = "ui"))]
-        patchbay::family::register_with_views(
-            std::sync::Arc::new(family::YamahaTfFamily),
-            ui::views(),
-        );
-        #[cfg(all(feature = "server", not(feature = "ui")))]
-        let _ = patchbay::family::register(std::sync::Arc::new(family::YamahaTfFamily));
-        #[cfg(all(feature = "ui", not(feature = "server")))]
-        patchbay::ui::register_family_views(ui::views());
-    });
+    patchbay::register_family!(family: family::YamahaTfFamily, views: ui::views());
 }

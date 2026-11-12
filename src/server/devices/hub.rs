@@ -177,7 +177,11 @@ impl DeviceHub {
                 (true, _, _) => (DeviceLinkState::Disabled, String::new()),
                 (false, None, _) => (
                     DeviceLinkState::Offline,
-                    super::registry::no_family(&config.kind, &families.kinds()),
+                    super::registry::no_family(
+                        &config.kind,
+                        &families.kinds(),
+                        crate::family::FAMILIES_HERE,
+                    ),
                 ),
                 (false, Some(_), None) => (
                     DeviceLinkState::Offline,

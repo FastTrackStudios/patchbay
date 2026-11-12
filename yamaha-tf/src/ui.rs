@@ -21,7 +21,7 @@ use patchbay::ui::kit::{
 pub fn views() -> FamilyViews {
     FamilyViews {
         console: Some(|view| rsx! { YamahaTfConsole { view } }),
-        ..FamilyViews::new("yamaha-tf")
+        ..FamilyViews::new(crate::KIND)
     }
 }
 

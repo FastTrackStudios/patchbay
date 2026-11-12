@@ -142,9 +142,11 @@ impl PatchbayBackend {
         // Where the window is in this process too, its views and the
         // engine's families should name the same kinds.
         #[cfg(feature = "ui")]
-        for warning in
-            crate::family::views_mismatch(&families.kinds(), &crate::ui::family_view_kinds())
-        {
+        for warning in crate::family::start_warnings(
+            &families.kinds(),
+            &crate::ui::family_view_kinds(),
+            crate::family::FAMILIES_HERE,
+        ) {
             tracing::warn!(%warning, "patchbay: device family without views, or views without a family");
         }
         let devices = crate::server::devices::DeviceHub::start(presets.clone(), &families);

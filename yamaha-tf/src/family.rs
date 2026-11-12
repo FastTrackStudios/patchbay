@@ -12,8 +12,7 @@ use patchbay::family::{
 };
 use patchbay::proto::{DeviceConfig, FamilyInfo};
 
-/// The config kind.
-pub const KIND: &str = "yamaha-tf";
+pub use crate::KIND;
 
 /// Yamaha TF consoles.
 #[derive(Debug, Clone, Copy, Default)]

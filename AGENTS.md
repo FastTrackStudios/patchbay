@@ -70,7 +70,7 @@ extension per device family, packaged as its own distribution
   with the `patchbay` bundle linked in, app and folder `patchbay`, bundle
   id `app.fasttrackstudio.patchbay`. Beside `fts-patchbay` until that
   becomes the distribution (#428).
-- **Device families** (`family::DeviceFamily`, `family::Families`): the
+- **Device families** (`family::DeviceFamily`, `family::register`): the
   hub connects each configured device through the family for its `kind`.
   The built-ins (system audio, Dante) are in
   `server/devices/registry.rs`; a family of its own calls

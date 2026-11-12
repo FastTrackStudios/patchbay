@@ -29,16 +29,19 @@ mod ui;
 
 pub use app::{PatchbayApp, Splash};
 
-/// What a family's views draw with (`patchbay-yamaha-tf`'s console):
-/// the device read indexed by path, channel strips off it, the shared
-/// strip component, and the empty state every page uses.
+/// What a family's views draw with.
+///
+/// For the TF's and the Galaxy32's consoles: the device read indexed by
+/// path, channel strips off it,
+/// the shared strip component and controls, the empty state every page
+/// uses, and one way to write: a [`kit::ParamWriter`], a param on the
+/// device the page shows. Nothing wider of the window's state.
 pub mod kit {
     pub use super::devices::console::{
         Leaves, Params, Strip, color_hex, count_under, numbered, strips,
     };
     pub use super::devices::strip::{ChannelStrip, ParamFacts};
-    pub use super::devices::{index_of, indexed, set_param};
-    pub use super::state::use_patchbay;
+    pub use super::devices::{ParamWriter, index_of, indexed, use_param_writer};
     pub use super::ui::{Choice, ChoiceOption, EmptyState};
 }
 #[cfg(feature = "server")]

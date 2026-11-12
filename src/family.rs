@@ -107,12 +107,13 @@ pub(crate) const FAMILIES_HERE: bool = !cfg!(target_os = "ios");
 /// started with. On a host that runs no device families (iOS,
 /// `FAMILIES_HERE`) it registers nothing.
 pub fn register(family: Arc<dyn DeviceFamily>) -> Option<Arc<dyn DeviceFamily>> {
-    register_on(family, FAMILIES_HERE)
+    register_on(registrations(), family, FAMILIES_HERE)
 }
 
-/// [`register`], with whether this host runs families given (a test can
-/// be the phone).
+/// [`register`] into `list`, with whether this host runs families given:
+/// a test passes its own list and can be the phone.
 fn register_on(
+    list: &RwLock<Vec<Arc<dyn DeviceFamily>>>,
     family: Arc<dyn DeviceFamily>,
     families_here: bool,
 ) -> Option<Arc<dyn DeviceFamily>> {
@@ -123,9 +124,7 @@ fn register_on(
         );
         return None;
     }
-    let mut list = registrations()
-        .write()
-        .unwrap_or_else(PoisonError::into_inner);
+    let mut list = list.write().unwrap_or_else(PoisonError::into_inner);
     replace_or_push(&mut list, family)
 }
 
@@ -192,6 +191,23 @@ pub(crate) fn views_mismatch(families: &[&str], views: &[&str]) -> Vec<String> {
             .map(|k| format!("views for '{k}', which no family connects: they are never drawn")),
     );
     out
+}
+
+/// What the engine warns of at start: [`views_mismatch`], only where the
+/// host runs families. On a phone none runs while every family's views
+/// are registered, to draw other machines' devices: that is the design,
+/// not a mismatch.
+#[cfg(feature = "ui")]
+pub(crate) fn start_warnings(
+    families: &[&str],
+    views: &[&str],
+    families_here: bool,
+) -> Vec<String> {
+    if families_here {
+        views_mismatch(families, views)
+    } else {
+        Vec::new()
+    }
 }
 
 /// The families [`register`]ed in this process, in order.
@@ -308,11 +324,58 @@ impl Families {
 
 #[cfg(all(test, feature = "ui"))]
 mod tests {
-    use super::views_mismatch;
+    use super::*;
+
+    #[test]
+    fn a_phone_warns_of_no_views_without_a_family() {
+        // A phone: no families, every family's views (to draw another
+        // machine's devices). Nothing to warn of.
+        assert_eq!(
+            super::start_warnings(&[], &["yamaha-tf", "dante"], false),
+            Vec::<String>::new()
+        );
+        // The same on a host that runs families is a mismatch.
+        assert_eq!(
+            super::start_warnings(&[], &["yamaha-tf", "dante"], true).len(),
+            2
+        );
+    }
+
+    /// `register_family!` with both sides on (this crate's tests have
+    /// `server` and `ui`): the family and its views, once.
+    #[test]
+    fn register_family_registers_the_family_and_its_views_once() {
+        struct Macro;
+        impl DeviceFamily for Macro {
+            fn kind(&self) -> &'static str {
+                "macro-desk"
+            }
+            fn info(&self) -> FamilyInfo {
+                FamilyInfo::linked("macro-desk", "Macro desk", &[], false)
+            }
+            fn connect(&self, _config: DeviceConfig, _ctx: ConnectCtx) -> ConnectFuture {
+                Box::pin(async { Err(ConnectError::NotFound(String::new())) })
+            }
+        }
+        fn register() {
+            crate::register_family!(family: Macro, views: crate::ui::FamilyViews::new("macro-desk"));
+        }
+        register();
+        register();
+        let n = registered()
+            .iter()
+            .filter(|f| f.kind() == "macro-desk")
+            .count();
+        assert_eq!(n, 1);
+        assert!(crate::ui::family_view_kinds().contains(&"macro-desk"));
+    }
 
     #[test]
     fn families_and_views_that_dont_line_up_are_named() {
-        assert!(views_mismatch(&["dante", "yamaha-tf"], &["yamaha-tf", "dante"]).is_empty());
+        assert_eq!(
+            views_mismatch(&["dante", "yamaha-tf"], &["yamaha-tf", "dante"]),
+            Vec::<String>::new()
+        );
         let out = views_mismatch(&["dante", "loner"], &["dante", "orphan"]);
         assert_eq!(out.len(), 2, "{out:?}");
         assert!(out[0].contains("'loner' has no views"), "{out:?}");
@@ -352,11 +415,17 @@ mod gate_tests {
 
     #[test]
     fn a_phone_registers_no_family() {
-        assert!(register_on(Arc::new(Probe("gate-phone")), false).is_none());
-        assert!(registered().iter().all(|f| f.kind() != "gate-phone"));
+        // A list of its own, not the process's: nothing leaks into another
+        // test sharing the process (plain `cargo test`).
+        let list = RwLock::new(Vec::new());
+        let kinds = |list: &RwLock<Vec<Arc<dyn DeviceFamily>>>| -> Vec<&'static str> {
+            list.read().unwrap().iter().map(|f| f.kind()).collect()
+        };
+        assert!(register_on(&list, Arc::new(Probe("gate-phone")), false).is_none());
+        assert_eq!(kinds(&list), Vec::<&str>::new());
         // A host that runs families does register it.
-        assert!(register_on(Arc::new(Probe("gate-host")), true).is_none());
-        assert!(registered().iter().any(|f| f.kind() == "gate-host"));
+        assert!(register_on(&list, Arc::new(Probe("gate-host")), true).is_none());
+        assert_eq!(kinds(&list), ["gate-host"]);
     }
 
     #[test]
@@ -369,11 +438,8 @@ mod gate_tests {
         let registered: Vec<Arc<dyn DeviceFamily>> =
             vec![Arc::new(Probe("extension")), Arc::new(Probe("builtin-b"))];
         let phone = assemble(builtin(), registered.clone(), false);
-        assert!(kinds(&phone).is_empty(), "{:?}", kinds(&phone));
-        assert!(
-            phone.defaults().is_empty(),
-            "a phone would look for devices"
-        );
+        assert_eq!(kinds(&phone), Vec::<&str>::new());
+        assert_eq!(phone.defaults().len(), 0, "a phone would look for devices");
         // Elsewhere: the built-ins, a registration of a built-in's kind in
         // its place, then the new kind.
         let host = assemble(builtin(), registered, true);
