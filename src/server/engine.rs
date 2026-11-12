@@ -91,6 +91,23 @@ impl EngineHandle {
     }
 }
 
+/// The `application.name` of the engine's `PipeWire` client.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) const CLIENT_NAME: &str = "patchbay";
+
+/// Whether the engine may connect to `PipeWire`: `PATCHBAY_PIPEWIRE=off`
+/// (or `0`/`false`) keeps it away from the machine's graph entirely (no
+/// connection, no `pw-dump` poller), for tests and scratch engines.
+#[must_use]
+pub(crate) fn pipewire_enabled() -> bool {
+    !std::env::var("PATCHBAY_PIPEWIRE").is_ok_and(|v| {
+        matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "off" | "0" | "false"
+        )
+    })
+}
+
 /// Spawn the engine thread. It (re)connects forever: when `PipeWire`
 /// dies the graph mirror is cleared (`GraphEvent::Reset`) and the
 /// thread retries every few seconds — restart `PipeWire` from the
@@ -99,6 +116,10 @@ pub(crate) fn spawn(store: Arc<RwLock<GraphStore>>, events: Sender<GraphEvent>) 
     #[cfg(target_os = "linux")]
     {
         let cmd_slot: CmdSlot = Arc::new(parking_lot::Mutex::new(None));
+        if !pipewire_enabled() {
+            tracing::info!("PATCHBAY_PIPEWIRE=off: the engine does not connect to PipeWire");
+            return EngineHandle { cmd_slot };
+        }
         let slot = cmd_slot.clone();
         let spawned = std::thread::Builder::new()
             .name("patchbay-pw".into())
@@ -185,7 +206,13 @@ mod linux {
         let (cmd_tx, cmd_rx) = pipewire::channel::channel::<Command>();
 
         let mainloop = MainLoopRc::new(None)?;
-        let context = ContextRc::new(&mainloop, None)?;
+        // A fixed name, whatever binary hosts the engine (`fts-patchbay`,
+        // an Architect app, a test), so "one Patchbay client" can be
+        // checked by name: `pw-cli ls Client | rg -c 'application.name = "patchbay"'`.
+        let context = ContextRc::new(
+            &mainloop,
+            Some(properties! { "application.name" => super::CLIENT_NAME }),
+        )?;
         let core = context.connect_rc(None)?;
         let registry = core.get_registry_rc()?;
 

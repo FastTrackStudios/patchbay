@@ -12,14 +12,19 @@ workspace = true
 
 [features]
 default = ["vox"]
-server = ["dep:architect-telemetry", "dep:dirs", "dep:eyre", "dep:facet-styx", "dep:futures-util", "dep:if-addrs", "dep:inferno-net", "dep:mdns-sd", "dep:parking_lot", "dep:serde_json", "dep:socket2", "dep:tokio", "dep:tracing"]
+server = ["architect/host", "architect/local", "architect/server-axum", "dep:architect-telemetry", "dep:axum", "dep:dirs", "dep:eyre", "dep:facet-styx", "dep:futures-util", "dep:if-addrs", "dep:inferno-net", "dep:mdns-sd", "dep:parking_lot", "dep:serde_json", "dep:socket2", "dep:tokio", "dep:tracing", "dep:vox-core", "dep:vox-websocket"]
+# The Patchbay core as an Architect extension (`ext::Patchbay`): its
+# actions and its view, over this machine's one engine.
+extension = ["dep:architect-extensions", "server", "ui"]
 tcc-spi = []
 ui = ["dep:dioxus", "dep:futures-util", "dep:music-catalog", "dep:tracing"]
 vox = []
 
 [dependencies]
 architect = { workspace = true, features = ["vox"] }
+architect-extensions = { workspace = true, optional = true, features = ["guest"] }
 architect-telemetry = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
 dioxus = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
 eyre = { workspace = true, optional = true }
@@ -35,17 +40,27 @@ serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
 socket2 = { workspace = true, optional = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, optional = true, features = ["sync", "time"] }
+tokio = { workspace = true, optional = true, features = ["net", "rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true, optional = true }
 vox = { workspace = true }
 vox-types = { workspace = true }
+vox-core = { workspace = true, optional = true }
+vox-websocket = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The tests exercise the server (planner, presets, the device hub and
-# model): on in every test build, so `cargo nextest run -p patchbay`
-# (the core test set) runs them.
-patchbay = { path = ".", features = ["server"] }
+# model) and the extension (tests/extension.rs, whose engines never touch
+# the machine's PipeWire): on in every test build, so `cargo nextest run
+# -p patchbay` (the core test set) runs them.
+patchbay = { path = ".", features = ["extension", "server"] }
+# tests/extension.rs: the app's side, an Architect host with the
+# extension linked in.
+architect = { workspace = true, features = ["action-list"] }
+architect-extensions = { workspace = true, features = ["host", "linked", "process"] }
+architect-settings = { workspace = true }
+futures = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 vox-core = { workspace = true }
 vox-websocket = { workspace = true }

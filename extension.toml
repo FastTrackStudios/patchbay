@@ -1,0 +1,71 @@
+# The Patchbay core, an Architect extension (src/ext.rs, feature
+# `extension`): the routing view and the agent surface (`PATCHBAY_*`)
+# over this machine's one Patchbay engine. Linked in only: it has no
+# [entry] or [source] yet, so nothing builds a process copy of it. A
+# copy beside the linked one would run a second engine, and a linked
+# extension cannot be stopped yet (FastTrackStudios/architect#577).
+#
+# The engine starts with the first action or view that needs it; if
+# another app already serves one on this machine's Patchbay port, this
+# extension attaches to it instead (`patchbay::server::Engine`).
+id = "patchbay"
+name = "Patchbay"
+version = "0.1.0"
+kind = "process"
+api = "0.1"
+description = "Studio routing: this machine's audio graph, its interfaces, consoles and Dante network, and other machines' Patchbays. Route, mix, scenes and an agent surface (PATCHBAY_*)."
+authors = ["FastTrackStudios"]
+
+# Its API for others: method `m` is its action PATCHBAY_<M>.
+[provides]
+"fts.patchbay" = "0.1.0"
+
+# The device-family extensions (Dante, PipeWire, macOS audio, Virtual
+# Mixes, Antelope, Yamaha TF) each add an item here: what they are and
+# where they run (FastTrackStudios/studio#410).
+[[points]]
+id = "patchbay.families"
+title = "Device families"
+description = "A family of devices Patchbay routes: its config kind, its label and the platforms it runs on."
+schema = '{"type":"object","properties":{"kind":{"type":"string"},"label":{"type":"string"},"platforms":{"type":"array","items":{"type":"string"}}},"required":["kind","label"]}'
+
+[[views]]
+id = "patchbay"
+title = "Patchbay"
+icon = "cable"
+
+[[actions]]
+id = "PATCHBAY_STATUS"
+name = "Patchbay: status"
+description = "The engine at a glance: the graph's node, port and link counts, the clock (rate, quantum, forced quantum) and whether the Dante stack is active. The JSON of `patchbay status --json`."
+group = "Patchbay"
+effect = "read_only"
+
+[[actions]]
+id = "PATCHBAY_HEALTH"
+name = "Patchbay: health check"
+description = "The read-only rig and Dante health check: `ok` (no error-level finding), the graph, the clock, the Dante stack and network, the managed services, and `issues`, each with severity, code, target, detail and a remediation. The JSON of `patchbay health --json`."
+group = "Patchbay"
+effect = "read_only"
+
+[[actions]]
+id = "PATCHBAY_NOW"
+name = "Patchbay: what is playing"
+description = "What is making sound on this machine: every app with audio and the devices it plays to and records from, the devices, the mixes and anything that needs attention (macOS; `supported` is false elsewhere). The JSON of `patchbay now --json`."
+group = "Patchbay"
+effect = "read_only"
+
+[[actions]]
+id = "PATCHBAY_DEVICE_LIST"
+name = "Patchbay: devices"
+description = "Every configured device (interfaces, consoles, the Dante network, this machine's system audio): its config name and kind, id, vendor and model, and its state (searching, connecting, online, offline, not found). The JSON of `patchbay device list --json`."
+group = "Patchbay"
+effect = "read_only"
+
+[[actions]]
+id = "PATCHBAY_DEVICE_SHOW"
+name = "Patchbay: one device"
+description = "Device `id` (its full id, or its config name) in full: its port groups, its routing (each output's source) and every parameter with its value. The JSON of `patchbay device show <id> --json`."
+group = "Patchbay"
+effect = "read_only"
+params = '{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}'

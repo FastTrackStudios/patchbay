@@ -8,9 +8,15 @@ pub mod coreaudio;
 pub mod dante;
 #[cfg(feature = "server")]
 pub mod device;
+#[cfg(feature = "extension")]
+pub mod ext;
+#[cfg(all(feature = "server", feature = "ui"))]
+pub mod home;
 #[cfg(feature = "server")]
 pub mod host;
 pub mod proto;
+#[cfg(feature = "server")]
+pub mod report;
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "ui")]

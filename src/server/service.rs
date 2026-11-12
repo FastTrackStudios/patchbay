@@ -90,7 +90,7 @@ impl PatchbayBackend {
         // `PipeWire` has no per-port level API, so activity state is the
         // honest, no-tap answer. Read-only shell-out; quiet graphs emit
         // nothing.
-        {
+        if engine::pipewire_enabled() {
             let store = store.clone();
             let spawned = std::thread::Builder::new()
                 .name("patchbay-states".into())

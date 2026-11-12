@@ -9,6 +9,7 @@
 //!
 //! Apps depend on this facade (or `patchbay-ui`), never on internals.
 
+mod boot;
 mod capture;
 pub mod chanmap;
 pub mod clock;
@@ -35,6 +36,10 @@ mod telemetry;
 mod units;
 
 pub use crate::proto;
+pub use boot::{
+    DEFAULT_ADDR, Engine, EngineError, EngineMode, EngineOptions, IfTaken, MakePermissions, dial,
+    runtime, spawn,
+};
 pub use service::PatchbayBackend;
 
 pub use net::record_bound;

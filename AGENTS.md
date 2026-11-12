@@ -15,6 +15,38 @@ Crate facade pattern:
 
 Apps depend on `patchbay` / `patchbay-ui`, never on internals.
 
+## As an Architect extension
+
+Patchbay is becoming Architect extensions: this crate's core plus one
+extension per device family, packaged as its own distribution
+(FastTrackStudios/studio#410 has the design and the stack).
+
+- `ext::Patchbay` (feature `extension`, manifest `extension.toml`, id
+  `patchbay`) is the core as a linked extension: the `patchbay` view and
+  the `PATCHBAY_*` actions (`STATUS`, `HEALTH`, `NOW`, `DEVICE_LIST`,
+  `DEVICE_SHOW`), each answering the JSON its `patchbay … --json` verb
+  prints. Linked only: no `[entry]`/`[source]` until a linked extension
+  can be stopped (FastTrackStudios/architect#577).
+- **One engine per machine** (`server::Engine`, held by `home`).
+  `build` starts nothing; the first action or view calls
+  `home::engine()`, which joins a Patchbay engine already answering on
+  the port (`fts-patchbay`, `patchbay serve`, another Architect app;
+  probed on the configured host, loopback for `0.0.0.0`/`[::]`) or binds
+  the port **before** creating the backend and runs it here; a loser of
+  the race retries the join. When a joined engine goes away (its app
+  quit), the next call or the view starts or joins again, so a survivor
+  takes the port. `fts-patchbay` goes through the same `home` (it joins
+  too; a port held by something that is not Patchbay still runs it
+  unserved). Every engine and start runs on one runtime per process
+  (`server::runtime`). No version check on join yet (#425).
+- `PATCHBAY_PIPEWIRE=off` keeps an engine off the machine's PipeWire (no
+  connection, no `pw-dump` poller): the tests use it. The engine's
+  PipeWire client is always named `patchbay`
+  (`pw-cli ls Client | rg -c 'application.name = "patchbay"'`).
+- Reports built from several calls (`report::status`,
+  `report::collect_health`) live in the crate, so the CLI and the actions
+  answer with the same JSON.
+
 ## Key rules
 
 - **Headless core (STRICT)**: the engine never touches dioxus. GUIs are
@@ -38,4 +70,7 @@ Apps depend on `patchbay` / `patchbay-ui`, never on internals.
 cargo check -p patchbay -p patchbay-ui -p fts-patchbay
 cargo run -p patchbay --example snapshot   # read-only live-graph smoke
 cargo run -p fts-patchbay                  # the app (ws on :4046 too)
+# everything, the extension and engine start/join/takeover included
+# (the engines in the tests never touch PipeWire)
+cargo nextest run -p patchbay
 ```
