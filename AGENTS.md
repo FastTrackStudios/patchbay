@@ -89,9 +89,13 @@ skill before UI work.
   the engine config). No `document::eval` in `src/ui`.
 - **Family views by kind** (`ui::families`): the Route and Mix pages and
   the device console draw the view the selected device's family
-  registered (`FamilyViews { route, mix, console }`), each in a component
-  keyed on the kind; a kind with none gets the generic device view. Never
-  match on a kind in a page: register.
+  registered (`FamilyViews { route, mix, console }`), each mounted as a
+  component of its own (`families::mount`, never called as a function);
+  a kind with none gets the generic device view. How the shell presents
+  a device comes from there too: `label` (rail), `what` (context
+  switcher), `icon`, `reads_device`, `route_note`. Never match on a kind
+  in the shell: add a field and register. Register before launch (the
+  registry is read when a page draws, not watched).
 - **Controls Blitz can draw.** `ui::ui::Choice` instead of `<select>`,
   `ui::ui::Slider` instead of `<input type=range>` (`on_input` live,
   `on_commit` on release), `ui::ui::TextField` (commit on Enter/blur)

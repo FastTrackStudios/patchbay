@@ -313,8 +313,6 @@ fn group_params(
 
 /// The host's own audio layer (Core Audio / the `PipeWire` graph).
 pub const KIND_SYSTEM: &str = "system-audio";
-/// The Dante network, as one device.
-pub const KIND_DANTE: &str = "dante";
 
 /// The context switcher is open.
 pub static CONTEXT_MENU: GlobalSignal<bool> = Signal::global(|| false);
@@ -339,14 +337,21 @@ pub fn context() -> Option<DeviceSummary> {
 /// `TF1`, `Galaxy32` — rather than what the config calls it. Named for
 /// the thing and not as "System", because one rail is meant to hold
 /// several hosts side by side (Core Audio on one machine, `PipeWire` on
-/// another).
+/// another). A family can name its devices itself (`FamilyViews::label`).
 pub fn context_label(d: &DeviceSummary) -> String {
-    match d.kind.as_str() {
-        // "Dante network" doesn't fit the rail; the icon says network.
-        KIND_DANTE => "Dante".to_owned(),
-        _ if d.model.is_empty() => d.name.clone(),
-        _ => d.model.clone(),
+    match crate::ui::families::views(&d.kind).and_then(|v| v.label) {
+        Some(label) => label.to_owned(),
+        None if d.model.is_empty() => d.name.clone(),
+        None => d.model.clone(),
     }
+}
+
+/// What the device is, in the context switcher: its family's word for
+/// it (`FamilyViews::what`), else its config name.
+pub fn context_what(d: &DeviceSummary) -> String {
+    crate::ui::families::views(&d.kind)
+        .and_then(|v| v.what)
+        .map_or_else(|| d.name.clone(), str::to_owned)
 }
 
 pub const fn context_status(d: &DeviceSummary) -> Status {
@@ -448,9 +453,9 @@ pub fn use_device_poll() {
     });
 }
 
-/// Whether the context is a device whose parameter view a page draws.
-/// Dante is drawn from the subscription scan instead, and reading it as
-/// a device costs a second ARC sweep of the network for nothing.
+/// Whether the context is a device whose parameter view a page draws:
+/// unless its family says its views draw from elsewhere
+/// (`FamilyViews::reads_device`).
 fn loads_a_view() -> bool {
     let Some(selected) = SELECTED.peek().clone() else {
         return false;
@@ -459,7 +464,7 @@ fn loads_a_view() -> bool {
         .peek()
         .iter()
         .find(|d| device_key(d) == selected)
-        .is_some_and(|d| d.kind != KIND_DANTE)
+        .is_some_and(|d| crate::ui::families::views(&d.kind).is_none_or(|v| v.reads_device))
 }
 
 // ─── Pages ──────────────────────────────────────────────────────────────
@@ -568,10 +573,11 @@ fn RoutePane(view: DeviceView) -> Element {
             }
         };
     }
+    let note = crate::ui::families::views(&view.summary.kind).and_then(|v| v.route_note);
     rsx! {
         div { class: "console",
-            if view.summary.kind == "antelope-galaxy32" {
-                p { class: "dim-note console-note", "{galaxy32::ROUTER_LAG}" }
+            if let Some(note) = note {
+                p { class: "dim-note console-note", "{note}" }
             }
             RouterGrid { view }
         }

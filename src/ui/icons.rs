@@ -59,9 +59,13 @@ pub fn ViewIcon(view: View) -> Element {
     }
 }
 
-/// What kind of thing the current device is (`DeviceSummary::kind`).
+/// What kind of thing the current device is (`DeviceSummary::kind`):
+/// its family's icon (`FamilyViews::icon`), else hardware.
 #[component]
 pub fn ContextIcon(kind: String) -> Element {
+    let icon = crate::ui::families::views(&kind)
+        .and_then(|v| v.icon)
+        .unwrap_or(RackIcon);
     rsx! {
         svg {
             class: "rail-icon",
@@ -72,27 +76,38 @@ pub fn ContextIcon(kind: String) -> Element {
             stroke_linecap: "round",
             stroke_linejoin: "round",
             "aria-hidden": "true",
-            match kind.as_str() {
-                // This machine: a laptop.
-                crate::ui::devices::KIND_SYSTEM => rsx! {
-                    rect { x: "4.5", y: "5", width: "15", height: "10.5", rx: "1.8" }
-                    path { d: "M2.5 19h19" }
-                },
-                // A network: three nodes off one switch.
-                crate::ui::devices::KIND_DANTE => rsx! {
-                    circle { cx: "12", cy: "5.5", r: "2.3" }
-                    circle { cx: "5", cy: "18.5", r: "2.3" }
-                    circle { cx: "19", cy: "18.5", r: "2.3" }
-                    path { d: "M12 7.8v4.7M12 12.5 6.4 16.7M12 12.5l5.6 4.2" }
-                },
-                // Hardware: two rack units.
-                _ => rsx! {
-                    rect { x: "3", y: "4.5", width: "18", height: "6.5", rx: "1.8" }
-                    rect { x: "3", y: "13", width: "18", height: "6.5", rx: "1.8" }
-                    path { d: "M6.6 7.75h.01M6.6 16.25h.01M10 7.75h.01M10 16.25h.01", stroke_width: "2.4" }
-                },
-            }
+            {crate::ui::families::mount(icon, "FamilyIcon")}
         }
+    }
+}
+
+/// This machine: a laptop. (Shapes for [`ContextIcon`]'s `svg`.)
+#[component]
+pub fn MachineIcon() -> Element {
+    rsx! {
+        rect { x: "4.5", y: "5", width: "15", height: "10.5", rx: "1.8" }
+        path { d: "M2.5 19h19" }
+    }
+}
+
+/// A network: three nodes off one switch.
+#[component]
+pub fn NetworkIcon() -> Element {
+    rsx! {
+        circle { cx: "12", cy: "5.5", r: "2.3" }
+        circle { cx: "5", cy: "18.5", r: "2.3" }
+        circle { cx: "19", cy: "18.5", r: "2.3" }
+        path { d: "M12 7.8v4.7M12 12.5 6.4 16.7M12 12.5l5.6 4.2" }
+    }
+}
+
+/// Hardware: two rack units (any family without an icon of its own).
+#[component]
+pub fn RackIcon() -> Element {
+    rsx! {
+        rect { x: "3", y: "4.5", width: "18", height: "6.5", rx: "1.8" }
+        rect { x: "3", y: "13", width: "18", height: "6.5", rx: "1.8" }
+        path { d: "M6.6 7.75h.01M6.6 16.25h.01M10 7.75h.01M10 16.25h.01", stroke_width: "2.4" }
     }
 }
 

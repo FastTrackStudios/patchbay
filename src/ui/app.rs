@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 
 use crate::proto::DeviceSummary;
-use crate::ui::devices::{self, KIND_DANTE, KIND_SYSTEM};
+use crate::ui::devices::{self, KIND_SYSTEM};
 use crate::ui::hosts;
 use crate::ui::icons::{ContextIcon, Mark, ViewIcon};
 use crate::ui::pages::{MixPage, RoutePage};
@@ -238,11 +238,7 @@ fn HostHeading(name: String, note: String, live: bool, status: Status) -> Elemen
 #[component]
 fn ContextOption(host: Option<String>, device: DeviceSummary, on: bool) -> Element {
     let handle = crate::ui::state::use_patchbay();
-    let what = match device.kind.as_str() {
-        KIND_SYSTEM => "this machine's audio".to_owned(),
-        KIND_DANTE => "the Dante network".to_owned(),
-        _ => device.name.clone(),
-    };
+    let what = devices::context_what(&device);
     let pick = device.clone();
     rsx! {
         button {

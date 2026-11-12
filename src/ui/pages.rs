@@ -45,17 +45,19 @@ pub fn MixPage() -> Element {
 /// The Route page for `kind`: its family's view, or the generic one.
 #[component]
 pub fn FamilyRoute(kind: String) -> Element {
-    families::views(&kind)
-        .and_then(|v| v.route)
-        .map_or_else(|| rsx! { DeviceRoute {} }, |view| view())
+    families::views(&kind).and_then(|v| v.route).map_or_else(
+        || rsx! { DeviceRoute {} },
+        |view| families::mount(view, "FamilyRoute"),
+    )
 }
 
 /// The Mix page for `kind`: its family's view, or the generic one.
 #[component]
 pub fn FamilyMix(kind: String) -> Element {
-    families::views(&kind)
-        .and_then(|v| v.mix)
-        .map_or_else(|| rsx! { DeviceMix {} }, |view| view())
+    families::views(&kind).and_then(|v| v.mix).map_or_else(
+        || rsx! { DeviceMix {} },
+        |view| families::mount(view, "FamilyMix"),
+    )
 }
 
 /// The system's Route page: where there is a `PipeWire` graph it IS the

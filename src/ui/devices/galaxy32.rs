@@ -35,7 +35,7 @@ enum Page {
 ///
 /// The adapter re-reads every 5 s because the Manager Server never
 /// notifies routing changes made elsewhere.
-pub(super) const ROUTER_LAG: &str = "Routing changes made on the hardware panel or in the Antelope \
+pub(crate) const ROUTER_LAG: &str = "Routing changes made on the hardware panel or in the Antelope \
                           software appear here within about five seconds — the device \
                           doesn't announce them. Changes made here are immediate.";
 
