@@ -19,6 +19,13 @@ path = "src/app.rs"
 required-features = ["app"]
 
 [[bin]]
+# Patchbay on an iPhone or iPad (`src/ios.rs`, ios/): a controller of the
+# Patchbay engines on other machines. `ios/build-app.sh` builds it.
+name = "patchbay-ios"
+path = "src/ios.rs"
+required-features = ["ios"]
+
+[[bin]]
 name = "patchbay-cli"
 path = "src/cli_compat.rs"
 required-features = ["native"]
@@ -44,6 +51,11 @@ web = ["dep:web-sys", "dioxus/web"]
 # window with the Patchbay extension linked in. Opt-in: it brings all of
 # Architect's app, which the WebView app and the CLIs do not need.
 app = ["native", "dep:architect-desktop", "architect-desktop/gui", "patchbay/extension"]
+# Patchbay on an iPhone or iPad (`patchbay-ios`): its view (`patchbay::home`)
+# drawn by Blitz on UIKit, over an in-process engine with no device
+# families. Build it with `--no-default-features --features ios`
+# (ios/build-app.sh does).
+ios = ["dep:dioxus-native", "dep:app-shell", "dep:architect-telemetry", "patchbay/server"]
 # Compile the staged web bundle (web-dist/, `just patchbay-web-stage`)
 # into the desktop binary.
 embed-web = ["dep:include_dir", "desktop"]
@@ -58,6 +70,9 @@ tracing.workspace = true
 
 architect = { workspace = true, features = ["vox", "local", "host", "server-axum"], optional = true }
 architect-desktop = { workspace = true, optional = true }
+# `ios`: Blitz, and the scene delegate every Studio app shares.
+dioxus-native = { workspace = true, optional = true }
+app-shell = { workspace = true, optional = true }
 # Console logs plus OTLP export of traces/logs/metrics when
 # OTEL_EXPORTER_OTLP_ENDPOINT is set — every FTS process exports (W10).
 architect-telemetry = { workspace = true, features = ["otel"], optional = true }
