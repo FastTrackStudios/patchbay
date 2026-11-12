@@ -5,14 +5,14 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Studio routing: the patchbay server (host audio graph, Core Audio, Dante and Antelope adapters), its wire types, and its UI"
+description = "Studio routing: the patchbay server (host audio graph, Core Audio, Dante adapter), its wire types, and its UI"
 
 [lints]
 workspace = true
 
 [features]
 default = ["vox"]
-server = ["architect/host", "architect/local", "architect/server-axum", "dep:architect-telemetry", "dep:axum", "dep:dirs", "dep:eyre", "dep:facet-styx", "dep:futures-util", "dep:inferno-net", "dep:mdns-sd", "dep:parking_lot", "dep:serde_json", "dep:socket2", "dep:tokio", "dep:tracing", "dep:vox-core", "dep:vox-websocket"]
+server = ["architect/host", "architect/local", "architect/server-axum", "dep:architect-telemetry", "dep:axum", "dep:dirs", "dep:eyre", "dep:facet-styx", "dep:futures-util", "dep:inferno-net", "dep:mdns-sd", "dep:parking_lot", "dep:serde_json", "dep:tokio", "dep:tracing", "dep:vox-core", "dep:vox-websocket"]
 # The Patchbay core as an Architect extension (`ext::Patchbay`): its
 # actions and its view, over this machine's one engine.
 extension = ["dep:architect-extensions", "server", "ui"]
@@ -40,7 +40,6 @@ music-catalog = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
-socket2 = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true, features = ["net", "rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true, optional = true }
@@ -145,14 +144,4 @@ required-features = ["server"]
 [[example]]
 name = "ca_virtual"
 path = "examples/ca_virtual.rs"
-required-features = ["server"]
-
-[[example]]
-name = "galaxy_read"
-path = "examples/galaxy_read.rs"
-required-features = ["server"]
-
-[[example]]
-name = "galaxy_write_test"
-path = "examples/galaxy_write_test.rs"
 required-features = ["server"]

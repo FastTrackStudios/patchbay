@@ -1,7 +1,5 @@
-//! Studio routing: the patchbay server (host audio graph, Core Audio, Dante and Antelope adapters), its wire types, and its UI
+//! Studio routing: the patchbay server (host audio graph, Core Audio, Dante adapter), its wire types, and its UI
 
-#[cfg(feature = "server")]
-pub mod antelope;
 #[cfg(feature = "server")]
 pub mod coreaudio;
 #[cfg(feature = "server")]

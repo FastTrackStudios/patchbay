@@ -72,12 +72,13 @@ extension per device family, packaged as its own distribution
   becomes the distribution (#428).
 - **Device families** (`family::DeviceFamily`, `family::Families`): the
   hub connects each configured device through the family for its `kind`.
-  The built-ins (system audio, Galaxy32, Dante) are in
+  The built-ins (system audio, Dante) are in
   `server/devices/registry.rs`; a family of its own calls
   `family::register` (or `register_with_views`, with its views) before
   the engine starts (read once, at start). The Yamaha TF is the first:
-  `features/patchbay/yamaha-tf` (`patchbay-yamaha-tf`), registered by its
-  extension's `build` and by each `fts-patchbay` binary's `main`. A
+  `features/patchbay/yamaha-tf` (`patchbay-yamaha-tf`), then Antelope
+  (`features/patchbay/antelope`, `patchbay-antelope`), each registered by
+  its extension's `build` and by each `fts-patchbay` binary's `main`. A
   family's views draw with `ui::kit`. On iOS no family runs:
   `family::register` registers nothing and `family::assemble` (where the
   engine's families are put together) gives none, so every family

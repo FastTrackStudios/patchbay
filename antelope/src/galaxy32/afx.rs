@@ -15,9 +15,9 @@
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use crate::antelope::error::{AntelopeError, Result};
-use crate::antelope::protocol::RPC_SCHEMA;
-use crate::antelope::protocol::call::Call;
+use crate::error::{AntelopeError, Result};
+use crate::protocol::RPC_SCHEMA;
+use crate::protocol::call::Call;
 
 /// Type ids missing from the schema (no `get_<name>_conf`), from captures.
 const TYPE_ID_OVERRIDES: [(&str, u8); 1] = [("antares_autotune", 52)];

@@ -23,7 +23,6 @@ use dioxus::prelude::*;
 
 pub mod console;
 mod core_audio;
-pub(crate) mod galaxy32;
 pub(crate) mod strip;
 
 use crate::ui::state::{self, PatchbayHandle};
@@ -177,7 +176,9 @@ async fn load_selected(handle: &PatchbayHandle) {
     *LOADING.write() = false;
 }
 
-fn set_param(handle: PatchbayHandle, path: String, value: DeviceParamValue) {
+/// Write `path` on the device the page shows, and put the value it
+/// confirms into the view (an error goes to the page's error bar).
+pub fn set_param(handle: PatchbayHandle, path: String, value: DeviceParamValue) {
     let Some(id) = VIEW.peek().as_ref().map(|v| v.summary.id.clone()) else {
         return;
     };
@@ -230,7 +231,7 @@ fn set_route(handle: PatchbayHandle, output: DeviceChannel, source: Option<Devic
 /// (`mixer/1`, `in/3`), so a section is one mixer / one channel.
 /// An enum param's options as dropdown entries, valued by index (what
 /// the device takes).
-pub(super) fn indexed(options: &[String]) -> Vec<ChoiceOption> {
+pub fn indexed(options: &[String]) -> Vec<ChoiceOption> {
     options
         .iter()
         .enumerate()
@@ -239,7 +240,7 @@ pub(super) fn indexed(options: &[String]) -> Vec<ChoiceOption> {
 }
 
 /// The index (as a dropdown value) of the option labelled `label`.
-pub(super) fn index_of(options: &[String], label: &str) -> String {
+pub fn index_of(options: &[String], label: &str) -> String {
     options
         .iter()
         .position(|o| o == label)

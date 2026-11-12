@@ -14,12 +14,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use crate::device::{
+use parking_lot::Mutex;
+use patchbay::device::{
     ChannelRef, Crosspoint, DeviceAdapter, DeviceError, DeviceEvent, DeviceId, DeviceInfo,
     DeviceSnapshot, MirrorUpdate, Param, ParamValue, PortGroup, Transport, WriteGuard, apply_event,
     diff_events,
 };
-use parking_lot::Mutex;
 use serde_json::Value;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -34,10 +34,10 @@ use super::tables::{
     self, AFX_SLOTS, AFX_STRIPS, MIXER_STRIPS, MIXERS, MONITOR_OUTPUT, OUTPUT_PAGES, ROUTING_SLOTS,
     SAMPLE_RATES, SOURCE_TYPES, TRIM_LINE_IN,
 };
-use crate::antelope::client::{CYCLIC_STATE_CMD, Client, ClientEvent};
-use crate::antelope::discovery::{Announce, Listener};
-use crate::antelope::error::{AntelopeError, Result};
-use crate::antelope::protocol::envelope::ServerFrame;
+use crate::client::{CYCLIC_STATE_CMD, Client, ClientEvent};
+use crate::discovery::{Announce, Listener};
+use crate::error::{AntelopeError, Result};
+use crate::protocol::envelope::ServerFrame;
 
 const CONFIRM_ATTEMPTS: u32 = 6;
 const CONFIRM_DELAY: Duration = Duration::from_millis(80);

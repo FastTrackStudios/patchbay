@@ -22,11 +22,11 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 
-use crate::antelope::error::{AntelopeError, Result};
-use crate::antelope::protocol::INITIALIZE_FORMAT;
-use crate::antelope::protocol::call::Call;
-use crate::antelope::protocol::envelope::ServerFrame;
-use crate::antelope::protocol::framing::{FrameDecoder, encode_frame};
+use crate::error::{AntelopeError, Result};
+use crate::protocol::INITIALIZE_FORMAT;
+use crate::protocol::call::Call;
+use crate::protocol::envelope::ServerFrame;
+use crate::protocol::framing::{FrameDecoder, encode_frame};
 
 /// Cyclic report class carrying the Galaxy32 master state.
 pub const CYCLIC_STATE_CMD: u32 = 115;
@@ -237,8 +237,7 @@ impl Client {
         }
         let frame = call.to_frame()?;
         tracing::trace!(method = %call.method, "antelope: send");
-        let mut w = self.inner.writer.lock().await;
-        w.write_all(&frame).await?;
+        self.inner.writer.lock().await.write_all(&frame).await?;
         Ok(())
     }
 

@@ -1,0 +1,24 @@
+# The Antelope family, an Architect extension (src/ext.rs, feature
+# `extension`): it adds the Galaxy32 to the Patchbay core's engine (the
+# family the hub connects it through) and to its window (the console
+# view). Linked in only, like the core it extends (FastTrackStudios/studio
+# #410, #418).
+#
+# Its own actions would be PATCHBAY_ANTELOPE_*; none are needed yet, the
+# core's PATCHBAY_DEVICE_* reach a Galaxy32 like any device.
+id = "patchbay-antelope"
+name = "Patchbay: Antelope"
+version = "0.1.0"
+kind = "process"
+api = "0.1"
+description = "Antelope Galaxy32 interfaces in Patchbay: found through the Antelope Manager Server, routed and mixed, drawn as a console of mixers, trims, AFX and clock."
+authors = ["FastTrackStudios"]
+
+# The Patchbay core: its engine runs this family.
+[requires]
+"fts.patchbay" = "^0.1"
+
+[[contribute."patchbay.families"]]
+kind = "antelope-galaxy32"
+label = "Antelope Galaxy32"
+platforms = []

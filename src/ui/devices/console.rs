@@ -176,17 +176,6 @@ pub struct Leaves {
     pub on_inverted: bool,
 }
 
-/// Antelope Galaxy 32 mixer: no names or colours, and a mute.
-pub const GALAXY_LEAVES: Leaves = Leaves {
-    name: "",
-    color: "",
-    icon: "",
-    level: "level",
-    pan: "pan",
-    on: "mute",
-    on_inverted: true,
-};
-
 /// Build strips for `prefixes`, reading `leaves` off each.
 ///
 /// A prefix with no level at all is dropped: it isn't a strip, it is a

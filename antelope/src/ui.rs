@@ -1,6 +1,6 @@
 //! Antelope Galaxy 32 as a console: the four mixers, the line-in trims,
 //! the AFX insert grid and the clock. Its router is the device's Route
-//! page (`super::RoutePane`).
+//! page (the core's generic router, with [`ROUTER_LAG`] above it).
 //!
 //! The device carries no names, colours or icons of its own — every
 //! label here comes from its static page tables. Patchbay's aliases are
@@ -10,14 +10,35 @@
 //! shows up when the adapter's mirror next refreshes, so the router
 //! says how fresh it is instead of pretending to be live.
 
-use crate::proto::{DeviceParamValue, DeviceView};
 use dioxus::prelude::*;
+use patchbay::proto::{DeviceParamValue, DeviceView};
+use patchbay::ui::FamilyViews;
+use patchbay::ui::kit::{
+    ChannelStrip, Choice, Leaves, ParamFacts, Params, count_under, index_of, indexed, numbered,
+    set_param, strips, use_patchbay,
+};
 
-use crate::ui::ui::Choice;
+/// What the Galaxy32 registers: its console above the generic device
+/// view, and the note above its router.
+#[must_use]
+pub fn views() -> FamilyViews {
+    FamilyViews {
+        console: Some(|view| rsx! { Galaxy32Console { view } }),
+        route_note: Some(ROUTER_LAG),
+        ..FamilyViews::new(crate::KIND)
+    }
+}
 
-use super::console::{GALAXY_LEAVES, Params, count_under, numbered, strips};
-use super::strip::{ChannelStrip, ParamFacts};
-use crate::ui::state;
+/// The Galaxy 32 mixer's strips: no names or colours, and a mute.
+pub const GALAXY_LEAVES: Leaves = Leaves {
+    name: "",
+    color: "",
+    icon: "",
+    level: "level",
+    pan: "pan",
+    on: "mute",
+    on_inverted: true,
+};
 
 /// Which page of the device is showing.
 static PAGE: GlobalSignal<Page> = Signal::global(|| Page::Mixer(1));
@@ -35,7 +56,7 @@ enum Page {
 ///
 /// The adapter re-reads every 5 s because the Manager Server never
 /// notifies routing changes made elsewhere.
-pub(crate) const ROUTER_LAG: &str = "Routing changes made on the hardware panel or in the Antelope \
+pub const ROUTER_LAG: &str = "Routing changes made on the hardware panel or in the Antelope \
                           software appear here within about five seconds — the device \
                           doesn't announce them. Changes made here are immediate.";
 
@@ -124,7 +145,7 @@ fn Mixer(view: DeviceView, mixer: u32) -> Element {
 /// Line-in trims, and the ALL/MANUAL control that governs them.
 #[component]
 fn Trim(view: DeviceView) -> Element {
-    let handle = state::use_patchbay();
+    let handle = use_patchbay();
     let params = Params::index(&view);
     let mode = params.choice("trim/line_in/control").unwrap_or_default();
     let options = params.options("trim/line_in/control");
@@ -137,11 +158,11 @@ fn Trim(view: DeviceView) -> Element {
             Choice {
                 class: "dev-strip-pick",
                 label: "trim control",
-                value: super::index_of(&options, &mode),
-                options: super::indexed(&options),
+                value: index_of(&options, &mode),
+                options: indexed(&options),
                 onpick: move |v: String| {
                     if let Ok(i) = v.parse::<u32>() {
-                        super::set_param(
+                        set_param(
                             handle.clone(),
                             "trim/line_in/control".to_owned(),
                             DeviceParamValue::Enum(i),
@@ -182,7 +203,7 @@ fn Trim(view: DeviceView) -> Element {
 /// The 32 × 8 insert grid: which effect sits in each slot.
 #[component]
 fn Afx(view: DeviceView) -> Element {
-    let handle = state::use_patchbay();
+    let handle = use_patchbay();
     let params = Params::index(&view);
     let strips_n = count_under(&view, "afx/strip");
     let slots = count_under(&view, "afx/strip/1/slot");
@@ -219,11 +240,11 @@ fn Afx(view: DeviceView) -> Element {
                                         td { key: "{path}", class: if empty { "afx-cell" } else { "afx-cell filled" },
                                             Choice {
                                                 label: "{path}",
-                                                value: super::index_of(&options, &current),
-                                                options: super::indexed(&options),
+                                                value: index_of(&options, &current),
+                                                options: indexed(&options),
                                                 onpick: move |v: String| {
                                                     if let Ok(i) = v.parse::<u32>() {
-                                                        super::set_param(
+                                                        set_param(
                                                             handle.clone(),
                                                             path.clone(),
                                                             DeviceParamValue::Enum(i),

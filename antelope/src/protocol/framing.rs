@@ -6,14 +6,14 @@
 //!
 //! Frames concatenate with no delimiter.
 
-use crate::antelope::error::{AntelopeError, Result};
+use crate::error::{AntelopeError, Result};
 
 /// Size of the length prefix.
-pub(crate) const HEADER_LEN: usize = 4;
+pub const HEADER_LEN: usize = 4;
 
 /// Refuse frames larger than this (the biggest seen is the ~235 KB
 /// `initialize_format`; cyclic state is ~9 KB).
-pub(crate) const MAX_FRAME_LEN: usize = 16 * 1024 * 1024;
+pub const MAX_FRAME_LEN: usize = 16 * 1024 * 1024;
 
 /// Prefix `body` with its inclusive length.
 ///

@@ -22,12 +22,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use patchbay::antelope::tables::{self, SOURCE_NONE};
-use patchbay::antelope::{
+use patchbay::device::{ChannelRef, DeviceAdapter, ParamValue};
+use patchbay_antelope::tables::{self, SOURCE_NONE};
+use patchbay_antelope::{
     AfxSlot, Client, ClientEvent, Galaxy32, Galaxy32Adapter, MixerStrip, RouteSlot, RoutingPage,
     ServerFrame,
 };
-use patchbay::device::{ChannelRef, DeviceAdapter, ParamValue};
 use serde_json::{Value, json};
 
 /// The only routing pages this program may write.
@@ -79,7 +79,7 @@ async fn settle<T, F, Fut>(read: F, want: &T) -> Res<T>
 where
     T: PartialEq + Clone + Send + Sync,
     F: Fn() -> Fut + Send + Sync,
-    Fut: std::future::Future<Output = patchbay::antelope::Result<T>> + Send,
+    Fut: std::future::Future<Output = patchbay_antelope::Result<T>> + Send,
 {
     let mut last = read().await?;
     for _ in 0..10 {
@@ -379,10 +379,10 @@ async fn main() -> Res {
                 let ClientEvent::Frame(f) = ev else { break };
                 if let ServerFrame::Notification { contents, .. } = &*f {
                     counter.fetch_add(1, Ordering::Relaxed);
-                    if let Some(c) = &collect {
-                        if contents.get(0).and_then(Value::as_str) == Some("set_opto2a_conf") {
-                            c.lock().push(contents.clone());
-                        }
+                    if let Some(c) = &collect
+                        && contents.get(0).and_then(Value::as_str) == Some("set_opto2a_conf")
+                    {
+                        c.lock().push(contents.clone());
                     }
                 }
             }

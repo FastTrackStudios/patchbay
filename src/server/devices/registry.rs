@@ -11,9 +11,7 @@
 //! from "found / pinned but unreachable" ([`ConnectError::Failed`]) so
 //! `device list` can say *not found* vs *offline*.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::family::{Adapter, ConnectCtx, ConnectError, ConnectFuture, DeviceFamily, Families};
 use crate::proto::{DeviceConfig, FamilyInfo};
@@ -26,7 +24,7 @@ use crate::server::store::GraphStore;
 /// device list (each auto-discovered). `graph` is the `PipeWire` graph
 /// mirror, system audio's source off macOS. The others are extensions
 /// that register themselves (`crate::family::register`): the Yamaha TF
-/// is `patchbay-yamaha-tf`.
+/// is `patchbay-yamaha-tf`, Antelope `patchbay-antelope`.
 ///
 /// On a phone or a tablet, none: it has no device families of its own (no
 /// `PipeWire`, no Core Audio routing, no driver) and scans the LAN for no
@@ -38,18 +36,21 @@ pub(crate) fn builtin(graph: Arc<RwLock<GraphStore>>) -> Families {
         drop(graph);
         return Families::new();
     }
-    Families::new()
-        .with(SystemAudio { graph })
-        .with(AntelopeGalaxy32)
-        .with(Dante)
+    Families::new().with(SystemAudio { graph }).with(Dante)
 }
 
 /// The device families that are extensions of their own, as
 /// `(kind, label, extension id)`: what to tell someone whose config names
 /// one this process doesn't have. Each family that leaves the core adds
 /// its line (studio#410).
-const EXTENSION_FAMILIES: &[(&str, &str, &str)] =
-    &[("yamaha-tf", "Yamaha TF", "patchbay-yamaha-tf")];
+const EXTENSION_FAMILIES: &[(&str, &str, &str)] = &[
+    ("yamaha-tf", "Yamaha TF", "patchbay-yamaha-tf"),
+    (
+        "antelope-galaxy32",
+        "Antelope Galaxy32",
+        "patchbay-antelope",
+    ),
+];
 
 /// Why a configured device has no family to connect it: an extension
 /// family that isn't installed in this process, or a kind nobody knows.
@@ -85,24 +86,6 @@ impl DeviceFamily for SystemAudio {
     }
     fn connect(&self, config: DeviceConfig, _ctx: ConnectCtx) -> ConnectFuture {
         system_audio(config, Arc::clone(&self.graph))
-    }
-}
-
-/// Antelope Galaxy32 interfaces.
-struct AntelopeGalaxy32;
-
-impl DeviceFamily for AntelopeGalaxy32 {
-    fn kind(&self) -> &'static str {
-        "antelope-galaxy32"
-    }
-    fn info(&self) -> FamilyInfo {
-        linked(self.kind(), "Antelope Galaxy32", &[], true)
-    }
-    fn defaults(&self) -> Vec<DeviceConfig> {
-        vec![DeviceConfig::new("galaxy32", self.kind())]
-    }
-    fn connect(&self, config: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
-        antelope_galaxy32(config, ctx)
     }
 }
 
@@ -144,56 +127,6 @@ fn system_audio(cfg: DeviceConfig, graph: Arc<RwLock<GraphStore>>) -> ConnectFut
         };
         #[cfg(not(target_os = "macos"))]
         let adapter = super::system_audio::SystemAudioAdapter::pipewire(&cfg.name, graph);
-        let adapter: Adapter = Arc::new(adapter);
-        Ok(adapter)
-    })
-}
-
-// ── Antelope ─────────────────────────────────────────────────────────
-
-/// How long Antelope discovery listens for multicast announces.
-const ANTELOPE_DISCOVERY: Duration = Duration::from_secs(2);
-
-fn antelope_error(e: &crate::antelope::AntelopeError) -> ConnectError {
-    match e {
-        crate::antelope::AntelopeError::NotFound(_) => ConnectError::NotFound(e.to_string()),
-        _ => ConnectError::Failed(e.to_string()),
-    }
-}
-
-fn antelope_galaxy32(cfg: DeviceConfig, _ctx: ConnectCtx) -> ConnectFuture {
-    Box::pin(async move {
-        let serial = (!cfg.serial.is_empty()).then_some(cfg.serial.as_str());
-        let adapter = if cfg.addr.is_empty() {
-            crate::antelope::Galaxy32Adapter::discover_and_connect(serial, ANTELOPE_DISCOVERY)
-                .await
-                .map_err(|e| antelope_error(&e))?
-        } else {
-            // Pinned endpoint: identity still comes from the announce,
-            // so discovery runs and we pick the matching one.
-            let addr: SocketAddr = cfg
-                .addr
-                .parse()
-                .map_err(|e| ConnectError::Failed(format!("addr '{}': {e}", cfg.addr)))?;
-            let announces = crate::antelope::discover(ANTELOPE_DISCOVERY)
-                .await
-                .map_err(|e| antelope_error(&e))?;
-            let announce = announces
-                .iter()
-                .find(|a| {
-                    a.is_control()
-                        && a.socket_addr() == Some(addr)
-                        && serial.is_none_or(|s| a.serial() == Some(s))
-                })
-                .ok_or_else(|| {
-                    ConnectError::NotFound(format!(
-                        "no Antelope control endpoint announced at {addr}"
-                    ))
-                })?;
-            crate::antelope::Galaxy32Adapter::connect(addr, announce)
-                .await
-                .map_err(|e| antelope_error(&e))?
-        };
         let adapter: Adapter = Arc::new(adapter);
         Ok(adapter)
     })
@@ -296,11 +229,7 @@ mod tests {
             .into_iter()
             .map(|c| (c.name, c.kind))
             .collect();
-        let want = [
-            ("system-audio", "system-audio"),
-            ("galaxy32", "antelope-galaxy32"),
-            ("dante", "dante"),
-        ];
+        let want = [("system-audio", "system-audio"), ("dante", "dante")];
         assert_eq!(d, want.map(|(n, k)| (n.to_owned(), k.to_owned())).to_vec());
     }
 
@@ -310,6 +239,10 @@ mod tests {
         assert_eq!(
             no_family("yamaha-tf", &known),
             "the Yamaha TF extension (patchbay-yamaha-tf) is not installed in this app"
+        );
+        assert_eq!(
+            no_family("antelope-galaxy32", &known),
+            "the Antelope Galaxy32 extension (patchbay-antelope) is not installed in this app"
         );
         let unknown = no_family("theremin", &known);
         assert!(
@@ -339,7 +272,7 @@ mod tests {
             system.available,
             cfg!(any(target_os = "linux", target_os = "macos"))
         );
-        for net in ["antelope-galaxy32", "dante"] {
+        for net in ["dante"] {
             let f = infos.iter().find(|f| f.kind == net).unwrap();
             assert!(
                 f.platforms.is_empty() && f.available && f.discovers,

@@ -5,7 +5,7 @@ use serde::{Serialize, Serializer};
 use serde_json::Value;
 
 use super::framing::encode_frame;
-use crate::antelope::error::Result;
+use crate::error::Result;
 
 /// One RPC call. Keyword arguments keep insertion order so the encoded
 /// JSON is byte-identical to what the official panel sends (the server
@@ -14,7 +14,7 @@ use crate::antelope::error::Result;
 /// Writes (`set_*`) are fire-and-forget: the server sends no reply.
 /// Reads (`get_*`) are answered by a `single` frame whose header carries
 /// the method's `ext2` id and the `ext3` kwarg (the read index).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Call {
     /// Method name, e.g. `set_mixer`.
     pub method: String,

@@ -37,7 +37,9 @@ pub mod kit {
         Leaves, Params, Strip, color_hex, count_under, numbered, strips,
     };
     pub use super::devices::strip::{ChannelStrip, ParamFacts};
-    pub use super::ui::EmptyState;
+    pub use super::devices::{index_of, indexed, set_param};
+    pub use super::state::use_patchbay;
+    pub use super::ui::{Choice, ChoiceOption, EmptyState};
 }
 #[cfg(feature = "server")]
 pub(crate) use families::kinds as family_view_kinds;

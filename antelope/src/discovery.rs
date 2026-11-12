@@ -19,7 +19,7 @@ use serde_json::{Map, Value};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use tokio::net::UdpSocket;
 
-use crate::antelope::error::{AntelopeError, Result};
+use crate::error::{AntelopeError, Result};
 
 /// Multicast group of the announces.
 pub const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(239, 192, 5, 8);
@@ -31,7 +31,7 @@ pub const CONTROL_SERVICE: &str = "_antelope_control._tcp.local.";
 pub const ADMIN_SERVICE: &str = "_antelope_admin._tcp.local.";
 
 /// Device/server properties carried in an announce.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnnounceProperties {
     /// e.g. `Galaxy32`.
     #[serde(default)]
@@ -57,7 +57,7 @@ pub struct AnnounceProperties {
 }
 
 /// One multicast announce.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Announce {
     /// Address the service listens on.
     pub ip: String,
@@ -112,7 +112,7 @@ impl Announce {
     #[must_use]
     pub fn looks_live(&self) -> bool {
         // No firmware field at all: nothing to judge on, so try it.
-        self.firmware().map_or(true, |fw| {
+        self.firmware().is_none_or(|fw| {
             let fw = fw.trim();
             !fw.is_empty() && !fw.chars().all(|c| c == '0' || c == '.')
         })

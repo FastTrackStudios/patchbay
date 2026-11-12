@@ -19,9 +19,9 @@ use super::tables::{
     self, AFX_SLOTS, AFX_STRIPS, MIXER_STRIPS, MIXERS, MONITOR_OUTPUT, ROUTING_PAGES,
     ROUTING_SLOTS, ext2,
 };
-use crate::antelope::client::Client;
-use crate::antelope::error::{AntelopeError, Result};
-use crate::antelope::protocol::call::Call;
+use crate::client::Client;
+use crate::error::{AntelopeError, Result};
+use crate::protocol::call::Call;
 
 /// One mixer strip (or master) as `get_mixer` returns it and `set_mixer` takes it.
 ///

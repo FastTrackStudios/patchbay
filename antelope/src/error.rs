@@ -1,6 +1,6 @@
 //! Adapter error type.
 
-use crate::device::DeviceError;
+use patchbay::device::DeviceError;
 use thiserror::Error;
 
 /// Everything that can go wrong talking to an Antelope Manager Server.

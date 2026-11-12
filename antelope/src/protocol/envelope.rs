@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::call::Call;
-use crate::antelope::error::Result;
+use crate::error::Result;
 
 /// Header of `cyclic` / `single` frames.
 ///
@@ -38,7 +38,7 @@ impl Header {
 }
 
 /// One server frame.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ServerFrame {
     /// Periodic full device state.

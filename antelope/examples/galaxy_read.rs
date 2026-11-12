@@ -10,9 +10,9 @@
 
 use std::time::Duration;
 
-use patchbay::antelope::tables::{self, OUTPUT_PAGES, SAMPLE_RATES, SYNC_SOURCES};
-use patchbay::antelope::{Galaxy32Adapter, RouteSlot, control_endpoints, discover};
 use patchbay::device::{DeviceAdapter, ParamValue};
+use patchbay_antelope::tables::{self, OUTPUT_PAGES, SAMPLE_RATES, SYNC_SOURCES};
+use patchbay_antelope::{Galaxy32Adapter, RouteSlot, control_endpoints, discover};
 
 fn slot_label(s: RouteSlot) -> String {
     tables::source_type(s.ty).map_or_else(

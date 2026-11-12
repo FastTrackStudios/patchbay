@@ -16,7 +16,7 @@
 //! | `afx/strip/{1-32}/slot/{1-8}/effect` | Enum (index = effect type id) |
 //! | `afx/strip/{1-32}/slot/{1-8}/{field}` | Int/raw, write-only (see afx.rs) |
 
-use crate::device::{ChannelRef, Crosspoint, DeviceEvent, ParamKind, ParamValue};
+use patchbay::device::{ChannelRef, Crosspoint, DeviceEvent, ParamKind, ParamValue};
 use serde_json::Value;
 
 use super::afx::AfxCatalog;
@@ -26,11 +26,11 @@ use super::tables::{
     PAN_RIGHT, ROUTING_SLOTS, SAMPLE_RATES, SYNC_SOURCES, TRIM_CONTROL_OPTIONS, TRIM_LINE_IN,
     TRIM_REFERENCE_DBU,
 };
-use crate::antelope::protocol::call::Call;
+use crate::protocol::call::Call;
 
 /// Mixer strip field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StripField {
+pub enum StripField {
     Level,
     Pan,
     Mute,
@@ -58,7 +58,7 @@ impl StripField {
 
 /// A parsed parameter path (indices 0-based internally).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ParamPath {
+pub enum ParamPath {
     Strip {
         mixer: u8,
         ch: u8,
@@ -142,7 +142,7 @@ impl ParamPath {
 
 // ── Path builders (1-based output) ────────────────────────────────────
 
-pub(crate) fn strip_path(mixer: u8, ch: u8, f: StripField) -> String {
+pub fn strip_path(mixer: u8, ch: u8, f: StripField) -> String {
     let m = u16::from(mixer).saturating_add(1);
     if ch == tables::MIXER_MASTER {
         format!("mixer/{m}/master/{}", f.name())
@@ -151,18 +151,18 @@ pub(crate) fn strip_path(mixer: u8, ch: u8, f: StripField) -> String {
     }
 }
 
-pub(crate) fn reverb_path(mixer: u8, field: &str) -> String {
+pub fn reverb_path(mixer: u8, field: &str) -> String {
     format!(
         "mixer/{}/reverb/{field}",
         u16::from(mixer).saturating_add(1)
     )
 }
 
-pub(crate) fn trim_path(ch: u8) -> String {
+pub fn trim_path(ch: u8) -> String {
     format!("trim/line_in/{}", u16::from(ch).saturating_add(1))
 }
 
-pub(crate) fn afx_effect_path(strip: u8, slot: u8) -> String {
+pub fn afx_effect_path(strip: u8, slot: u8) -> String {
     format!(
         "afx/strip/{}/slot/{}/effect",
         u16::from(strip).saturating_add(1),
@@ -170,14 +170,14 @@ pub(crate) fn afx_effect_path(strip: u8, slot: u8) -> String {
     )
 }
 
-pub(crate) fn monitor_path(t: MonitorToggle) -> String {
+pub fn monitor_path(t: MonitorToggle) -> String {
     format!("monitor/{}", t.state_key())
 }
 
 // ── Descriptors ───────────────────────────────────────────────────────
 
 /// Static facts about a parameter.
-pub(crate) struct Descriptor {
+pub struct Descriptor {
     pub(crate) label: String,
     pub(crate) kind: ParamKind,
     pub(crate) writable: bool,
@@ -197,7 +197,7 @@ fn names(xs: &[&str]) -> Vec<String> {
 
 /// AFX effect enum options: index == effect type id (0 = none, gaps are
 /// `type N`).
-pub(crate) fn afx_options(cat: &AfxCatalog) -> Vec<String> {
+pub fn afx_options(cat: &AfxCatalog) -> Vec<String> {
     let max = cat
         .insertable()
         .filter_map(|e| e.type_id)
@@ -258,7 +258,7 @@ fn clock_descriptor(p: &ParamPath) -> Descriptor {
     }
 }
 
-pub(crate) fn describe(p: &ParamPath, afx_options: &[String]) -> Descriptor {
+pub fn describe(p: &ParamPath, afx_options: &[String]) -> Descriptor {
     let d = |label: String, kind: ParamKind| Descriptor {
         label,
         kind,
@@ -345,7 +345,7 @@ pub(crate) fn describe(p: &ParamPath, afx_options: &[String]) -> Descriptor {
 // ── Unit conversions (no `as`: search-based float → int) ─────────────
 
 /// Round a finite float to a `u8` in `lo..=hi` (clamped).
-pub(crate) fn round_clamped_u8(x: f64, lo: u8, hi: u8) -> Option<u8> {
+pub fn round_clamped_u8(x: f64, lo: u8, hi: u8) -> Option<u8> {
     if x.is_nan() {
         return None;
     }
@@ -354,7 +354,7 @@ pub(crate) fn round_clamped_u8(x: f64, lo: u8, hi: u8) -> Option<u8> {
 }
 
 /// Round a finite, non-negative float to a `u16`.
-pub(crate) fn round_u16(x: f64) -> Option<u16> {
+pub fn round_u16(x: f64) -> Option<u16> {
     if !x.is_finite() || x < 0.0 || x > f64::from(u16::MAX) {
         return None;
     }
@@ -373,12 +373,12 @@ pub(crate) fn round_u16(x: f64) -> Option<u16> {
 }
 
 /// Wire attenuation → dB (0 → 0.0, 26 → -26.0).
-pub(crate) fn attenuation_db(att: u8) -> f64 {
+pub fn attenuation_db(att: u8) -> f64 {
     -f64::from(att)
 }
 
 /// dB → wire attenuation, clamped to `0..=96` (-inf → 96).
-pub(crate) fn db_attenuation(db: f64) -> Option<u8> {
+pub fn db_attenuation(db: f64) -> Option<u8> {
     if db == f64::NEG_INFINITY {
         return Some(ATTENUATION_OFF);
     }
@@ -386,12 +386,15 @@ pub(crate) fn db_attenuation(db: f64) -> Option<u8> {
 }
 
 /// Wire pan (2..=62, 32 centre) → -1.0..=1.0.
-pub(crate) fn pan_f64(pan: u8) -> f64 {
+pub fn pan_f64(pan: u8) -> f64 {
     ((f64::from(pan) - f64::from(PAN_CENTER)) / 30.0).clamp(-1.0, 1.0)
 }
 
 /// -1.0..=1.0 → wire pan.
-pub(crate) fn f64_pan(p: f64) -> Option<u8> {
+// Not `mul_add`: a fused multiply-add rounds differently, and this is
+// the value the device is sent.
+#[allow(clippy::suboptimal_flops)]
+pub fn f64_pan(p: f64) -> Option<u8> {
     if !p.is_finite() {
         return None;
     }
@@ -403,7 +406,7 @@ pub(crate) fn f64_pan(p: f64) -> Option<u8> {
 }
 
 /// dBu → trim level (tenths assumed for `fract`).
-pub(crate) fn dbu_trim(dbu: f64) -> Option<TrimLevel> {
+pub fn dbu_trim(dbu: f64) -> Option<TrimLevel> {
     if !dbu.is_finite() || dbu > TRIM_REFERENCE_DBU {
         return None;
     }
@@ -414,7 +417,7 @@ pub(crate) fn dbu_trim(dbu: f64) -> Option<TrimLevel> {
     })
 }
 
-pub(crate) fn strip_value(field: StripField, s: super::ops::MixerStrip) -> ParamValue {
+pub fn strip_value(field: StripField, s: super::ops::MixerStrip) -> ParamValue {
     match field {
         StripField::Level => ParamValue::Level(attenuation_db(s.level)),
         StripField::Send => ParamValue::Level(attenuation_db(s.send)),
@@ -427,12 +430,12 @@ pub(crate) fn strip_value(field: StripField, s: super::ops::MixerStrip) -> Param
 // ── Router mapping ────────────────────────────────────────────────────
 
 /// Wire slot → generic source (`None` for type 18 / unknown types).
-pub(crate) fn slot_source(slot: RouteSlot) -> Option<ChannelRef> {
+pub fn slot_source(slot: RouteSlot) -> Option<ChannelRef> {
     tables::source_type(slot.ty).map(|s| ChannelRef::new(s.id, u16::from(slot.ch)))
 }
 
 /// Crosspoints of one page (only its meaningful channels).
-pub(crate) fn page_crosspoints(page: u8, slots: &[RouteSlot]) -> Vec<Crosspoint> {
+pub fn page_crosspoints(page: u8, slots: &[RouteSlot]) -> Vec<Crosspoint> {
     let Some(p) = tables::output_page(page) else {
         return Vec::new();
     };
@@ -453,7 +456,7 @@ const fn changed(path: String, value: ParamValue) -> DeviceEvent {
 }
 
 /// Params derived from cyclic state (monitor + clock).
-pub(crate) fn state_params(s: &DeviceState) -> Vec<(String, ParamValue)> {
+pub fn state_params(s: &DeviceState) -> Vec<(String, ParamValue)> {
     let mut v = vec![
         (
             "monitor/volume".to_owned(),
@@ -488,7 +491,7 @@ pub(crate) fn state_params(s: &DeviceState) -> Vec<(String, ParamValue)> {
 }
 
 /// Events for params that differ between two cyclic states.
-pub(crate) fn state_events(prev: Option<&DeviceState>, next: &DeviceState) -> Vec<DeviceEvent> {
+pub fn state_events(prev: Option<&DeviceState>, next: &DeviceState) -> Vec<DeviceEvent> {
     let old = prev.map(state_params).unwrap_or_default();
     state_params(next)
         .into_iter()
@@ -512,7 +515,7 @@ fn cell_pair(v: &Value) -> Option<(u8, u8)> {
 }
 
 /// Translate a rebroadcast write (another client's `set_*`) into events.
-pub(crate) fn notification_events(call: &Call) -> Vec<DeviceEvent> {
+pub fn notification_events(call: &Call) -> Vec<DeviceEvent> {
     let mut out = Vec::new();
     match call.method.as_str() {
         "set_mixer" => {

@@ -1,0 +1,59 @@
+[package]
+name = "patchbay-antelope"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Patchbay's Antelope family: the Galaxy32 through the Manager Server, its console view, and the extension that adds them (studio#418)"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The Manager Server protocol, its multicast discovery and the
+# DeviceFamily the engine's hub connects a Galaxy32 through.
+server = ["patchbay/server", "dep:parking_lot", "dep:serde", "dep:serde_json", "dep:socket2", "dep:tokio", "dep:tracing"]
+# The Galaxy32 console (`ui::Galaxy32Console`), registered by kind. Builds
+# for the browser remote (wasm) without `server`.
+ui = ["patchbay/ui", "dep:dioxus"]
+# The Architect extension (`ext::YamahaTf`): registers the family and its
+# view from `build`.
+extension = ["server", "ui", "patchbay/extension", "dep:architect-extensions"]
+
+[dependencies]
+patchbay = { workspace = true }
+architect-extensions = { workspace = true, optional = true, features = ["guest"] }
+dioxus = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+socket2 = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The tests drive the protocol and the adapter against an in-process fake
+# Manager Server (tests/fake_server.rs), and the extension through an
+# Architect host (tests/extension.rs): on in every test build, so `cargo
+# nextest run -p patchbay-antelope` (the core test set) runs them.
+patchbay-antelope = { path = ".", features = ["extension"] }
+# The family's tests: `ConnectCtx::in_memory()`, no engine.
+patchbay = { workspace = true, features = ["test-util"] }
+architect = { workspace = true, features = ["action-list"] }
+architect-extensions = { workspace = true, features = ["host", "linked", "process"] }
+architect-settings = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+
+[[example]]
+name = "galaxy_read"
+required-features = ["server"]
+
+[[example]]
+name = "galaxy_write_test"
+required-features = ["server"]
