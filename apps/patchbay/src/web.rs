@@ -49,27 +49,24 @@ impl PartialEq for Home {
     }
 }
 
-/// Dial one engine: a client for calls, a second link for its event
-/// streams. Used for home and — through the [`Dialer`] handed to the UI —
-/// for every other engine it switches to.
+/// Dial one engine: one connection, with a lane for calls, one for its
+/// event streams, and any device family's own section a view opens later
+/// (`EngineLink::lanes`). Used for home and — through the [`Dialer`]
+/// handed to the UI — for every other engine it switches to.
 async fn connect(url: String) -> Result<EngineLink, String> {
     tracing::info!("patchbay-web: dialing {url}");
     let link = vox_websocket::WsLink::connect(&url)
         .await
         .map_err(|e| format!("connect {url}: {e:?}"))?;
-    let client: PatchbayServiceClient = vox_core::initiator_on(link)
-        .establish()
+    let lanes = vox_core::initiator_on(link)
+        .establish_connection()
         .await
-        .map_err(|e| format!("establish service: {e:?}"))?;
-    let stream_link = vox_websocket::WsLink::connect(&url)
-        .await
-        .map_err(|e| format!("connect (stream) {url}: {e:?}"))?;
-    let stream: PatchbayServiceStreamClient = vox_core::initiator_on(stream_link)
-        .establish()
-        .await
-        .map_err(|e| format!("establish stream: {e:?}"))?;
+        .map(patchbay::lanes::Lanes::Remote)
+        .map_err(|e| format!("establish {url}: {e:?}"))?;
+    let client = lanes.open::<PatchbayServiceClient>().await?;
+    let stream = lanes.open::<PatchbayServiceStreamClient>().await?;
     tracing::info!("patchbay-web: {url} established");
-    Ok(EngineLink::new(client, stream))
+    Ok(EngineLink::new(client, stream, lanes))
 }
 
 pub fn main() {

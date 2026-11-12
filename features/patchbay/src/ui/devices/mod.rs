@@ -206,6 +206,23 @@ impl ParamWriter {
     }
 }
 
+/// A lane for a device family's own RPC section on the engine this
+/// window shows.
+///
+/// `C` is its service's client. `None` while it opens, then the client
+/// or why it could not be opened (the engine serves no such
+/// section: its family isn't installed there). A hook: call it in the
+/// component's body. A different engine (the switcher) is a different
+/// scope, so the lane follows the engine.
+#[must_use]
+pub fn use_lane<C: crate::lanes::LaneClient>() -> Resource<Result<C, String>> {
+    let lanes = use_context::<crate::lanes::Lanes>();
+    use_resource(move || {
+        let lanes = lanes.clone();
+        async move { lanes.open::<C>().await }
+    })
+}
+
 /// A [`ParamWriter`] for a console, for the device shown as it draws (a
 /// hook: call it in the component's body, use the writer in its event
 /// handlers).
@@ -1383,5 +1400,82 @@ mod writer_tests {
             shown_error.starts_with("mixer/1/level: "),
             "{shown_error:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod lane_tests {
+    //! A family's view reaches its own section through [`use_lane`],
+    //! on the lanes the window was given for the engine it shows.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use std::sync::Arc;
+
+    use super::*;
+
+    pub mod probe {
+        use crate::proto::PatchbayError;
+
+        #[architect::rpc]
+        pub trait ProbeView {
+            async fn word(&self) -> Result<String, PatchbayError>;
+        }
+    }
+
+    #[derive(Clone)]
+    struct Probe;
+
+    impl probe::ProbeView for Probe {
+        async fn word(&self) -> Result<String, crate::proto::PatchbayError> {
+            Ok("from-the-section".to_owned())
+        }
+    }
+
+    /// A family's view: its section's answer, or why there is none.
+    #[component]
+    fn SectionView() -> Element {
+        let lane = use_lane::<probe::ProbeViewClient>();
+        let mut word = use_signal(String::new);
+        use_effect(move || {
+            if let Some(Ok(client)) = lane.read().as_ref() {
+                let client = client.clone();
+                spawn(async move {
+                    let answer = client.word().await;
+                    word.set(answer.map_or_else(|e| format!("error: {e}"), |w| w));
+                });
+            }
+        });
+        let failed = match lane.read().as_ref() {
+            Some(Err(e)) => e.clone(),
+            _ => String::new(),
+        };
+        rsx! { span { "data-word": "{word}", "data-failed": "{failed}" } }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_view_opens_its_familys_section_on_the_windows_lanes() {
+        let router = architect::LayerRouter::new().with(
+            probe::probe_view_rpc_service_descriptor(),
+            probe::serve(Probe),
+        );
+        let scope = architect::Scope::new();
+        let server = Arc::new(architect::LocalServer::serve(router, Arc::clone(&scope)));
+        let doc = dioxus_test::render(SectionView)
+            .with_root_context(crate::lanes::Lanes::Local(server))
+            .build();
+        let mut shown = (String::new(), String::new());
+        for _ in 0..100 {
+            let _ = doc.pump().await;
+            let el = doc.query("[data-word]").immediately().unwrap();
+            shown = (
+                el.attribute("data-word").unwrap_or_default(),
+                el.attribute("data-failed").unwrap_or_default(),
+            );
+            if !shown.0.is_empty() || !shown.1.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(shown, ("from-the-section".to_owned(), String::new()));
     }
 }

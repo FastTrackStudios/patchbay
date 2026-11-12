@@ -194,6 +194,9 @@ enum Join {
 pub struct Engine {
     client: PatchbayServiceClient,
     stream: PatchbayServiceStreamClient,
+    /// The connection both of those are lanes on; a family's section is
+    /// another ([`Self::lanes`]).
+    lanes: crate::lanes::Lanes,
     mode: EngineMode,
     /// Set when an attached engine's event stream ends: the engine it
     /// reached is gone. Never set for an engine that runs here.
@@ -240,6 +243,13 @@ impl Engine {
     #[must_use]
     pub const fn stream_client(&self) -> &PatchbayServiceStreamClient {
         &self.stream
+    }
+
+    /// The engine's lanes: open a device family's own section
+    /// (`lanes.open::<DanteServiceClient>()`).
+    #[must_use]
+    pub const fn lanes(&self) -> &crate::lanes::Lanes {
+        &self.lanes
     }
 
     /// Where the engine runs.
@@ -380,29 +390,35 @@ fn probe_url(addr: &str) -> String {
     format!("ws://{host}:{port}/vox")
 }
 
-/// Dial the engine at `url` (`ws://host:port/vox`): its RPC and its
-/// streaming client, the two links a remote opens.
+/// Dial the engine at `url` (`ws://host:port/vox`): one connection, with
+/// its RPC and its streaming client as lanes on it, and the [`Lanes`] a
+/// family's section opens on.
+///
+/// [`Lanes`]: crate::lanes::Lanes
 ///
 /// # Errors
-/// The connection or a handshake failed.
+/// The connection, its handshake or a lane failed.
 pub async fn dial(
     url: &str,
-) -> Result<(PatchbayServiceClient, PatchbayServiceStreamClient), String> {
+) -> Result<
+    (
+        PatchbayServiceClient,
+        PatchbayServiceStreamClient,
+        crate::lanes::Lanes,
+    ),
+    String,
+> {
     let link = vox_websocket::WsLink::connect(url)
         .await
         .map_err(|e| format!("connect {url}: {e}"))?;
-    let client: PatchbayServiceClient = vox_core::initiator_on(link)
-        .establish()
+    let lanes = vox_core::initiator_on(link)
+        .establish_connection()
         .await
+        .map(crate::lanes::Lanes::Remote)
         .map_err(|e| format!("handshake with {url}: {e:?}"))?;
-    let stream_link = vox_websocket::WsLink::connect(url)
-        .await
-        .map_err(|e| format!("connect (stream) {url}: {e}"))?;
-    let stream: PatchbayServiceStreamClient = vox_core::initiator_on(stream_link)
-        .establish()
-        .await
-        .map_err(|e| format!("handshake (stream) with {url}: {e:?}"))?;
-    Ok((client, stream))
+    let client = lanes.open::<PatchbayServiceClient>().await?;
+    let stream = lanes.open::<PatchbayServiceStreamClient>().await?;
+    Ok((client, stream, lanes))
 }
 
 /// Join the engine at `url`: both links, one call only a Patchbay engine
@@ -423,14 +439,14 @@ async fn attach(url: &str) -> Result<Engine, Join> {
         Ok(Ok(_)) => {}
     }
     let probe = async {
-        let (client, stream) = dial(url).await?;
+        let (client, stream, lanes) = dial(url).await?;
         client
             .listen_address()
             .await
             .map_err(|e| format!("{url} is not a Patchbay engine: {e}"))?;
-        Ok::<_, String>((client, stream))
+        Ok::<_, String>((client, stream, lanes))
     };
-    let (client, stream) = match tokio::time::timeout(PROBE_TIMEOUT, probe).await {
+    let (client, stream, lanes) = match tokio::time::timeout(PROBE_TIMEOUT, probe).await {
         // Accepted but silent: perhaps a Patchbay between binding its
         // port and serving it.
         Err(_) => return Err(Join::NoAnswer(format!("no answer from {url}"))),
@@ -457,6 +473,7 @@ async fn attach(url: &str) -> Result<Engine, Join> {
     Ok(Engine {
         client,
         stream,
+        lanes,
         mode: EngineMode::Attached {
             url: url.to_owned(),
         },
@@ -483,7 +500,10 @@ async fn run_here(
     }
 
     let scope = architect::Scope::new();
-    let server = architect::LocalServer::serve(backend.router(), Arc::clone(&scope));
+    let server = Arc::new(architect::LocalServer::serve(
+        backend.router(),
+        Arc::clone(&scope),
+    ));
     let caller = server
         .caller()
         .await
@@ -525,6 +545,7 @@ async fn run_here(
     Ok(Engine {
         client,
         stream,
+        lanes: crate::lanes::Lanes::Local(server),
         mode: EngineMode::Owned {
             addr: opts.addr,
             serving,

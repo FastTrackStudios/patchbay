@@ -99,6 +99,17 @@ The same components draw in Architect's window (Blitz), the desktop
 WebView and the browser remote (dioxus-web). Load the `blitz-design`
 skill before UI work.
 
+- **A family's own RPC section** (`DeviceFamily::routes`, `lanes`): a
+  family that needs more than the generic device RPCs adds its own
+  `#[architect::rpc]` service to the engine's router. Every client holds
+  ONE connection per engine (`lanes::Lanes`: a vox `ConnectionHandle`
+  over a websocket, the `LocalServer` in process) and opens a lane per
+  service on it: the core's `PatchbayService` and its stream are lanes,
+  and so is a family's section (`lanes.open::<XServiceClient>()`; in a
+  view, `ui::kit::use_lane`). Never dial a second websocket for a
+  section. A family classifies each method as observing or changing:
+  when the engine's gate lands (#362), remote peers get observe by being
+  peers and change only by grant (`lanes.rs`'s module docs).
 - **No page APIs in `src/ui`.** What only the page can do (saved
   preferences, the system colour scheme, the page's chrome, a coarse
   pointer) comes from the shell as `ui::Page` (`Shell::page`). Browser
