@@ -7,6 +7,8 @@
 
 #[cfg(feature = "desktop")]
 mod desktop;
+#[cfg(any(feature = "desktop", feature = "web"))]
+mod page;
 #[cfg(feature = "web")]
 mod web;
 

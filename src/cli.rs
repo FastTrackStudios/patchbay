@@ -642,6 +642,11 @@ async fn main() -> eyre::Result<()> {
                     "dante stack: {}",
                     if dante.active { "active" } else { "inactive" }
                 );
+                let pipewire = c
+                    .engine_info()
+                    .await
+                    .map_or_else(|_| "unknown".to_owned(), |i| i.pipewire);
+                println!("pipewire: {pipewire}");
             }
         }
         Cmd::Graph => {

@@ -8,10 +8,11 @@
 //!   `patchbay.log.1`), and a raised `RLIMIT_NOFILE` (LAN discovery
 //!   probes hundreds of hosts at once; at 256 fds unrelated opens fail —
 //!   `AppKit` aborted at launch reading `SystemVersion.plist`).
-//! - **Loopback by default.** A bundled app serves RPC on
-//!   `127.0.0.1:4046` unless `PATCHBAY_ADDR` says otherwise.
-//! - **Single instance.** If something already listens on the RPC port,
-//!   a second copy exits instead of running a second engine.
+//! - **One engine.** Like every Patchbay starter, the app joins the
+//!   engine already serving this machine's listen address (loopback on
+//!   macOS unless the engine config says otherwise) instead of running a
+//!   second one; its window then shows that engine, and the permission
+//!   flow below is this app's own, not the engine's.
 //! - **Permissions.** [`AppPermissions`] runs the flow once the window is
 //!   up (touching TCC/AVFoundation while `AppKit` registers the app races
 //!   it): undecided System Audio Recording / Microphone → system prompts;
@@ -139,24 +140,6 @@ fn redirect_output_to_log() {
         // them: keep it open (dropping would close stdout/stderr again).
         let _ = file.into_raw_fd();
     }
-}
-
-/// Default RPC bind address: loopback only for the bundled app (the RPC
-/// is unauthenticated; opt into the LAN with `PATCHBAY_ADDR=0.0.0.0:4046`).
-pub fn default_addr(fallback: &'static str) -> &'static str {
-    if is_bundled() {
-        "127.0.0.1:4046"
-    } else {
-        fallback
-    }
-}
-
-/// Another Patchbay (app or `patchbay serve`) already owns `addr`.
-pub fn already_running(addr: &str) -> bool {
-    matches!(
-        std::net::TcpListener::bind(addr),
-        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse
-    )
 }
 
 // ─── Local Network ─────────────────────────────────────────────────────

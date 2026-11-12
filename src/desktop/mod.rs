@@ -17,8 +17,6 @@ use patchbay::server::{EngineOptions, IfTaken};
 #[cfg(target_os = "macos")]
 mod macos;
 
-const DEFAULT_ADDR: &str = "0.0.0.0:4046";
-
 /// The staged web bundle, compiled into the binary (`just
 /// patchbay-web-stage` copies the dx web build into `web-dist/`).
 #[cfg(feature = "embed-web")]
@@ -60,24 +58,15 @@ fn web_bundle() -> Option<WebBundle> {
     }
 }
 
-fn bind_addr() -> String {
-    // Patchbay.app defaults to loopback (the RPC is unauthenticated).
-    // `PATCHBAY_ADDR` wins, then the saved `network.bind` (set with
-    // `patchbay listen lan`), then the default.
-    #[cfg(target_os = "macos")]
-    let default = macos::default_addr(DEFAULT_ADDR);
-    #[cfg(not(target_os = "macos"))]
-    let default = DEFAULT_ADDR;
-    EngineOptions::configured_addr(default)
-}
-
 /// How this app reaches the machine's engine: it joins a Patchbay engine
-/// already serving [`bind_addr`] (an Architect app with the Patchbay
-/// extension, `patchbay serve`), or runs it here and serves it. A port
-/// held by something that is not Patchbay is logged and the engine runs
-/// unserved, as this app always did.
+/// already serving this machine's listen address
+/// (`patchbay::server::listen_addr`: the engine config decides, not this
+/// app) or runs it here and serves it. A port held by something that
+/// answers and is not Patchbay is logged and the engine runs unserved, as
+/// this app always did; one held by a Patchbay that does not answer yet is
+/// waited for, never doubled.
 fn engine_options() -> EngineOptions {
-    let mut opts = EngineOptions::new(bind_addr());
+    let mut opts = EngineOptions::machine();
     opts.web = web_bundle();
     opts.if_taken = IfTaken::RunUnserved;
     // macOS privacy permissions belong to Patchbay.app: the app answers
@@ -121,20 +110,12 @@ pub fn main() -> ExitCode {
         std::mem::forget(g);
     }
 
-    // Single instance: a second Patchbay.app (or one started next to
-    // `patchbay serve`) would fight over the RPC port.
-    #[cfg(target_os = "macos")]
-    if macos::is_bundled() && macos::already_running(&bind_addr()) {
-        tracing::error!(
-            addr = bind_addr(),
-            "another Patchbay is already serving this address; exiting"
-        );
-        return ExitCode::FAILURE;
-    }
-
     // Start or join this machine's engine before the window opens, so a
     // failure is an exit code rather than an empty window.
     patchbay::home::configure(engine_options);
+    // A WebView is a browser: preferences in `localStorage`, the system
+    // scheme followed, the page's chrome painted.
+    patchbay::home::configure_page(crate::page::browser);
     match patchbay::home::engine_blocking() {
         Ok(engine) => tracing::info!(mode = ?engine.mode(), "patchbay engine ready"),
         Err(e) => {

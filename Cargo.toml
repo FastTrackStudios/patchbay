@@ -11,6 +11,14 @@ name = "fts-patchbay"
 path = "src/main.rs"
 
 [[bin]]
+# Patchbay as a distribution of Architect (`src/app.rs`, studio#414): the
+# Patchbay extension in Architect's window. Beside `fts-patchbay` until
+# that one becomes the distribution.
+name = "patchbay-app"
+path = "src/app.rs"
+required-features = ["app"]
+
+[[bin]]
 name = "patchbay-cli"
 path = "src/cli_compat.rs"
 required-features = ["native"]
@@ -32,6 +40,10 @@ desktop = ["dioxus/desktop", "native"]
 # The browser remote. `dx build --platform web` turns this on and the
 # defaults off; the engine serves the result (see `embed-web`).
 web = ["dep:web-sys", "dioxus/web"]
+# The Patchbay distribution of Architect (`patchbay-app`): Architect's
+# window with the Patchbay extension linked in. Opt-in: it brings all of
+# Architect's app, which the WebView app and the CLIs do not need.
+app = ["native", "dep:architect-desktop", "architect-desktop/gui", "patchbay/extension"]
 # Compile the staged web bundle (web-dist/, `just patchbay-web-stage`)
 # into the desktop binary.
 embed-web = ["dep:include_dir", "desktop"]
@@ -45,6 +57,7 @@ vox-websocket.workspace = true
 tracing.workspace = true
 
 architect = { workspace = true, features = ["vox", "local", "host", "server-axum"], optional = true }
+architect-desktop = { workspace = true, optional = true }
 # Console logs plus OTLP export of traces/logs/metrics when
 # OTEL_EXPORTER_OTLP_ENDPOINT is set — every FTS process exports (W10).
 architect-telemetry = { workspace = true, features = ["otel"], optional = true }
@@ -54,6 +67,22 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 include_dir = { workspace = true, optional = true }
+
+[dev-dependencies]
+# examples/blitz_shot.rs: the views drawn by Blitz, as Architect's window
+# draws them, into pictures.
+anyrender = { workspace = true }
+anyrender_vello = { workspace = true }
+blitz-dom = { workspace = true }
+blitz-paint = { workspace = true }
+blitz-traits = { workspace = true }
+dioxus-native = { workspace = true }
+dioxus-native-dom = { workspace = true }
+image = { workspace = true }
+
+[[example]]
+name = "blitz_shot"
+required-features = ["native"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { workspace = true, features = ["Window", "Location"], optional = true }

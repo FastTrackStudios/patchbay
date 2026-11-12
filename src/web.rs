@@ -150,6 +150,7 @@ fn Connected(home: Home, on_lost: EventHandler<()>) -> Element {
         home: home.0.clone(),
         dial: Some(Dialer(Rc::new(|url| Box::pin(connect(url))))),
         on_home_lost: Callback::new(move |()| on_lost.call(())),
+        page: crate::page::browser(),
     });
     rsx! {
         PatchbayApp {}
