@@ -140,6 +140,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: LatencyCmd,
     },
+    /// The device families this engine can connect: config kind, label,
+    /// platforms, and whether each runs here.
+    Families,
     /// External hardware (Antelope Galaxy32, …): list, params, routing,
     /// named snapshots. See `patchbay device --help`.
     Device {
@@ -707,6 +710,29 @@ async fn main() -> eyre::Result<()> {
                     println!("request in progress:    yes");
                 }
                 println!("{}", status.note);
+            }
+        }
+        Cmd::Families => {
+            let families = ok_or_msg(c.families().await)?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&families)?);
+            } else {
+                for f in &families {
+                    let platforms = if f.platforms.is_empty() {
+                        "every platform".to_owned()
+                    } else {
+                        f.platforms.join(", ")
+                    };
+                    let here = if f.available {
+                        "runs here".to_owned()
+                    } else {
+                        format!("not here: {}", f.unavailable)
+                    };
+                    println!(
+                        "{:<20} {:<20} {} ({platforms}; {here})",
+                        f.kind, f.label, f.origin
+                    );
+                }
             }
         }
         Cmd::Health { strict } => {
