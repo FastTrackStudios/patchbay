@@ -65,6 +65,9 @@ fn js_str(s: &str) -> String {
 pub fn browser() -> Page {
     Page {
         native: false,
+        // A browser is served by the engine it draws: never a controller's
+        // own (`patchbay-ios`).
+        controller: false,
         load: Some(Rc::new(|key: &'static str| {
             let js = format!(
                 r#"try {{ return localStorage.getItem({}) || ""; }} catch (_) {{ return ""; }}"#,
