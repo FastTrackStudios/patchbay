@@ -4,7 +4,11 @@
 //!
 //! A client (the window, the browser remote, a phone, the CLI) holds one
 //! [`Lanes`] per engine and opens a typed client for whichever section it
-//! needs: `lanes.open::<DanteServiceClient>()`. Over a websocket that is
+//! needs: `lanes.open::<DanteServiceClient>()`. A family's view does it by
+//! its kind (`ui::kit::use_family_lane::<C>(kind)`), which first asks the
+//! engine shown whether it runs that family: a phone, which runs none,
+//! draws another machine's family that way, and an engine without it
+//! reads as "not here". Over a websocket that is
 //! a vox lane on the one connection (`ConnectionHandle::open_lane`); for
 //! an engine in this process it is a lane on its `LocalServer`. A section
 //! the engine doesn't serve (its family isn't installed there) fails to

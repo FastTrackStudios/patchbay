@@ -106,7 +106,7 @@ skill before UI work.
   over a websocket, the `LocalServer` in process) and opens a lane per
   service on it: the core's `PatchbayService` and its stream are lanes,
   and so is a family's section (`lanes.open::<XServiceClient>()`; in a
-  view, `ui::kit::use_lane`). Never dial a second websocket for a
+  view, `ui::kit::use_family_lane`). Never dial a second websocket for a
   section. A family classifies each method as observing or changing:
   when the engine's gate lands (#362), remote peers get observe by being
   peers and change only by grant (`lanes.rs`'s module docs).

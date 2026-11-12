@@ -4,7 +4,7 @@
 //!
 //! A test family adds a `ProbeSection` (`echo`) to the engine's router.
 //! The engine runs here, on a free loopback port, with a scratch config,
-//! the device layer and `PipeWire` off: nothing touches the machine. One
+//! the device layer, `PipeWire` and the LAN off (`PATCHBAY_LAN=off`). One
 //! test function: the engine and the family registrations are one per
 //! process.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -83,6 +83,7 @@ fn a_familys_section_is_a_lane_on_the_one_connection_here_and_remote() {
         std::env::set_var("PATCHBAY_CONFIG", tmp.path().join("patchbay.styx"));
         std::env::set_var("PATCHBAY_DEVICES", "off");
         std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        std::env::set_var("PATCHBAY_LAN", "off");
     }
     let _ = patchbay::family::register(Arc::new(ProbeFamily));
     let mut opts = EngineOptions::new("127.0.0.1:0");

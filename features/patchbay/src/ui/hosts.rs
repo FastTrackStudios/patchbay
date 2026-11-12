@@ -46,6 +46,12 @@ const PEER_RETRY_POLLS: u32 = 6;
 /// Backstop for anything the event stream dropped.
 const RECONCILE_SECS: u64 = 10;
 
+/// The live engine's lanes, in context for `ui::kit::use_family_lane`
+/// only: crate-private, so a family's view can't take them and open the
+/// core's own service.
+#[derive(Clone)]
+pub(crate) struct SectionLanes(pub(crate) crate::lanes::Lanes);
+
 /// A connection to one engine: calls, and the lane its event streams
 /// are pumped on.
 #[derive(Clone)]
@@ -53,7 +59,7 @@ pub struct EngineLink {
     pub(crate) handle: PatchbayHandle,
     pub(crate) stream: Rc<PatchbayServiceStreamClient>,
     /// The connection those two are lanes on: a device family's view
-    /// opens its own section here (`ui::kit::use_lane`).
+    /// opens its own section here (`ui::kit::use_family_lane`).
     pub(crate) lanes: crate::lanes::Lanes,
 }
 
@@ -368,8 +374,9 @@ fn EngineScope(props: EngineScopeProps) -> Element {
     // Before anything under this reads a mirror.
     use_hook(reset);
     use_context_provider(|| link.handle.clone());
-    // A family's view opens its own section on the same connection.
-    use_context_provider(|| link.lanes.clone());
+    // A family's view opens its own section on the same connection, and
+    // only that: the kit's `use_family_lane` reads this, a family can't.
+    use_context_provider(|| SectionLanes(link.lanes.clone()));
 
     // Initial snapshot + graph events → the mirrors. When the stream
     // ends the connection is gone: home tells its shell, a peer hands

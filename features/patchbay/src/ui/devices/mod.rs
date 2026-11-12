@@ -206,20 +206,50 @@ impl ParamWriter {
     }
 }
 
-/// A lane for a device family's own RPC section on the engine this
-/// window shows.
+/// A device family's own RPC section on the engine this window shows,
+/// as its views see it.
+#[derive(Clone)]
+pub enum FamilyLane<C> {
+    /// The section's client.
+    Ready(C),
+    /// The engine shown has no family of this kind: a joined engine (a
+    /// phone looking at another machine, or a machine without the
+    /// extension) that doesn't run it. The view says so; nothing to
+    /// retry.
+    NotHere,
+    /// It has the family, and the lane could not be opened.
+    Failed(String),
+}
+
+/// The section of family `kind` on the engine this window shows.
 ///
-/// `C` is its service's client. `None` while it opens, then the client
-/// or why it could not be opened (the engine serves no such
-/// section: its family isn't installed there). A hook: call it in the
-/// component's body. A different engine (the switcher) is a different
-/// scope, so the lane follows the engine.
+/// `C` is its service's client. `None` while it is asked, then
+/// [`FamilyLane`]. Keyed by the kind the views are registered for, so a
+/// phone, which runs no families, still draws another machine's family
+/// through its lane. A hook: call it in the component's body. Another
+/// engine (the switcher) is another scope, so the lane follows the
+/// engine.
 #[must_use]
-pub fn use_lane<C: crate::lanes::LaneClient>() -> Resource<Result<C, String>> {
-    let lanes = use_context::<crate::lanes::Lanes>();
+pub fn use_family_lane<C: crate::lanes::LaneClient>(kind: &'static str) -> Resource<FamilyLane<C>> {
+    let lanes = use_context::<crate::ui::hosts::SectionLanes>();
+    let handle = state::use_patchbay();
     use_resource(move || {
         let lanes = lanes.clone();
-        async move { lanes.open::<C>().await }
+        let handle = handle.clone();
+        async move {
+            match handle.0.families().await {
+                Ok(families) if !families.iter().any(|f| f.kind == kind) => {
+                    return FamilyLane::NotHere;
+                }
+                Ok(_) => {}
+                Err(e) => return FamilyLane::Failed(format!("families: {e}")),
+            }
+            lanes
+                .0
+                .open::<C>()
+                .await
+                .map_or_else(FamilyLane::Failed, FamilyLane::Ready)
+        }
     })
 }
 
@@ -1405,13 +1435,16 @@ mod writer_tests {
 
 #[cfg(test)]
 mod lane_tests {
-    //! A family's view reaches its own section through [`use_lane`],
-    //! on the lanes the window was given for the engine it shows.
+    //! A family's view reaches its own section through
+    //! [`use_family_lane`], by its kind, on the lanes the window was given
+    //! for the engine it shows; an engine without that family says so.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use std::sync::Arc;
 
     use super::*;
+    use crate::family::{ConnectCtx, ConnectError, ConnectFuture, DeviceFamily};
+    use crate::proto::{DeviceConfig, FamilyInfo, PatchbayServiceClient};
 
     pub mod probe {
         use crate::proto::PatchbayError;
@@ -1431,13 +1464,36 @@ mod lane_tests {
         }
     }
 
-    /// A family's view: its section's answer, or why there is none.
-    #[component]
-    fn SectionView() -> Element {
-        let lane = use_lane::<probe::ProbeViewClient>();
+    /// A family with a section and no devices.
+    struct ProbeFamily;
+
+    impl DeviceFamily for ProbeFamily {
+        fn kind(&self) -> &'static str {
+            "probe-view"
+        }
+
+        fn info(&self) -> FamilyInfo {
+            FamilyInfo::linked("probe-view", "Probe", &[], false)
+        }
+
+        fn routes(&self, router: architect::LayerRouter) -> architect::LayerRouter {
+            router.with(
+                probe::probe_view_rpc_service_descriptor(),
+                probe::serve(Probe),
+            )
+        }
+
+        fn connect(&self, _config: DeviceConfig, _ctx: ConnectCtx) -> ConnectFuture {
+            Box::pin(async { Err(ConnectError::NotFound(String::new())) })
+        }
+    }
+
+    /// A family's view: its section's answer, or what the lane says.
+    fn section_view(kind: &'static str) -> Element {
+        let lane = use_family_lane::<probe::ProbeViewClient>(kind);
         let mut word = use_signal(String::new);
         use_effect(move || {
-            if let Some(Ok(client)) = lane.read().as_ref() {
+            if let Some(FamilyLane::Ready(client)) = lane.read().as_ref() {
                 let client = client.clone();
                 spawn(async move {
                     let answer = client.word().await;
@@ -1445,37 +1501,83 @@ mod lane_tests {
                 });
             }
         });
-        let failed = match lane.read().as_ref() {
-            Some(Err(e)) => e.clone(),
-            _ => String::new(),
+        let state = match lane.read().as_ref() {
+            None => "asking".to_owned(),
+            Some(FamilyLane::Ready(_)) => "ready".to_owned(),
+            Some(FamilyLane::NotHere) => "not-here".to_owned(),
+            Some(FamilyLane::Failed(e)) => format!("failed: {e}"),
         };
-        rsx! { span { "data-word": "{word}", "data-failed": "{failed}" } }
+        rsx! { span { "data-word": "{word}", "data-state": "{state}" } }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_view_opens_its_familys_section_on_the_windows_lanes() {
-        let router = architect::LayerRouter::new().with(
-            probe::probe_view_rpc_service_descriptor(),
-            probe::serve(Probe),
-        );
-        let scope = architect::Scope::new();
-        let server = Arc::new(architect::LocalServer::serve(router, Arc::clone(&scope)));
-        let doc = dioxus_test::render(SectionView)
-            .with_root_context(crate::lanes::Lanes::Local(server))
-            .build();
-        let mut shown = (String::new(), String::new());
-        for _ in 0..100 {
-            let _ = doc.pump().await;
-            let el = doc.query("[data-word]").immediately().unwrap();
-            shown = (
+    #[component]
+    fn ProbeKind() -> Element {
+        section_view("probe-view")
+    }
+
+    #[component]
+    fn AbsentKind() -> Element {
+        section_view("dante-on-another-machine")
+    }
+
+    async fn shown(
+        doc: &dioxus_test::DocumentTester,
+        until: impl Fn(&str, &str) -> bool,
+    ) -> (String, String) {
+        let mut seen = (String::new(), String::new());
+        for _ in 0..250 {
+            doc.drain();
+            let el = doc.query("[data-state]").immediately().unwrap();
+            seen = (
+                el.attribute("data-state").unwrap_or_default(),
                 el.attribute("data-word").unwrap_or_default(),
-                el.attribute("data-failed").unwrap_or_default(),
             );
-            if !shown.0.is_empty() || !shown.1.is_empty() {
+            if until(&seen.0, &seen.1) {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        assert_eq!(shown, ("from-the-section".to_owned(), String::new()));
+        seen
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_view_opens_its_familys_section_by_kind_and_hears_when_the_engine_has_none() {
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: before the backend reads them (nextest runs each test
+        // in a process of its own).
+        unsafe {
+            std::env::set_var("PATCHBAY_CONFIG", dir.path().join("patchbay.styx"));
+            std::env::set_var("PATCHBAY_DEVICES", "off");
+            std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+            std::env::set_var("PATCHBAY_LAN", "off");
+        }
+        let _ = crate::family::register(Arc::new(ProbeFamily));
+        let backend = crate::server::PatchbayBackend::new();
+        let scope = architect::Scope::new();
+        let server = Arc::new(architect::LocalServer::serve(
+            backend.router(),
+            Arc::clone(&scope),
+        ));
+        let client = PatchbayServiceClient::new(server.caller().await.unwrap());
+        let lanes = crate::lanes::Lanes::Local(Arc::clone(&server));
+
+        let here = dioxus_test::render(ProbeKind)
+            .with_root_context(PatchbayHandle(Arc::new(client.clone())))
+            .with_root_context(crate::ui::hosts::SectionLanes(lanes.clone()))
+            .build();
+        assert_eq!(
+            shown(&here, |_, word| !word.is_empty()).await,
+            ("ready".to_owned(), "from-the-section".to_owned())
+        );
+
+        let absent = dioxus_test::render(AbsentKind)
+            .with_root_context(PatchbayHandle(Arc::new(client)))
+            .with_root_context(crate::ui::hosts::SectionLanes(lanes))
+            .build();
+        assert_eq!(
+            shown(&absent, |state, _| state != "asking").await,
+            ("not-here".to_owned(), String::new())
+        );
+        drop((scope, backend));
     }
 }
