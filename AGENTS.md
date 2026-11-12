@@ -58,8 +58,10 @@ extension per device family, packaged as its own distribution
 - `PATCHBAY_LAN=off` keeps a process off the local network (`lan.rs`):
   no peer mDNS, no Dante browse or ARC, no Antelope multicast join, no
   TF subnet sweep; each refuses at its lowest point. A device pinned to
-  an address (a fake on loopback in tests) is still connected. **Every
-  test that starts an engine, or calls a family's discovery, sets it**
+  an address (a fake on loopback in tests) is still connected. Under
+  nextest it is off unless a test says `PATCHBAY_LAN=on` (a deliberate
+  live run), so a forgotten switch still sends nothing; **every test that
+  starts an engine, or calls a family's discovery, sets it** anyway
   beside `PATCHBAY_PIPEWIRE=off`, `PATCHBAY_DEVICES=off` where it can,
   and a scratch `PATCHBAY_CONFIG`; a test must never put a multicast
   join, an mDNS query or a fake announce on the LAN.
