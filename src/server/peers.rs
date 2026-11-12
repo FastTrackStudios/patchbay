@@ -74,7 +74,9 @@ impl Peers {
                 }
                 Err(e) => tracing::warn!("peer advertise failed: {e}"),
             }
-        } else {
+        } else if !cfg!(target_os = "ios") {
+            // A phone's engine is never advertised, on purpose
+            // (`patchbay-ios`): nothing to open, nothing to say.
             "this engine is this-machine-only, so other engines can't discover it \
              (Settings → Network opens it)"
                 .clone_into(&mut note);

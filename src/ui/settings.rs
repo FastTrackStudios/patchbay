@@ -89,6 +89,10 @@ pub fn SettingsView() -> Element {
     let macos = perms.platform == "macos";
     // The graph clock only exists where there is a graph.
     let has_graph = state::has_graph();
+    // A controller's own engine serves no one: nothing to open to the
+    // network until another machine's engine is live.
+    let own_controller =
+        crate::ui::page::use_page().controller && crate::ui::hosts::LIVE.read().is_none();
 
     rsx! {
         div { class: "view-head",
@@ -99,7 +103,9 @@ pub fn SettingsView() -> Element {
         div { class: "view-body settings-body",
             crate::ui::appearance::AppearanceSection {}
             Hosts {}
-            Network { listen }
+            if !own_controller {
+                Network { listen }
+            }
             if macos {
                 Permissions { perms }
                 Driver { driver }
@@ -116,6 +122,24 @@ pub fn SettingsView() -> Element {
                     crate::ui::panels::LatencyPanel {}
                 }
             }
+        }
+    }
+}
+
+/// What a controller (a phone, `Page::controller`) shows on Route and
+/// Mix until it works on another machine: the hosts it knows, the ones
+/// found on the network, and a field to add one by name.
+#[component]
+pub fn ConnectView() -> Element {
+    let error = ERROR.read().clone();
+    rsx! {
+        div { class: "view-head",
+            span { class: "view-title", "Connect" }
+            span { class: "view-sub", "the machines whose routing this device controls" }
+        }
+        ErrorBar { message: error, on_dismiss: move |()| ERROR.write().clear() }
+        div { class: "view-body settings-body",
+            Hosts {}
         }
     }
 }
@@ -152,6 +176,9 @@ fn Hosts() -> Element {
     let book = crate::ui::hosts::BOOK.read().clone();
     let peers = crate::ui::hosts::PEERS.read().clone();
     let can_dial = shell.dial.is_some();
+    // A controller's own engine keeps only the list: it is not a machine
+    // anyone works on, and every reachable host can be opened from here.
+    let controller = shell.page.controller;
     let add = {
         let home = home.clone();
         move || {
@@ -166,16 +193,27 @@ fn Hosts() -> Element {
     rsx! {
         section { class: "settings-section",
             h3 { class: "section-label", "Hosts" }
-            p { class: "dim-note",
-                "Other machines running Patchbay. Their devices appear in the rail's switcher, and "
-                "picking one makes that machine's engine the one you are working on. This window "
-                "connects to each of them directly, so each has to be open to the network."
-            }
-            div { class: "setting-row",
-                StatusDot { status: Status::Ok, title: "connected".to_owned() }
-                div { class: "setting-text",
-                    span { class: "setting-title", "{book.this}" }
-                    span { class: "dim-note", "this engine — where this window's host list is kept" }
+            if controller {
+                p { class: "dim-note",
+                    "Machines running Patchbay, found on this network or added by name. Open one to "
+                    "see and change its routing. This device connects to each of them directly, so "
+                    "each has to be open to the network (its Settings → Network)."
+                }
+                if book.hosts.is_empty() {
+                    p { class: "dim-note", "No machine found yet. Add one by its name or address below." }
+                }
+            } else {
+                p { class: "dim-note",
+                    "Other machines running Patchbay. Their devices appear in the rail's switcher, and "
+                    "picking one makes that machine's engine the one you are working on. This window "
+                    "connects to each of them directly, so each has to be open to the network."
+                }
+                div { class: "setting-row",
+                    StatusDot { status: Status::Ok, title: "connected".to_owned() }
+                    div { class: "setting-text",
+                        span { class: "setting-title", "{book.this}" }
+                        span { class: "dim-note", "this engine — where this window's host list is kept" }
+                    }
                 }
             }
             for h in book.hosts.iter() {
@@ -189,6 +227,8 @@ fn Hosts() -> Element {
                     };
                     let home = home.clone();
                     let addr = h.addr.clone();
+                    let open = addr.clone();
+                    let linked = peer.is_some_and(|p| p.link.is_some());
                     rsx! {
                         div { class: "setting-row", key: "{h.addr}",
                             StatusDot { status, title: state.clone() }
@@ -198,6 +238,14 @@ fn Hosts() -> Element {
                             }
                             if h.discovered {
                                 span { class: "mix-badge live", "on the network" }
+                            }
+                            if controller && linked {
+                                button {
+                                    class: "chip",
+                                    title: "Work on this machine's routing",
+                                    onclick: move |_| crate::ui::hosts::go_live(Some(open.clone()), None),
+                                    "open"
+                                }
                             }
                             if h.saved {
                                 crate::ui::ui::ConfirmButton {
@@ -216,6 +264,9 @@ fn Hosts() -> Element {
                         }
                     }
                 }
+            }
+            if controller {
+                p { class: "dim-note", "Add a machine: its name or address, as thebattleship.local or 192.168.1.20." }
             }
             div { class: "setting-row",
                 input {

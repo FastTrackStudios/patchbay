@@ -29,10 +29,14 @@ pub fn configure_page(page: fn() -> Page) {
 /// Architect's window (Blitz): no JavaScript, so preferences live in a
 /// file beside the engine's config ([`crate::server::ui_prefs_path`]),
 /// the scheme is the default, and the page says it is native.
+///
+/// On a phone or a tablet it is also a controller: the engine there has no
+/// device families (`server::devices::registry::builtin`).
 #[must_use]
 pub fn native_page() -> Page {
     Page {
         native: true,
+        controller: cfg!(target_os = "ios"),
         load: Some(Rc::new(|key: &'static str| {
             let value = read_prefs().remove(key);
             Box::pin(async move { value })

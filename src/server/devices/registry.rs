@@ -26,7 +26,16 @@ use crate::server::store::GraphStore;
 /// The families compiled into the engine, in the order of the default
 /// device list (all four, each auto-discovered). `graph` is the `PipeWire`
 /// graph mirror, system audio's source off macOS.
+///
+/// On a phone or a tablet, none: it has no device families of its own (no
+/// `PipeWire`, no Core Audio routing, no driver) and scans the LAN for no
+/// console or interface. Patchbay there is a controller of the engines on
+/// other machines (`patchbay-ios`, studio#466).
 pub(crate) fn builtin(graph: Arc<RwLock<GraphStore>>) -> Families {
+    if cfg!(target_os = "ios") {
+        drop(graph);
+        return Families::new();
+    }
     Families::new()
         .with(SystemAudio { graph })
         .with(AntelopeGalaxy32)

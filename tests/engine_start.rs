@@ -7,6 +7,8 @@
 //!   waited for and then refused: never a second engine.
 //! - Only a holder that answers and is not Patchbay lets `RunUnserved`
 //!   run the engine unserved.
+//! - Port 0 (any free port: a phone's engine) is taken at once: there is
+//!   no engine there to join, so no join deadline to sit out.
 //!
 //! A binary of its own, so no other test's threads move the count
 //! (nextest runs each test in a process of its own).
@@ -139,4 +141,33 @@ fn a_holder_that_is_not_patchbay_runs_the_engine_unserved_only_when_asked() {
             serving: false
         }
     );
+}
+
+#[test]
+fn port_zero_starts_at_once_without_a_join() {
+    // SAFETY: before any thread of this test process reads it.
+    unsafe {
+        std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+        std::env::set_var("PATCHBAY_DEVICES", "off");
+        std::env::set_var(
+            "PATCHBAY_CONFIG",
+            std::env::temp_dir().join(format!("pb-port-zero-{}.styx", std::process::id())),
+        );
+    }
+    let mut opts = EngineOptions::new("127.0.0.1:0");
+    opts.discover_peers = false;
+    // A join attempt at port 0 can only fail; waiting it out would cost
+    // the whole deadline.
+    opts.join_deadline = Duration::from_secs(30);
+    let started = std::time::Instant::now();
+    let engine = Engine::start_or_attach_blocking(opts).unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "port 0 took {:?} to start",
+        started.elapsed()
+    );
+    assert!(matches!(
+        engine.mode(),
+        EngineMode::Owned { serving: true, .. }
+    ));
 }

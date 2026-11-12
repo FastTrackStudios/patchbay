@@ -313,6 +313,17 @@ pub fn runtime() -> Result<&'static tokio::runtime::Runtime, EngineError> {
 }
 
 async fn start_or_attach_here(opts: EngineOptions) -> Result<Engine, EngineError> {
+    // Port 0 is any free port (a phone's engine, `patchbay-ios`): no
+    // engine can be waiting there to be joined, so take one at once.
+    if crate::server::net::port_of(&opts.addr) == 0 {
+        let listener = tokio::net::TcpListener::bind(&opts.addr)
+            .await
+            .map_err(|e| EngineError::AddressTaken {
+                addr: opts.addr.clone(),
+                detail: e.to_string(),
+            })?;
+        return run_here(opts, Some(listener)).await;
+    }
     let url = probe_url(&opts.addr);
     let started = tokio::time::Instant::now();
     loop {

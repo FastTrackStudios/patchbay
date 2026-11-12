@@ -72,6 +72,12 @@ impl DanteEndpoints {
     /// Devices that answer mDNS but not ARC come back `unreachable`
     /// (still visible in the grid, greyed).
     pub async fn network(&self) -> Result<Vec<DanteDevice>, PatchbayError> {
+        // A phone's engine is a controller's address book: it reaches a
+        // Dante network through the engine of a machine on it, never
+        // scans one itself (`devices::registry::builtin`).
+        if cfg!(target_os = "ios") {
+            return Ok(Vec::new());
+        }
         let found = crate::dante::scan(&self.control, crate::dante::DISCOVER_TIMEOUT)
             .await
             .map_err(|e| internal(&e))?;

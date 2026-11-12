@@ -13,7 +13,7 @@ use crate::ui::icons::{ContextIcon, Mark, ViewIcon};
 use crate::ui::pages::{MixPage, RoutePage};
 use crate::ui::panels::StatusBar;
 use crate::ui::scenes::ScenesView;
-use crate::ui::settings::SettingsView;
+use crate::ui::settings::{ConnectView, SettingsView};
 use crate::ui::state::{ARMED_OUTPUTS, VIEW, View};
 use crate::ui::ui::{Status, StatusDot};
 
@@ -50,7 +50,11 @@ fn Workspace() -> Element {
             }
         }
     });
-    let native = crate::ui::page::use_page().native;
+    let page = crate::ui::page::use_page();
+    let native = page.native;
+    // A controller has nothing of its own to route or mix: until another
+    // machine's engine is live, those pages are the hosts to connect to.
+    let connect = page.controller && hosts::LIVE.read().is_none();
     rsx! {
         document::Style { {crate::ui::theme::CSS} }
         if native {
@@ -81,6 +85,7 @@ fn Workspace() -> Element {
                 div { class: "main-col",
                     div { class: "view-outlet",
                         match view {
+                            View::Route | View::Mix if connect => rsx! { ConnectView {} },
                             View::Route => rsx! { RoutePage {} },
                             View::Mix => rsx! { MixPage {} },
                             View::Scenes => rsx! { ScenesView {} },

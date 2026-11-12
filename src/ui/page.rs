@@ -27,6 +27,10 @@ pub type SavePref = Rc<dyn Fn(&'static str, String)>;
 pub struct Page {
     /// Drawn by Blitz (Architect's window) rather than a browser.
     pub native: bool,
+    /// Its home engine has no device families of its own (a phone or a
+    /// tablet): it is a controller of other machines' engines, and Route
+    /// and Mix offer the hosts to connect to until one of them is live.
+    pub controller: bool,
     /// Read a saved preference (`None`: never saved).
     pub load: Option<LoadPref>,
     /// Save a preference.
