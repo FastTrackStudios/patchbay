@@ -1,21 +1,21 @@
-//! Route and Mix — the two things you do, dispatched on the device you
-//! are doing them to (`crate::ui::devices::context`).
+//! Route and Mix — the two things you do, drawn by the family of the
+//! device you are doing them to (`crate::ui::devices::context`).
+//!
+//! Each family registers its views by config `kind`
+//! ([`crate::ui::families`]); a kind that registered none gets the
+//! generic device view. The built-ins today:
 //!
 //! |            | Route                                   | Mix                 |
 //! |------------|-----------------------------------------|---------------------|
 //! | System     | apps → devices (macOS), the graph (Linux) | host mixes        |
 //! | Dante      | the subscription grid                   | — it only routes    |
-//! | a console  | its router                              | strips, mixers, …   |
-//!
-//! The views themselves are unchanged and know nothing about this; the
-//! table above is all this module is.
+//! | a console  | its router (generic)                    | strips, mixers, …   |
 
 use dioxus::prelude::*;
 
 use crate::ui::canvas::GraphCanvas;
-use crate::ui::dante_grid::DanteGrid;
-use crate::ui::devices::{self, ContextTag, DeviceMix, DeviceRoute, KIND_DANTE, KIND_SYSTEM};
-use crate::ui::mixes::MixesView;
+use crate::ui::devices::{self, ContextTag, DeviceMix, DeviceRoute, KIND_SYSTEM};
+use crate::ui::families;
 use crate::ui::now::NowView;
 use crate::ui::panels::{SidePanel, Toolbar};
 use crate::ui::state::{self, PANEL_OPEN};
@@ -30,39 +30,66 @@ fn context_kind() -> String {
 
 #[component]
 pub fn RoutePage() -> Element {
-    match context_kind().as_str() {
-        // Where there is a PipeWire graph it IS the system's routing; on
-        // macOS that job belongs to which device each app plays to.
-        KIND_SYSTEM if state::has_graph_now() => rsx! { GraphRoute {} },
-        KIND_SYSTEM => rsx! {
-            NowView {}
-            devices::SystemDrawer {}
-        },
-        KIND_DANTE => rsx! { DanteGrid {} },
-        _ => rsx! { DeviceRoute {} },
-    }
+    let kind = context_kind();
+    // Keyed on the kind: another family's view is another component, so
+    // its hooks start fresh rather than inheriting the last one's.
+    rsx! { FamilyRoute { key: "{kind}", kind } }
 }
 
 #[component]
 pub fn MixPage() -> Element {
-    match context_kind().as_str() {
-        KIND_SYSTEM => rsx! { MixesView {} },
-        KIND_DANTE => rsx! {
-            div { class: "view-head",
-                span { class: "view-title", "Mix" }
-                ContextTag {}
-            }
-            div { class: "view-body",
-                EmptyState { title: "Dante only routes",
-                    p {
-                        "A Dante network carries channels from transmitters to receivers "
-                        "unchanged — there are no levels to set on it. Mixing happens on "
-                        "the devices at either end: pick one in the rail."
-                    }
+    let kind = context_kind();
+    rsx! { FamilyMix { key: "{kind}", kind } }
+}
+
+/// The Route page for `kind`: its family's view, or the generic one.
+#[component]
+pub fn FamilyRoute(kind: String) -> Element {
+    families::views(&kind)
+        .and_then(|v| v.route)
+        .map_or_else(|| rsx! { DeviceRoute {} }, |view| view())
+}
+
+/// The Mix page for `kind`: its family's view, or the generic one.
+#[component]
+pub fn FamilyMix(kind: String) -> Element {
+    families::views(&kind)
+        .and_then(|v| v.mix)
+        .map_or_else(|| rsx! { DeviceMix {} }, |view| view())
+}
+
+/// The system's Route page: where there is a `PipeWire` graph it IS the
+/// system's routing; on macOS that job belongs to which device each app
+/// plays to.
+#[component]
+pub fn SystemRoute() -> Element {
+    if state::has_graph_now() {
+        rsx! { GraphRoute {} }
+    } else {
+        rsx! {
+            NowView {}
+            devices::SystemDrawer {}
+        }
+    }
+}
+
+/// The Mix page of a family that only routes (the Dante network).
+#[component]
+pub fn OnlyRoutes() -> Element {
+    rsx! {
+        div { class: "view-head",
+            span { class: "view-title", "Mix" }
+            ContextTag {}
+        }
+        div { class: "view-body",
+            EmptyState { title: "Dante only routes",
+                p {
+                    "A Dante network carries channels from transmitters to receivers "
+                    "unchanged — there are no levels to set on it. Mixing happens on "
+                    "the devices at either end: pick one in the rail."
                 }
             }
-        },
-        _ => rsx! { DeviceMix {} },
+        }
     }
 }
 

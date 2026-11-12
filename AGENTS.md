@@ -76,6 +76,11 @@ skill before UI work.
   shells give `apps/patchbay/src/page.rs` (JavaScript, `localStorage`);
   Architect's window gives `home::native_page` (prefs in `ui.json` beside
   the engine config). No `document::eval` in `src/ui`.
+- **Family views by kind** (`ui::families`): the Route and Mix pages and
+  the device console draw the view the selected device's family
+  registered (`FamilyViews { route, mix, console }`), each in a component
+  keyed on the kind; a kind with none gets the generic device view. Never
+  match on a kind in a page: register.
 - **Controls Blitz can draw.** `ui::ui::Choice` instead of `<select>`,
   `ui::ui::Slider` instead of `<input type=range>` (`on_input` live,
   `on_commit` on release), `ui::ui::TextField` (commit on Enter/blur)

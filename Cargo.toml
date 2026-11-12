@@ -48,6 +48,8 @@ vox-core = { workspace = true, optional = true }
 vox-websocket = { workspace = true, optional = true }
 
 [dev-dependencies]
+# ui::families: a page drawn headless, its family view found by kind.
+dioxus-test = { workspace = true }
 # The tests exercise the server (planner, presets, the device hub and
 # model) and the extension (tests/extension.rs, whose engines never touch
 # the machine's PipeWire): on in every test build, so `cargo nextest run

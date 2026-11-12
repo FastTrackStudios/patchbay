@@ -23,9 +23,9 @@ use dioxus::prelude::*;
 
 pub mod console;
 mod core_audio;
-mod galaxy32;
+pub(crate) mod galaxy32;
 mod strip;
-mod yamaha_tf;
+pub(crate) mod yamaha_tf;
 
 use crate::ui::state::{self, PatchbayHandle};
 use crate::ui::ui::{
@@ -666,19 +666,18 @@ fn Offline(device: Option<DeviceSummary>) -> Element {
     }
 }
 
-/// The console for this device — a real surface where we know the
-/// device family, the parameter tree everywhere else.
+/// The console for this device — a real surface where its family
+/// registered one ([`crate::ui::families`]), the parameter tree
+/// everywhere else.
 ///
-/// Branches on `summary.kind`, which is the config's adapter kind, not
+/// Looked up by `summary.kind`, which is the config's adapter kind, not
 /// the model string: every Galaxy 32 answers to the same paths whatever
 /// it calls itself.
 #[component]
 fn Console(view: DeviceView) -> Element {
-    match view.summary.kind.as_str() {
-        "yamaha-tf" => rsx! { yamaha_tf::YamahaTfConsole { view } },
-        "antelope-galaxy32" => rsx! { galaxy32::Galaxy32Console { view } },
-        _ => rsx! {},
-    }
+    crate::ui::families::views(&view.summary.kind)
+        .and_then(|v| v.console)
+        .map_or_else(|| rsx! {}, |console| console(view))
 }
 
 /// Everything the device reports, as it reports it.
