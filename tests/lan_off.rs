@@ -50,11 +50,7 @@ fn with_the_lan_off_nothing_reaches_the_network() {
     let clear = block_on(dante.unsubscribe(&device, 1)).unwrap_err();
     assert!(clear.to_string().contains("PATCHBAY_LAN=off"), "{clear}");
 
-    // The Antelope announces: no bind, no multicast join.
-    let bind = patchbay::antelope::Listener::bind()
-        .err()
-        .expect("it bound");
-    assert!(bind.to_string().contains("PATCHBAY_LAN=off"), "{bind}");
+    // The Antelope announces: `patchbay-antelope`'s own lan_off test.
 
     // An engine: its Dante scan (what `health` and the grid run) refuses
     // too.

@@ -9,9 +9,28 @@ use crate::proto::{
 };
 use dioxus::prelude::*;
 
-/// The service client, provided via context by the shell.
+/// The service client, provided via context to the window's own pages.
+///
+/// Its client is the crate's: a device family's view gets the narrow
+/// `ui::kit` (a `ParamWriter`), never every RPC on every device.
+///
+/// ```compile_fail
+/// // A family crate can't reach the client inside.
+/// fn every_rpc(h: &patchbay::ui::PatchbayHandle) {
+///     let _ = &h.0;
+/// }
+/// ```
 #[derive(Clone)]
-pub struct PatchbayHandle(pub Arc<PatchbayServiceClient>);
+pub struct PatchbayHandle(pub(crate) Arc<PatchbayServiceClient>);
+
+impl PatchbayHandle {
+    /// A handle on `client`: what a shell builds its [`crate::ui::EngineLink`]
+    /// from.
+    #[must_use]
+    pub fn new(client: PatchbayServiceClient) -> Self {
+        Self(Arc::new(client))
+    }
+}
 
 /// Empty every mirror of engine state — another engine is about to go
 /// live. View preferences (zoom, filters, which view) are the user's and

@@ -89,5 +89,5 @@ pub mod tables {
 /// `server`), its console view to every window (feature `ui`). Once is
 /// enough; later calls do nothing.
 pub fn register() {
-    patchbay::register_family!(family: family::AntelopeGalaxy32Family, views: ui::views());
+    patchbay::register_family!(family: family::AntelopeGalaxy32Family::default(), views: ui::views());
 }

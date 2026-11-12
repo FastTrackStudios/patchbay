@@ -2,24 +2,20 @@
 //! Patchbay core, its `build` adds the family to the core's engine, and
 //! the core's actions reach a Galaxy32 like any device.
 //!
-//! The engine never touches the machine: a free loopback port, a scratch
-//! config whose `devices` section lists only `galaxy32`, and no `PipeWire`
-//! connection. The real family finds a Galaxy32 by the Manager Server's
-//! multicast announces; a test must not put fake announces on the LAN
-//! (the real Antelope panel listens there), so the test registers, for
-//! the same kind, a family that connects the real `Galaxy32Adapter`
-//! straight to a fake Manager Server on loopback. One test function: the
-//! engine and the family registrations are one per process.
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::assert_is_empty
-)]
+//! The engine keeps off the machine's audio and its network: a free
+//! loopback port, a scratch config whose `devices` section lists only
+//! `galaxy32`, no `PipeWire` connection, and nothing onto the LAN
+//! (`PATCHBAY_LAN=off`: no peer mDNS, no announce listener). The real
+//! family hears the Manager Server's multicast announces; here the test
+//! registers the same family hearing a fake announce source, which names
+//! a fake Manager Server on loopback. One test function: the engine and
+//! the family registrations are one per process.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 mod common;
 
-use std::net::SocketAddr;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -30,10 +26,8 @@ use architect_extensions::install::Installs;
 use architect_settings::Registry;
 use common::fake_manager::{announce, fake};
 use futures::executor::block_on;
-use patchbay::family::{Adapter, ConnectCtx, ConnectError, ConnectFuture, DeviceFamily};
-use patchbay::proto::{DeviceConfig, FamilyInfo};
-use patchbay_antelope::Galaxy32Adapter;
-use patchbay_antelope::family::AntelopeGalaxy32Family;
+use patchbay_antelope::family::{AnnounceSource, AntelopeGalaxy32Family};
+use patchbay_antelope::{Announce, AntelopeError};
 use serde_json::{Value, json};
 
 fn run(list: &ActionList, id: &str, args: &Value) -> Result<Value, String> {
@@ -50,33 +44,24 @@ fn free_port() -> u16 {
         .port()
 }
 
-/// The Galaxy32 family, connecting to the fake server it was given
-/// instead of discovering one.
-struct AtTheFake(SocketAddr);
+/// Announces given up front: the fake Manager Server's.
+struct FakeAnnounces(Vec<Announce>);
 
-impl DeviceFamily for AtTheFake {
-    fn kind(&self) -> &'static str {
-        patchbay_antelope::KIND
-    }
-
-    fn info(&self) -> FamilyInfo {
-        AntelopeGalaxy32Family.info()
-    }
-
-    fn connect(&self, _config: DeviceConfig, _ctx: ConnectCtx) -> ConnectFuture {
-        let addr = self.0;
-        Box::pin(async move {
-            let adapter = Galaxy32Adapter::connect(addr, &announce(addr))
-                .await
-                .map_err(|e| ConnectError::Failed(e.to_string()))?;
-            let adapter: Adapter = Arc::new(adapter);
-            Ok(adapter)
-        })
+impl AnnounceSource for FakeAnnounces {
+    fn announces(
+        &self,
+        _timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<Announce>, AntelopeError>> + Send + '_>> {
+        let heard = self.0.clone();
+        Box::pin(async move { Ok(heard) })
     }
 }
 
 #[test]
 fn the_antelope_extension_adds_the_family_and_the_galaxy32_reads_through_the_core() {
+    // SAFETY: before anything in this process reads the environment
+    // (nextest runs each test in a process of its own).
+    unsafe { std::env::set_var("PATCHBAY_LAN", "off") };
     let (fake_addr, _state) = block_on(patchbay::server::spawn(fake())).unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let config = tmp.path().join("patchbay.styx");
@@ -104,9 +89,11 @@ fn the_antelope_extension_adds_the_family_and_the_galaxy32_reads_through_the_cor
         .unwrap();
     ext.install_contribution_actions().unwrap();
     let _ = ext.sync();
-    // The extension registered the family; this one, for the same kind,
-    // replaces it (and hands it back).
-    let replaced = patchbay::family::register(Arc::new(AtTheFake(fake_addr)))
+    // The extension registered the family on the real announces; the
+    // same family on fake ones replaces it (and hands it back).
+    let real_on_fake_announces =
+        AntelopeGalaxy32Family::with_announces(Arc::new(FakeAnnounces(vec![announce(fake_addr)])));
+    let replaced = patchbay::family::register(Arc::new(real_on_fake_announces))
         .expect("the extension did not register its family");
     assert_eq!(replaced.kind(), "antelope-galaxy32");
 
@@ -147,9 +134,9 @@ fn the_antelope_extension_adds_the_family_and_the_galaxy32_reads_through_the_cor
 
     // `device show galaxy32`: its router and params, through the core.
     let shown = run(&list, "PATCHBAY_DEVICE_SHOW", &json!({"id": "galaxy32"})).unwrap();
-    assert!(!shown["outputs"].as_array().unwrap().is_empty());
-    assert!(!shown["routes"].as_array().unwrap().is_empty());
-    assert!(!shown["params"].as_array().unwrap().is_empty());
+    assert_ne!(shown["outputs"].as_array().unwrap().len(), 0, "no outputs");
+    assert_ne!(shown["routes"].as_array().unwrap().len(), 0, "no routes");
+    assert_ne!(shown["params"].as_array().unwrap().len(), 0, "no params");
     // With PATCHBAY_TEST_DUMP set, the answer goes to that file, for a
     // byte comparison against an engine with Antelope built in.
     if let Ok(path) = std::env::var("PATCHBAY_TEST_DUMP") {

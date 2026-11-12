@@ -269,13 +269,12 @@ mod tests {
             system.available,
             cfg!(any(target_os = "linux", target_os = "macos"))
         );
-        for net in ["dante"] {
-            let f = infos.iter().find(|f| f.kind == net).unwrap();
-            assert!(
-                f.platforms.is_empty() && f.available && f.discovers,
-                "{net}"
-            );
-        }
+        // The network family left in the core runs anywhere.
+        let dante = infos.iter().find(|f| f.kind == "dante").unwrap();
+        assert!(
+            dante.platforms.is_empty() && dante.available && dante.discovers,
+            "{dante:?}"
+        );
         assert!(infos.iter().all(|f| f.origin == "linked"));
     }
 }

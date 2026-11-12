@@ -31,6 +31,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
+use crate::proto::PatchbayServiceClient;
 use crate::proto::services::patchbay_service::PatchbayServiceStreamClient;
 use crate::proto::{DeviceEventWire, DeviceSummary, GraphEvent, HostsStatus, PatchbayHost};
 use dioxus::prelude::*;
@@ -49,8 +50,28 @@ const RECONCILE_SECS: u64 = 10;
 /// are pumped on.
 #[derive(Clone)]
 pub struct EngineLink {
-    pub handle: PatchbayHandle,
-    pub stream: Rc<PatchbayServiceStreamClient>,
+    pub(crate) handle: PatchbayHandle,
+    pub(crate) stream: Rc<PatchbayServiceStreamClient>,
+}
+
+impl EngineLink {
+    /// A link from a shell's two clients. Its fields stay the crate's: a
+    /// device family's view reaches the engine through `ui::kit` only.
+    #[must_use]
+    pub fn new(client: PatchbayServiceClient, stream: PatchbayServiceStreamClient) -> Self {
+        Self {
+            handle: PatchbayHandle::new(client),
+            stream: Rc::new(stream),
+        }
+    }
+
+    /// Whether `other` is this same connection (not merely one to the
+    /// same engine): what a shell's props compare.
+    #[must_use]
+    pub fn same_connection(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.handle.0, &other.handle.0)
+            && Rc::ptr_eq(&self.stream, &other.stream)
+    }
 }
 
 type DialFuture = Pin<Box<dyn Future<Output = Result<EngineLink, String>>>>;

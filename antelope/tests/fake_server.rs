@@ -11,8 +11,7 @@
     clippy::too_many_lines,
     clippy::significant_drop_tightening,
     clippy::many_single_char_names,
-    clippy::needless_pass_by_value,
-    clippy::assert_is_empty
+    clippy::needless_pass_by_value
 )]
 
 use std::time::Duration;
@@ -194,7 +193,7 @@ async fn adapter_mixer_monitor_afx_and_guards() {
     a.set_param("afx/strip/16/slot/1/effect", ParamValue::Enum(0))
         .await
         .unwrap();
-    assert!(st.lock().await.afx[&15].is_empty());
+    assert_eq!(st.lock().await.afx[&15].len(), 0);
 
     // Guards.
     assert!(matches!(

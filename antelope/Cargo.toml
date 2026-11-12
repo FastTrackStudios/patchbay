@@ -18,7 +18,7 @@ server = ["patchbay/server", "dep:parking_lot", "dep:serde", "dep:serde_json", "
 # The Galaxy32 console (`ui::Galaxy32Console`), registered by kind. Builds
 # for the browser remote (wasm) without `server`.
 ui = ["patchbay/ui", "dep:dioxus"]
-# The Architect extension (`ext::YamahaTf`): registers the family and its
+# The Architect extension (`ext::Antelope`): registers the family and its
 # view from `build`.
 extension = ["server", "ui", "patchbay/extension", "dep:architect-extensions"]
 

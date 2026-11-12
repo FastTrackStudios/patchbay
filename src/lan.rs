@@ -11,7 +11,7 @@
 //! - the Dante network: no mDNS browse and no ARC request to any device
 //!   (`dante::InfernoControl` refuses every call);
 //! - the Antelope Manager Server's announces: no UDP bind, no multicast
-//!   join (`antelope::Listener::bind` refuses);
+//!   join (`patchbay-antelope`'s `Listener::bind` refuses);
 //! - the Yamaha TF: no subnet sweep and no neighbour-table probe
 //!   (`patchbay-yamaha-tf`'s discovery returns nothing).
 //!
