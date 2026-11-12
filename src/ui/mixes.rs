@@ -26,7 +26,9 @@ use dioxus::prelude::*;
 
 use crate::ui::state::{self, PatchbayHandle};
 use crate::ui::ui::level::{SILENT_DB, fall, fmt_db, peak_db};
-use crate::ui::ui::{EmptyState, ErrorBar, Fader, Meter, MeterScale};
+use crate::ui::ui::{
+    Choice, ChoiceOption, EmptyState, ErrorBar, Fader, Meter, MeterScale, TextField,
+};
 
 // ─── Poll cadences ──────────────────────────────────────────────────────
 
@@ -865,25 +867,24 @@ fn SourceStrip(
             button { class: if muted { "chip mute on" } else { "chip mute" }, onclick: mute,
                 if muted { "muted" } else { "mute" }
             }
-            input {
-                class: "strip-map",
-                title: "channel map: source channel → mix channel, 0-based (0:0,1:1 = stereo straight through)",
-                value: "{s.map}",
-                onchange: move |e| set_map(e.value()),
+            span { title: "channel map: source channel → mix channel, 0-based (0:0,1:1 = stereo straight through)",
+                TextField {
+                    class: "strip-map",
+                    value: s.map.clone(),
+                    on_commit: set_map,
+                }
             }
             if !picks.is_empty() {
-                select {
+                Choice {
                     class: "strip-pick",
-                    onchange: move |e| {
-                        let v = e.value();
+                    value: String::new(),
+                    placeholder: "pick channels…",
+                    options: picks.into_iter().map(|(l, m)| ChoiceOption::new(m, l)).collect::<Vec<_>>(),
+                    onpick: move |v: String| {
                         if !v.is_empty() {
                             set_map_pick(v);
                         }
                     },
-                    option { value: "", selected: true, "pick channels…" }
-                    for (l, m) in picks {
-                        option { value: "{m}", "{l}" }
-                    }
                 }
             }
             if s.is_app() {
@@ -987,25 +988,24 @@ fn OutputStrip(
             button { class: if muted { "chip mute on" } else { "chip mute" }, onclick: mute,
                 if muted { "muted" } else { "mute" }
             }
-            input {
-                class: "strip-map",
-                title: "channel map: mix channel → output channel, 0-based (0:32,1:33 = outputs 33–34)",
-                value: "{o.map}",
-                onchange: move |e| set_map(e.value()),
+            span { title: "channel map: mix channel → output channel, 0-based (0:32,1:33 = outputs 33–34)",
+                TextField {
+                    class: "strip-map",
+                    value: o.map.clone(),
+                    on_commit: set_map,
+                }
             }
             if !picks.is_empty() {
-                select {
+                Choice {
                     class: "strip-pick",
-                    onchange: move |e| {
-                        let v = e.value();
+                    value: String::new(),
+                    placeholder: "pick channels…",
+                    options: picks.into_iter().map(|(l, m)| ChoiceOption::new(m, l)).collect::<Vec<_>>(),
+                    onpick: move |v: String| {
                         if !v.is_empty() {
                             set_map_pick(v);
                         }
                     },
-                    option { value: "", selected: true, "pick channels…" }
-                    for (l, m) in picks {
-                        option { value: "{m}", "{l}" }
-                    }
                 }
             }
             button { class: "chip danger strip-remove", title: "remove this output", onclick: remove, "remove" }
@@ -1043,19 +1043,15 @@ fn AddOutput(mix: String, targets: HostTargets, taken: Vec<String>) -> Element {
             if devs.is_empty() {
                 span { class: "dim-note", "no more output devices" }
             } else {
-                select {
-                    onchange: move |e| {
-                        let v = e.value();
+                Choice {
+                    value: String::new(),
+                    placeholder: "choose device…",
+                    options: devs.iter().map(|d| ChoiceOption::new(d.uid.clone(), format!("{} ({} out){}", d.name, d.output_channels, output_hint(&d.name)))).collect::<Vec<_>>(),
+                    onpick: move |v: String| {
                         if !v.is_empty() {
                             add(v);
                         }
                     },
-                    option { value: "", selected: true, "choose device…" }
-                    for d in devs.iter() {
-                        option { value: "{d.uid}",
-                            "{d.name} ({d.output_channels} out){output_hint(&d.name)}"
-                        }
-                    }
                 }
             }
             if let Some(b) = broadcast {
@@ -1124,14 +1120,12 @@ fn SourcePicker(mix: String, tab: PickerTab, targets: HostTargets) -> Element {
                     rsx! {
                         div { class: "picker-opts",
                             span { class: "label", "take" }
-                            select {
-                                onchange: move |e| *PICKER_DEVICE.write() = e.value(),
-                                option { value: "", selected: device.is_empty(), "the app's stereo mixdown" }
-                                for d in outs.iter() {
-                                    option { value: "{d.uid}", selected: device == d.uid,
-                                        "only what it plays to {d.name} ({d.output_channels} ch)"
-                                    }
-                                }
+                            Choice {
+                                value: device,
+                                options: std::iter::once(ChoiceOption::new("", "the app's stereo mixdown"))
+                                    .chain(outs.iter().map(|d| ChoiceOption::new(d.uid.clone(), format!("only what it plays to {} ({} ch)", d.name, d.output_channels))))
+                                    .collect::<Vec<_>>(),
+                                onpick: move |v| *PICKER_DEVICE.write() = v,
                             }
                         }
                         div { class: "picker-list",
@@ -1331,12 +1325,11 @@ fn VirtualDevicesPanel() -> Element {
                         value: "{VNEW_NAME}",
                         oninput: move |e| *VNEW_NAME.write() = e.value(),
                     }
-                    select {
-                        value: "{VNEW_CHANNELS}",
-                        onchange: move |e| *VNEW_CHANNELS.write() = e.value().parse().unwrap_or(2),
-                        for n in [1_u32, 2, 4, 8, 16, 32, 64] {
-                            option { value: "{n}", "{n} ch" }
-                        }
+                    Choice {
+                        label: "channels",
+                        value: VNEW_CHANNELS.read().to_string(),
+                        options: [1_u32, 2, 4, 8, 16, 32, 64].into_iter().map(|n| ChoiceOption::new(n.to_string(), format!("{n} ch"))).collect::<Vec<_>>(),
+                        onpick: move |v: String| *VNEW_CHANNELS.write() = v.parse().unwrap_or(2),
                     }
                     button {
                         class: "chip",

@@ -4,8 +4,8 @@
 //! the app was reinstalled), and every reload used to land on the first
 //! device's Route page at the default zoom. This puts you back: the view,
 //! the device, which machine it is on, and the Dante grid's zoom and
-//! safe-edit switch. `localStorage`, so the desktop window and a phone
-//! each keep their own place.
+//! safe-edit switch. Kept by the page (`localStorage` in a browser), so
+//! the desktop window and a phone each keep their own place.
 
 use dioxus::prelude::*;
 
@@ -110,27 +110,22 @@ fn current() -> Session {
 /// Restore the session once, then keep it saved. Call from the app root,
 /// above the live engine.
 pub fn use_session() {
-    use_future(|| async {
-        let js = format!(
-            r#"try {{ return localStorage.getItem("{STORE_KEY}") || ""; }} catch (_) {{ return ""; }}"#
-        );
-        if let Ok(stored) = document::eval(&js).join::<String>().await
-            && !stored.is_empty()
-        {
-            apply(Session::decode(&stored));
+    let page = crate::ui::page::use_page();
+    let read = page.clone();
+    use_future(move || {
+        let page = read.clone();
+        async move {
+            if let Some(stored) = page.load(STORE_KEY).await.filter(|s| !s.is_empty()) {
+                apply(Session::decode(&stored));
+            }
+            *LOADED.write() = true;
         }
-        *LOADED.write() = true;
     });
 
-    use_effect(|| {
+    use_effect(move || {
         let encoded = current().encode();
         if *LOADED.read() {
-            // Device keys and host names come from config files: keep a
-            // quote or backslash in one from ending the string early.
-            let safe = encoded.replace('\\', "\\\\").replace('"', "\\\"");
-            document::eval(&format!(
-                r#"try {{ localStorage.setItem("{STORE_KEY}", "{safe}"); }} catch (_) {{}}"#
-            ));
+            page.save(STORE_KEY, encoded);
         }
     });
 }

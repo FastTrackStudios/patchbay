@@ -120,7 +120,7 @@ pub(crate) struct DeviceHub {
 }
 
 /// `PATCHBAY_DEVICES=off` (or `0`/`false`) disables the device layer.
-fn devices_disabled_by_env() -> bool {
+pub(crate) fn devices_disabled_by_env() -> bool {
     std::env::var("PATCHBAY_DEVICES").is_ok_and(|v| {
         matches!(
             v.trim().to_ascii_lowercase().as_str(),

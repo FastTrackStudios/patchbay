@@ -476,10 +476,12 @@ pub fn undo_last(handle: PatchbayHandle) {
     });
 }
 
-/// Portable async sleep (tokio on native, gloo on wasm).
+/// Portable async sleep: a runtime-free timer on native (the UI may run
+/// where there is no tokio runtime: Architect's window draws it on a
+/// thread of its own), gloo on wasm.
 pub async fn sleep_secs(secs: u64) {
     #[cfg(not(target_arch = "wasm32"))]
-    tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+    futures_timer::Delay::new(std::time::Duration::from_secs(secs)).await;
     #[cfg(target_arch = "wasm32")]
     {
         let ms = u32::try_from(secs.saturating_mul(1000)).unwrap_or(u32::MAX);
@@ -490,7 +492,7 @@ pub async fn sleep_secs(secs: u64) {
 /// Portable async sleep in milliseconds (meter polling).
 pub async fn sleep_ms(ms: u32) {
     #[cfg(not(target_arch = "wasm32"))]
-    tokio::time::sleep(std::time::Duration::from_millis(u64::from(ms))).await;
+    futures_timer::Delay::new(std::time::Duration::from_millis(u64::from(ms))).await;
     #[cfg(target_arch = "wasm32")]
     gloo_timers::future::TimeoutFuture::new(ms).await;
 }

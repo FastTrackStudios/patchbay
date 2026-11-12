@@ -151,12 +151,29 @@ fn the_core_runs_over_one_engine_and_takes_it_over_when_its_owner_quits() {
         .unwrap()
         .unwrap();
     assert_eq!(status, cli_status);
+    // The engines here run without PipeWire, and say so.
+    let expected = if cfg!(target_os = "linux") {
+        "off"
+    } else {
+        "unsupported"
+    };
+    assert_eq!(status["pipewire"], expected);
     let devices = run(&list, "PATCHBAY_DEVICE_LIST", &json!({})).unwrap();
     let cli_devices = block_on(other.run(|c| async move { c.list_devices().await }))
         .unwrap()
         .unwrap();
     assert_eq!(devices, serde_json::to_value(cli_devices).unwrap());
     let health = run(&list, "PATCHBAY_HEALTH", &json!({})).unwrap();
+    assert_eq!(health["pipewire"], expected);
+    assert_eq!(
+        health["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["code"] == "pipewire_disabled"),
+        cfg!(target_os = "linux"),
+        "health: {health}"
+    );
     for key in ["ok", "graph", "clock", "dante", "services", "issues"] {
         assert!(health.get(key).is_some(), "health has no `{key}`: {health}");
     }

@@ -9,7 +9,10 @@
 //! and no global signals — so a widget can be dropped into any view and
 //! unit-tested through [`level`].
 
+pub mod controls;
 pub mod level;
+
+pub use controls::{Choice, ChoiceOption, Slider, close_choices};
 
 use dioxus::prelude::*;
 
@@ -62,29 +65,25 @@ pub fn MeterScale() -> Element {
     }
 }
 
-/// Vertical fader + readout. Double-click returns it to 0 dB.
+/// Vertical fader. Double-click returns it to 0 dB.
 ///
-/// Emits `(gain_db, muted)` so a caller can pass the pair straight to
-/// `set_mix_source` / `set_mix_output`.
+/// Emits `(gain_db, muted)` live through the drag, so a caller can pass
+/// the pair straight to `set_mix_source` / `set_mix_output`.
 #[component]
 pub fn Fader(gain_db: f64, muted: bool, on_level: EventHandler<(f64, bool)>) -> Element {
     let slot = fader_slot(gain_db);
     let text = fmt_db(gain_db);
     rsx! {
-        input {
-            r#type: "range",
+        Slider {
             class: "vfader",
-            min: "{level::FADER_OFF_SLOT}",
-            max: "{level::FADER_MAX_DB}",
-            step: "0.5",
-            value: "{slot}",
+            vertical: true,
+            min: level::FADER_OFF_SLOT,
+            max: level::FADER_MAX_DB,
+            step: 0.5,
+            value: slot,
             title: "{text} — double-click for 0 dB",
-            oninput: move |e| {
-                if let Ok(x) = e.value().parse::<f64>() {
-                    on_level.call((level::slot_db(x), muted));
-                }
-            },
-            ondoubleclick: move |_| on_level.call((0.0, muted)),
+            on_input: move |x| on_level.call((level::slot_db(x), muted)),
+            on_reset: move |()| on_level.call((0.0, muted)),
         }
     }
 }
@@ -158,6 +157,10 @@ pub fn TextField(
     value: String,
     #[props(default = String::new())] placeholder: String,
     #[props(default = String::new())] class: String,
+    /// The input's `type` (`number` for an integer field).
+    #[props(default = "text".to_owned())]
+    kind: String,
+    #[props(default)] disabled: bool,
     on_commit: EventHandler<String>,
 ) -> Element {
     let mut draft = use_signal(|| value.clone());
@@ -171,7 +174,9 @@ pub fn TextField(
     // borrows it mutably, so it can't be handed to two event handlers.
     rsx! {
         input {
+            r#type: "{kind}",
             class: if class.is_empty() { "textfield".to_owned() } else { format!("textfield {class}") },
+            disabled,
             value: "{draft}",
             placeholder: "{placeholder}",
             oninput: move |e| {

@@ -28,7 +28,9 @@ mod strip;
 mod yamaha_tf;
 
 use crate::ui::state::{self, PatchbayHandle};
-use crate::ui::ui::{EmptyState, ErrorBar, Status, StatusDot};
+use crate::ui::ui::{
+    Choice, ChoiceOption, EmptyState, ErrorBar, Slider, Status, StatusDot, TextField,
+};
 
 // ─── State ──────────────────────────────────────────────────────────────
 
@@ -227,6 +229,25 @@ fn set_route(handle: PatchbayHandle, output: DeviceChannel, source: Option<Devic
 
 /// Section key: first segment, plus the second when it is an index
 /// (`mixer/1`, `in/3`), so a section is one mixer / one channel.
+/// An enum param's options as dropdown entries, valued by index (what
+/// the device takes).
+pub(super) fn indexed(options: &[String]) -> Vec<ChoiceOption> {
+    options
+        .iter()
+        .enumerate()
+        .map(|(i, o)| ChoiceOption::new(i.to_string(), o.clone()))
+        .collect()
+}
+
+/// The index (as a dropdown value) of the option labelled `label`.
+pub(super) fn index_of(options: &[String], label: &str) -> String {
+    options
+        .iter()
+        .position(|o| o == label)
+        .map(|i| i.to_string())
+        .unwrap_or_default()
+}
+
 fn section_of(path: &str) -> String {
     let mut it = path.split('/');
     let first = it.next().unwrap_or_default();
@@ -493,14 +514,17 @@ fn DeviceShell(page: DevicePage) -> Element {
                     // Only a console has disruptive parameters (clock, scene
                     // recall); a router has nothing this would unlock.
                     if page == DevicePage::Mix {
-                        label { class: "label disruptive-toggle",
+                        // A toggle chip rather than a checkbox: a click is the
+                        // one event every renderer delivers for it.
+                        button {
+                            class: if *ALLOW_DISRUPTIVE.read() { "chip on disruptive-toggle" } else { "chip disruptive-toggle" },
                             title: "Clock changes and scene recall interrupt audio, so they are locked until you say so",
-                            input {
-                                r#type: "checkbox",
-                                checked: *ALLOW_DISRUPTIVE.read(),
-                                onchange: move |e| *ALLOW_DISRUPTIVE.write() = e.checked(),
-                            }
-                            " disruptive writes"
+                            "aria-pressed": "{ALLOW_DISRUPTIVE.read()}",
+                            onclick: move |_| {
+                                let on = *ALLOW_DISRUPTIVE.peek();
+                                *ALLOW_DISRUPTIVE.write() = !on;
+                            },
+                            "disruptive writes"
                         }
                     }
                     button { class: "chip", onclick: reload,
@@ -770,30 +794,25 @@ fn ParamControl(param: ParamView) -> Element {
             } else {
                 lo
             };
+            let max_db = *max_db;
             rsx! {
-                input {
-                    r#type: "range", class: "fader",
-                    min: "{lo}", max: "{max_db}", step: "0.5", value: "{v}",
+                // Written on release: a drag is not a stream of writes to
+                // the console.
+                Slider {
+                    class: "fader",
+                    min: lo, max: max_db, step: 0.5, value: v,
                     disabled: locked,
-                    onchange: move |e| {
-                        if let Ok(x) = e.value().parse::<f64>() {
-                            set_param(handle.clone(), path.clone(), DeviceParamValue::Level(x));
-                        }
-                    },
+                    on_commit: move |x| set_param(handle.clone(), path.clone(), DeviceParamValue::Level(x)),
                 }
                 span { class: "param-val", "{shown}" }
             }
         }
         (DeviceParamKind::Pan, DeviceParamValue::Pan(x)) => rsx! {
-            input {
-                r#type: "range", class: "pan",
-                min: "-1", max: "1", step: "0.05", value: "{x}",
+            Slider {
+                class: "pan",
+                min: -1.0, max: 1.0, step: 0.05, value: *x,
                 disabled: locked,
-                onchange: move |e| {
-                    if let Ok(x) = e.value().parse::<f64>() {
-                        set_param(handle.clone(), path.clone(), DeviceParamValue::Pan(x));
-                    }
-                },
+                on_commit: move |x| set_param(handle.clone(), path.clone(), DeviceParamValue::Pan(x)),
             }
             span { class: "param-val", "{shown}" }
         },
@@ -811,39 +830,38 @@ fn ParamControl(param: ParamView) -> Element {
         (DeviceParamKind::Enum { options }, DeviceParamValue::Enum(i)) => {
             let cur = *i;
             rsx! {
-                select {
+                Choice {
+                    value: cur.to_string(),
                     disabled: locked,
-                    onchange: move |e| {
-                        if let Ok(x) = e.value().parse::<u32>() {
+                    options: options.iter().enumerate().map(|(n, o)| ChoiceOption::new(n.to_string(), o.clone())).collect::<Vec<_>>(),
+                    onpick: move |v: String| {
+                        if let Ok(x) = v.parse::<u32>() {
                             set_param(handle.clone(), path.clone(), DeviceParamValue::Enum(x));
                         }
                     },
-                    for (n, o) in options.iter().enumerate() {
-                        {
-                            let n = u32::try_from(n).unwrap_or(u32::MAX);
-                            rsx! { option { value: "{n}", selected: n == cur, "{o}" } }
-                        }
-                    }
                 }
             }
         }
-        (DeviceParamKind::Int { min, max }, DeviceParamValue::Int(n)) => rsx! {
-            input {
-                r#type: "number", class: "param-int",
-                min: "{min}", max: "{max}", value: "{n}",
-                disabled: locked,
-                onchange: move |e| {
-                    if let Ok(x) = e.value().parse::<i64>() {
-                        set_param(handle.clone(), path.clone(), DeviceParamValue::Int(x));
-                    }
-                },
+        (DeviceParamKind::Int { min, max }, DeviceParamValue::Int(n)) => {
+            let (min, max) = (*min, *max);
+            rsx! {
+                TextField {
+                    kind: "number", class: "param-int",
+                    value: n.to_string(),
+                    disabled: locked,
+                    on_commit: move |v: String| {
+                        if let Ok(x) = v.trim().parse::<i64>() {
+                            set_param(handle.clone(), path.clone(), DeviceParamValue::Int(x.clamp(min, max)));
+                        }
+                    },
+                }
             }
-        },
+        }
         (_, DeviceParamValue::Text(t)) => rsx! {
-            input {
-                r#type: "text", class: "param-text", value: "{t}",
+            TextField {
+                class: "param-text", value: t.clone(),
                 disabled: locked,
-                onchange: move |e| set_param(handle.clone(), path.clone(), DeviceParamValue::Text(e.value())),
+                on_commit: move |v| set_param(handle.clone(), path.clone(), DeviceParamValue::Text(v)),
             }
         },
         _ => rsx! { span { class: "param-val", "{shown}" } },
@@ -922,18 +940,18 @@ fn RouterGrid(view: DeviceView) -> Element {
         div { class: "panel-section router",
             h3 { "Router" }
             div { class: "router-pick",
-                select {
-                    onchange: move |e| *OUT_GROUP.write() = e.value(),
-                    for o in view.outputs.iter() {
-                        option { value: "{o.id}", selected: o.id == out_id, "{o.name} ({o.id})" }
-                    }
+                Choice {
+                    value: out_id,
+                    label: "output group",
+                    options: view.outputs.iter().map(|o| ChoiceOption::new(o.id.clone(), format!("{} ({})", o.name, o.id))).collect::<Vec<_>>(),
+                    onpick: move |v| *OUT_GROUP.write() = v,
                 }
                 " ← "
-                select {
-                    onchange: move |e| *SRC_GROUP.write() = e.value(),
-                    for i in view.inputs.iter() {
-                        option { value: "{i.id}", selected: i.id == src_id, "{i.name} ({i.id})" }
-                    }
+                Choice {
+                    value: src_id.clone(),
+                    label: "source group",
+                    options: view.inputs.iter().map(|i| ChoiceOption::new(i.id.clone(), format!("{} ({})", i.name, i.id))).collect::<Vec<_>>(),
+                    onpick: move |v| *SRC_GROUP.write() = v,
                 }
             }
             div { class: "router-scroll",

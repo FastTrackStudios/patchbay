@@ -221,51 +221,6 @@ fn choose(f: impl FnOnce(&mut Appearance)) {
     f(&mut APPEARANCE.write());
 }
 
-/// Reads the stored choice, then reports the system scheme now and on
-/// every change. Messages are `prefs:<encoded>` and `scheme:<light|dark>`.
-const WATCH_JS: &str = r#"
-let stored = "";
-try { stored = localStorage.getItem("STORE_KEY") || ""; } catch (_) {}
-dioxus.send("prefs:" + stored);
-const mq = window.matchMedia("(prefers-color-scheme: light)");
-const report = () => { try { dioxus.send("scheme:" + (mq.matches ? "light" : "dark")); } catch (_) {} };
-report();
-if (mq.addEventListener) { mq.addEventListener("change", report); } else { mq.addListener(report); }
-await new Promise(() => {});
-"#;
-
-/// After the root has the new attributes: persist (`Some` — only a
-/// choice is stored), then paint what is outside the app root in the
-/// theme too — the page behind it (seen in overscroll and the
-/// home-indicator strip) and the browser's own chrome via `theme-color`.
-fn apply_js(persist: Option<&str>) -> String {
-    let store = persist.map_or_else(String::new, |encoded| {
-        format!(r#"try {{ localStorage.setItem("{STORE_KEY}", "{encoded}"); }} catch (_) {{}}"#)
-    });
-    format!(
-        r#"
-{store}
-requestAnimationFrame(() => {{
-  const root = document.querySelector(".patchbay-root");
-  if (!root) return;
-  const css = getComputedStyle(root);
-  const bg = css.getPropertyValue("--bg").trim();
-  const surface = css.getPropertyValue("--surface").trim();
-  document.documentElement.style.background = bg;
-  document.body.style.background = surface;
-  document.documentElement.style.colorScheme = css.colorScheme;
-  let meta = document.querySelector('meta[name="theme-color"]');
-  if (!meta) {{
-    meta = document.createElement("meta");
-    meta.name = "theme-color";
-    document.head.appendChild(meta);
-  }}
-  meta.content = bg;
-}});
-"#
-    )
-}
-
 /// The three `data-*` values for the app root.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RootAttrs {
@@ -278,34 +233,45 @@ pub struct RootAttrs {
 /// root should wear. Call once from whichever component renders
 /// `.patchbay-root`.
 pub fn use_appearance() -> RootAttrs {
-    use_future(|| async {
-        let mut watch = document::eval(&WATCH_JS.replace("STORE_KEY", STORE_KEY));
-        while let Ok(msg) = watch.recv::<String>().await {
-            if let Some(stored) = msg.strip_prefix("prefs:") {
-                if !stored.is_empty() {
-                    *CHOSEN.write() = true;
-                }
-                let a = Appearance::decode(stored);
-                if *APPEARANCE.peek() != a {
-                    *APPEARANCE.write() = a;
-                }
-                *LOADED.write() = true;
-            } else if let Some(scheme) = msg.strip_prefix("scheme:") {
-                let light = scheme == "light";
-                if *SYSTEM_LIGHT.peek() != light {
-                    *SYSTEM_LIGHT.write() = light;
-                }
+    let page = crate::ui::page::use_page();
+    // The system scheme, as the page reports it (now and on change).
+    let on_scheme = use_callback(|light: bool| {
+        if *SYSTEM_LIGHT.peek() != light {
+            *SYSTEM_LIGHT.write() = light;
+        }
+    });
+    let read = page.clone();
+    use_future(move || {
+        let page = read.clone();
+        async move {
+            let stored = page.load(STORE_KEY).await.unwrap_or_default();
+            if !stored.is_empty() {
+                *CHOSEN.write() = true;
+            }
+            let a = Appearance::decode(&stored);
+            if *APPEARANCE.peek() != a {
+                *APPEARANCE.write() = a;
+            }
+            *LOADED.write() = true;
+            if let Some(watch) = &page.watch_scheme {
+                watch(on_scheme);
             }
         }
     });
 
-    use_effect(|| {
+    use_effect(move || {
         let a = *APPEARANCE.read();
         // Subscribed so an Auto theme repaints the page chrome too.
         let _ = *SYSTEM_LIGHT.read();
         if *LOADED.read() {
-            let encoded = a.encode();
-            document::eval(&apply_js(CHOSEN.read().then_some(encoded.as_str())));
+            // Only a choice is stored: a device that never chose keeps
+            // following the default.
+            if *CHOSEN.read() {
+                page.save(STORE_KEY, a.encode());
+            }
+            if let Some(paint) = &page.paint_chrome {
+                paint();
+            }
         }
     });
 

@@ -16,6 +16,7 @@ mod icons;
 mod layout;
 mod mixes;
 mod now;
+mod page;
 mod pages;
 mod panels;
 mod scenes;
@@ -27,4 +28,12 @@ mod ui;
 
 pub use app::{PatchbayApp, Splash};
 pub use hosts::{Dialer, EngineLink, Shell};
+pub use page::{Page, PageFuture};
+pub use state::View;
+pub use theme::{CSS as THEME_CSS, NATIVE_CSS as THEME_NATIVE_CSS};
+
+/// Show `view`: what a shell opens on (a screenshot, a deep link).
+pub fn show(view: View) {
+    *state::VIEW.write() = view;
+}
 pub use state::{PatchbayHandle, sleep_secs};

@@ -16,3 +16,7 @@ pub const CSS: &str = concat!(
     include_str!("settings.css"),
     include_str!("views.css"),
 );
+
+/// Blitz's gaps, done another way (`native.css`): added after [`CSS`]
+/// when the page is native (`crate::ui::Page::native`).
+pub const NATIVE_CSS: &str = include_str!("native.css");

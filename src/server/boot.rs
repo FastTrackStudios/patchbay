@@ -31,16 +31,24 @@ use crate::proto::{GraphEvent, PatchbayServiceClient};
 use crate::server::PatchbayBackend;
 use crate::server::permissions::PermissionProvider;
 
-/// The listen address when nothing else says: loopback, because the RPC
-/// is unauthenticated (`patchbay listen lan` opens it up).
+/// The listen address when the engine's config names none. The same for
+/// every starter on a platform, so who starts the engine never decides
+/// whether it is open to the LAN: loopback on macOS (the RPC is
+/// unauthenticated; `patchbay listen lan` opens it), every interface on
+/// Linux (the studio machine's phones), as each platform's app always did.
+#[cfg(target_os = "linux")]
+pub const DEFAULT_ADDR: &str = "0.0.0.0:4046";
+/// The listen address when the engine's config names none (see the Linux
+/// value).
+#[cfg(not(target_os = "linux"))]
 pub const DEFAULT_ADDR: &str = "127.0.0.1:4046";
 
 /// How long one join attempt waits for the engine to answer.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
-/// After losing the race for the port: how many more times to try to
-/// join, and how long to wait before each (the winner binds first and
-/// brings its backend up after).
-const JOIN_RETRIES: u32 = 3;
+/// How long to keep trying to join an engine that holds the port but has
+/// not answered yet (it bound the port and is still bringing its backend
+/// up, or is busy) before giving up, never starting a second one.
+const JOIN_DEADLINE: Duration = Duration::from_secs(20);
 const JOIN_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 /// Makes the hosting app's [`PermissionProvider`], given the engine's
@@ -48,8 +56,12 @@ const JOIN_RETRY_DELAY: Duration = Duration::from_millis(500);
 pub type MakePermissions =
     Box<dyn FnOnce(tokio::runtime::Handle) -> Arc<dyn PermissionProvider> + Send>;
 
-/// What to do when the port is held by something that does not answer
-/// as a Patchbay engine.
+/// What to do when the port is held by something that answers, and is not
+/// a Patchbay engine.
+///
+/// A holder that does not answer at all may be a Patchbay that is starting
+/// or busy: that is never a reason to run a second engine, whatever this
+/// says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IfTaken {
     /// Fail with [`EngineError::AddressTaken`].
@@ -74,6 +86,8 @@ pub struct EngineOptions {
     pub discover_peers: bool,
     /// When the port is held by something that is not Patchbay.
     pub if_taken: IfTaken,
+    /// How long to keep trying to join a holder that does not answer yet.
+    pub join_deadline: Duration,
 }
 
 impl EngineOptions {
@@ -87,17 +101,30 @@ impl EngineOptions {
             permissions: None,
             discover_peers: true,
             if_taken: IfTaken::Fail,
+            join_deadline: JOIN_DEADLINE,
         }
     }
 
-    /// `PATCHBAY_ADDR`, else the saved `network.bind`, else `default`.
+    /// [`Self::new`] on this machine's listen address ([`listen_addr`]).
     #[must_use]
-    pub fn configured_addr(default: &str) -> String {
-        std::env::var("PATCHBAY_ADDR")
-            .ok()
-            .or_else(crate::server::configured_bind)
-            .unwrap_or_else(|| default.to_owned())
+    pub fn machine() -> Self {
+        Self::new(listen_addr())
     }
+}
+
+/// This machine's Patchbay listen address, the same whoever starts the
+/// engine.
+///
+/// An app, `patchbay serve` and a takeover all read: `PATCHBAY_ADDR` (a
+/// per-process override for scratch and development engines), else the
+/// engine config's `network.bind` (`patchbay listen lan|local`), else
+/// [`DEFAULT_ADDR`]. The engine's config decides, not the starter.
+#[must_use]
+pub fn listen_addr() -> String {
+    std::env::var("PATCHBAY_ADDR")
+        .ok()
+        .or_else(crate::server::configured_bind)
+        .unwrap_or_else(|| DEFAULT_ADDR.to_owned())
 }
 
 /// Whether this process runs the engine or reaches another one.
@@ -132,9 +159,33 @@ pub enum EngineError {
         /// What the bind and the last join attempt said.
         detail: String,
     },
+    /// A Patchbay engine holds the address (it accepts connections) but
+    /// did not answer in time. No second engine is started.
+    #[error(
+        "{addr} is held by an engine that did not answer within the join deadline ({detail}); \
+         not starting a second one"
+    )]
+    NoAnswer {
+        /// The listen address.
+        addr: String,
+        /// What the last join attempt said.
+        detail: String,
+    },
     /// The in-process clients could not be set up.
     #[error("patchbay engine clients: {0}")]
     Clients(String),
+}
+
+/// Why a join failed: what the holder of the port did.
+#[derive(Debug)]
+enum Join {
+    /// Nothing listens there: the port is free to take.
+    Refused(String),
+    /// Something accepted the connection and did not answer in time: a
+    /// Patchbay starting up or busy, perhaps. Keep trying.
+    NoAnswer(String),
+    /// Something answered, and it is not a Patchbay engine.
+    NotPatchbay(String),
 }
 
 /// A running engine, here or elsewhere: its clients and where it runs.
@@ -263,36 +314,43 @@ pub fn runtime() -> Result<&'static tokio::runtime::Runtime, EngineError> {
 
 async fn start_or_attach_here(opts: EngineOptions) -> Result<Engine, EngineError> {
     let url = probe_url(&opts.addr);
-    if let Ok(engine) = attach(&url).await {
-        return Ok(engine);
-    }
-    let bind = match tokio::net::TcpListener::bind(&opts.addr).await {
-        Ok(listener) => return run_here(opts, Some(listener)).await,
-        Err(e) => e,
-    };
-    // Lost a race with another engine starting: it bound the port and is
-    // bringing its backend up. Join it once it answers.
-    let mut last = String::new();
-    for _ in 0..JOIN_RETRIES {
-        tokio::time::sleep(JOIN_RETRY_DELAY).await;
-        match attach(&url).await {
+    let started = tokio::time::Instant::now();
+    loop {
+        let why = match attach(&url).await {
             Ok(engine) => return Ok(engine),
-            Err(e) => last = e,
+            // Free: take the port before creating the backend, so a loser
+            // of a race never opens a second PipeWire connection.
+            Err(Join::Refused(why)) => match tokio::net::TcpListener::bind(&opts.addr).await {
+                Ok(listener) => return run_here(opts, Some(listener)).await,
+                // Lost the race: the winner is bringing its backend up.
+                Err(bind) => format!("{why}; bind: {bind}"),
+            },
+            Err(Join::NotPatchbay(why)) => {
+                return match opts.if_taken {
+                    IfTaken::Fail => Err(EngineError::AddressTaken {
+                        addr: opts.addr,
+                        detail: why,
+                    }),
+                    IfTaken::RunUnserved => {
+                        tracing::warn!(
+                            addr = %opts.addr,
+                            reason = %why,
+                            "patchbay engine address held by something that is not Patchbay: running unserved"
+                        );
+                        run_here(opts, None).await
+                    }
+                };
+            }
+            Err(Join::NoAnswer(why)) => why,
+        };
+        if started.elapsed() >= opts.join_deadline {
+            tracing::warn!(addr = %opts.addr, reason = %why, "patchbay engine: the holder of the port never answered");
+            return Err(EngineError::NoAnswer {
+                addr: opts.addr,
+                detail: why,
+            });
         }
-    }
-    match opts.if_taken {
-        IfTaken::Fail => Err(EngineError::AddressTaken {
-            addr: opts.addr,
-            detail: format!("bind: {bind}; join: {last}"),
-        }),
-        IfTaken::RunUnserved => {
-            tracing::error!(
-                addr = %opts.addr,
-                error = %bind,
-                "patchbay engine address in use by something else: running unserved"
-            );
-            run_here(opts, None).await
-        }
+        tokio::time::sleep(JOIN_RETRY_DELAY).await;
     }
 }
 
@@ -336,8 +394,21 @@ pub async fn dial(
 
 /// Join the engine at `url`: both links, one call only a Patchbay engine
 /// answers, and a watch on its event stream that marks the engine lost
-/// when the stream ends.
-async fn attach(url: &str) -> Result<Engine, String> {
+/// when the stream ends. The error says what the holder did ([`Join`]).
+async fn attach(url: &str) -> Result<Engine, Join> {
+    // Is anything there? Refused means the port is free.
+    let host_port = url
+        .trim_start_matches("ws://")
+        .trim_end_matches("/vox")
+        .to_owned();
+    match tokio::time::timeout(PROBE_TIMEOUT, tokio::net::TcpStream::connect(&host_port)).await {
+        Err(_) => return Err(Join::NoAnswer(format!("{host_port}: connect timed out"))),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
+            return Err(Join::Refused(format!("{host_port}: {e}")));
+        }
+        Ok(Err(e)) => return Err(Join::NoAnswer(format!("{host_port}: {e}"))),
+        Ok(Ok(_)) => {}
+    }
     let probe = async {
         let (client, stream) = dial(url).await?;
         client
@@ -346,9 +417,13 @@ async fn attach(url: &str) -> Result<Engine, String> {
             .map_err(|e| format!("{url} is not a Patchbay engine: {e}"))?;
         Ok::<_, String>((client, stream))
     };
-    let (client, stream) = tokio::time::timeout(PROBE_TIMEOUT, probe)
-        .await
-        .map_err(|_| format!("no answer from {url}"))??;
+    let (client, stream) = match tokio::time::timeout(PROBE_TIMEOUT, probe).await {
+        // Accepted but silent: perhaps a Patchbay between binding its
+        // port and serving it.
+        Err(_) => return Err(Join::NoAnswer(format!("no answer from {url}"))),
+        Ok(Err(why)) => return Err(Join::NotPatchbay(why)),
+        Ok(Ok(clients)) => clients,
+    };
 
     let lost = Arc::new(AtomicBool::new(false));
     let (tx, mut rx) = vox::channel::<GraphEvent>();

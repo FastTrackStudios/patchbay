@@ -11,12 +11,21 @@ use crate::proto::{ClockInfo, DanteDevice, DanteStatus, PatchbayServiceClient, S
 /// # Errors
 /// The graph, clock or Dante status call failed.
 pub async fn status(c: &PatchbayServiceClient) -> Result<serde_json::Value, String> {
-    let (graph, clock, dante) = futures_util::join!(c.graph(), c.clock(), c.dante_status());
+    let (graph, clock, dante, pipewire) =
+        futures_util::join!(c.graph(), c.clock(), c.dante_status(), pipewire(c));
     let (graph, clock, dante) = (text(graph)?, text(clock)?, text(dante)?);
     Ok(serde_json::json!({
         "nodes": graph.nodes.len(), "ports": graph.ports.len(), "links": graph.links.len(),
-        "clock": clock, "dante_active": dante.active,
+        "clock": clock, "dante_active": dante.active, "pipewire": pipewire,
     }))
+}
+
+/// The engine's `PipeWire` connection (`on`, `off`, `unsupported`), or
+/// `unknown` from an engine too old to say.
+async fn pipewire(c: &PatchbayServiceClient) -> String {
+    c.engine_info()
+        .await
+        .map_or_else(|_| "unknown".to_owned(), |info| info.pipewire)
 }
 
 /// One finding of a health check.
@@ -42,6 +51,9 @@ pub struct GraphHealth {
 #[derive(Debug, Clone, Serialize)]
 pub struct HealthReport {
     pub ok: bool,
+    /// The engine's `PipeWire` connection: `on`, `off`
+    /// (`PATCHBAY_PIPEWIRE=off`), `unsupported` (not Linux), `unknown`.
+    pub pipewire: String,
     pub graph: GraphHealth,
     pub clock: ClockInfo,
     pub dante: DanteStatus,
@@ -154,12 +166,13 @@ pub fn add_dante_issues(
 /// # Errors
 /// The graph, clock, Dante status or services call failed.
 pub async fn collect_health(c: &PatchbayServiceClient) -> Result<HealthReport, String> {
-    let (graph, clock, dante, services, network) = futures_util::join!(
+    let (graph, clock, dante, services, network, pipewire) = futures_util::join!(
         c.graph(),
         c.clock(),
         c.dante_status(),
         c.services(),
         c.dante_network(),
+        pipewire(c),
     );
     let graph = text(graph)?;
     let clock = text(clock)?;
@@ -172,6 +185,15 @@ pub async fn collect_health(c: &PatchbayServiceClient) -> Result<HealthReport, S
     };
 
     let mut issues = Vec::new();
+    if pipewire == "off" {
+        issues.push(issue(
+            "warning",
+            "pipewire_disabled",
+            "PATCHBAY_PIPEWIRE",
+            "this engine runs with PATCHBAY_PIPEWIRE=off: no PipeWire connection, so no graph",
+            Some("unset PATCHBAY_PIPEWIRE and restart the engine"),
+        ));
+    }
     for service in &services {
         if service.unit == "dante.target" {
             continue;
@@ -210,6 +232,7 @@ pub async fn collect_health(c: &PatchbayServiceClient) -> Result<HealthReport, S
 
     let report = HealthReport {
         ok: !issues.iter().any(|finding| finding.severity == "error"),
+        pipewire,
         graph: GraphHealth {
             nodes: graph.nodes.len(),
             ports: graph.ports.len(),

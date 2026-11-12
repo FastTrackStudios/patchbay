@@ -21,7 +21,7 @@
 .chip.danger:hover { border-color: var(--danger-2); color: var(--danger-text); }
 .chip.danger.armed { border-color: var(--danger-2); color: var(--danger-text); background: var(--danger-a15); }
 .chip.toggle { font-size: var(--fs-1); }
-.chip:disabled, .param input:disabled, .param select:disabled { opacity: 0.45; cursor: not-allowed; }
+.chip:disabled, .param input:disabled { opacity: 0.45; cursor: not-allowed; }
 .chip:disabled:active { transform: none; }
 /* Hover is sticky on touch: the last chip tapped would stay lit. */
 @media (hover: none) {
@@ -154,49 +154,74 @@
 }
 .empty-state h3, .mix-empty h3 { font-size: var(--fs-4); color: var(--text-hi); }
 
-/* ── vertical fader ──────────────────────────────────────────────── */
-/* Drawn explicitly rather than left to the webview: a default range
-   input fills the travelled part with the accent colour, which on a
-   channel strip reads as a level meter rather than a fader position.
-   The input is wider than the track so a thumb can land on it. */
-input.vfader {
-  writing-mode: vertical-lr; direction: rtl;
-  -webkit-appearance: none; appearance: none;
-  width: var(--fader-w); height: 100%; margin: 0 0 0 var(--s2);
-  background: transparent; border: none; cursor: ns-resize; outline: none;
-  /* The strip row scrolls sideways; a vertical drag belongs to the fader. */
-  touch-action: pan-x;
-}
-input.vfader::-webkit-slider-runnable-track {
-  width: 4px; height: 100%;
-  background: var(--meter-trough); border-radius: var(--r1);
-  box-shadow: var(--inset-hairline);
-}
-input.vfader::-moz-range-track {
-  width: 4px; height: 100%;
-  background: var(--meter-trough); border-radius: var(--r1);
-}
-input.vfader::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
+/* ── sliders (ui::Slider) ────────────────────────────────────────── */
+/* Drawn from divs, not a range input: Blitz has none, and a default
+   range input fills the travelled part with the accent colour, which on
+   a channel strip reads as a level meter rather than a fader position.
+   The control is wider than the track so a thumb can land on it. */
+.slider { cursor: pointer; outline: none; }
+.slider[data-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+.slider .slider-track { background: transparent; }
+.slider .slider-thumb {
   width: var(--thumb-w); height: var(--thumb-h);
-  margin-left: calc((4px - var(--thumb-w)) / 2);
   background: linear-gradient(to bottom, var(--text-2) 0 44%, var(--sunken) 44% 56%, var(--text-2) 56% 100%);
   border: 1px solid var(--sunken);
   border-radius: var(--r1); box-shadow: var(--shadow-card);
 }
-input.vfader::-moz-range-thumb {
-  width: var(--thumb-w); height: var(--thumb-h);
-  background: var(--text-2); border: 1px solid var(--sunken);
-  border-radius: var(--r1); box-shadow: var(--shadow-card);
-}
-input.vfader:hover::-webkit-slider-thumb, input.vfader:active::-webkit-slider-thumb {
+.slider:hover .slider-thumb {
   background: linear-gradient(to bottom, var(--text-hi) 0 44%, var(--sunken) 44% 56%, var(--text-hi) 56% 100%);
 }
-input.vfader:focus-visible { box-shadow: none; }
-input.vfader:focus-visible::-webkit-slider-thumb { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.slider:focus-visible .slider-thumb { border-color: var(--accent); box-shadow: var(--focus-ring); }
 
-/* Horizontal ranges (the parameter inspector). */
-input[type="range"]:not(.vfader) { min-height: var(--control-h); background: transparent; border: none; }
+/* Vertical: a 4px trough down the middle, no fill. */
+.slider.vertical {
+  width: var(--fader-w); height: 100%; margin: 0 0 0 var(--s2); cursor: ns-resize;
+}
+.slider.vertical .slider-track {
+  left: calc(50% - 2px) !important; right: auto !important; width: 4px;
+  background: var(--meter-trough); border-radius: var(--r1);
+  box-shadow: var(--inset-hairline);
+}
+.slider.vertical .slider-fill { display: none; }
+
+/* Horizontal (the parameter inspector): a trough with the travelled
+   part filled, and a round thumb. */
+.slider.horizontal { min-height: var(--control-h); width: 120px; flex: none; }
+.slider.horizontal .slider-track {
+  top: calc(50% - 2px) !important; bottom: auto !important; height: 4px;
+  background: var(--meter-trough); border-radius: var(--r1);
+}
+.slider.horizontal .slider-fill { background: var(--accent); border-radius: var(--r1); }
+.slider.horizontal .slider-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--text-2); }
+
+/* ── dropdowns (ui::Choice) ──────────────────────────────────────── */
+/* What a select looked like: the same trough, border and size. */
+.choice-button {
+  display: inline-flex; align-items: center; gap: var(--s3);
+  min-width: 0; max-width: 100%; min-height: var(--control-h);
+  padding: var(--s1) var(--s4); font-size: var(--fs-2);
+  background: var(--sunken); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r3);
+  cursor: pointer; text-align: left;
+}
+.choice-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.choice-button.open, .choice-button:focus-visible { border-color: var(--accent); }
+.choice-label { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.choice-caret { flex: none; color: var(--text-3); font-size: var(--fs-1); }
+.choice-menu {
+  padding: var(--s1); gap: 1px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r3);
+  box-shadow: var(--shadow-card);
+}
+.choice-item {
+  display: flex; align-items: center; text-align: left; white-space: nowrap;
+  padding: var(--s2) var(--s4); font-size: var(--fs-2);
+  background: transparent; color: var(--text); border: none; border-radius: var(--r2);
+  cursor: pointer;
+}
+.choice-item:hover { background: var(--raised-2); }
+.choice-item.on { color: var(--accent-text); background: var(--raised); }
+.choice-item:disabled { color: var(--text-3); cursor: default; background: transparent; }
 
 /* ── swatches ────────────────────────────────────────────────────── */
 .color-swatches { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }

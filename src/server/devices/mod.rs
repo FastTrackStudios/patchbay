@@ -17,4 +17,4 @@ pub(crate) mod registry;
 pub(crate) mod system_audio;
 pub(crate) mod wire;
 
-pub(crate) use hub::DeviceHub;
+pub(crate) use hub::{DeviceHub, devices_disabled_by_env};

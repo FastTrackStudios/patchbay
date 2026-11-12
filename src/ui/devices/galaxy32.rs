@@ -13,6 +13,8 @@
 use crate::proto::{DeviceParamValue, DeviceView};
 use dioxus::prelude::*;
 
+use crate::ui::ui::Choice;
+
 use super::console::{GALAXY_LEAVES, Params, count_under, numbered, strips};
 use super::strip::{ChannelStrip, ParamFacts};
 use crate::ui::state;
@@ -132,10 +134,13 @@ fn Trim(view: DeviceView) -> Element {
     rsx! {
         div { class: if all_mode { "trim-warning on" } else { "trim-warning" },
             span { class: "section-label", "Trim control" }
-            select {
+            Choice {
                 class: "dev-strip-pick",
-                onchange: move |e| {
-                    if let Ok(i) = e.value().parse::<u32>() {
+                label: "trim control",
+                value: super::index_of(&options, &mode),
+                options: super::indexed(&options),
+                onpick: move |v: String| {
+                    if let Ok(i) = v.parse::<u32>() {
                         super::set_param(
                             handle.clone(),
                             "trim/line_in/control".to_owned(),
@@ -143,9 +148,6 @@ fn Trim(view: DeviceView) -> Element {
                         );
                     }
                 },
-                for (i, opt) in options.iter().enumerate() {
-                    option { value: "{i}", selected: *opt == mode, "{opt}" }
-                }
             }
             if all_mode {
                 span { class: "trim-warning-text",
@@ -215,9 +217,12 @@ fn Afx(view: DeviceView) -> Element {
                                     let options = options.clone();
                                     rsx! {
                                         td { key: "{path}", class: if empty { "afx-cell" } else { "afx-cell filled" },
-                                            select {
-                                                onchange: move |e| {
-                                                    if let Ok(i) = e.value().parse::<u32>() {
+                                            Choice {
+                                                label: "{path}",
+                                                value: super::index_of(&options, &current),
+                                                options: super::indexed(&options),
+                                                onpick: move |v: String| {
+                                                    if let Ok(i) = v.parse::<u32>() {
                                                         super::set_param(
                                                             handle.clone(),
                                                             path.clone(),
@@ -225,9 +230,6 @@ fn Afx(view: DeviceView) -> Element {
                                                         );
                                                     }
                                                 },
-                                                for (i, opt) in options.iter().enumerate() {
-                                                    option { value: "{i}", selected: *opt == current, "{opt}" }
-                                                }
                                             }
                                         }
                                     }

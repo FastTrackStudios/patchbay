@@ -72,6 +72,9 @@ pub struct Shell {
     /// Home's event stream ended. A browser remote reconnects on this;
     /// the desktop app's in-process link never calls it in practice.
     pub on_home_lost: Callback<()>,
+    /// What the page this is drawn in can do (preferences, the colour
+    /// scheme): see [`crate::ui::Page`].
+    pub page: crate::ui::Page,
 }
 
 /// What is known about one other engine.

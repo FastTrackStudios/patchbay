@@ -50,14 +50,20 @@ fn Workspace() -> Element {
             }
         }
     });
+    let native = crate::ui::page::use_page().native;
     rsx! {
         document::Style { {crate::ui::theme::CSS} }
+        if native {
+            document::Style { {crate::ui::theme::NATIVE_CSS} }
+        }
         div {
             class: "patchbay-root",
             "data-theme": look.theme,
             "data-accent": look.accent,
             "data-density": look.density,
             tabindex: "0",
+            // A press that no dropdown stopped closes the open one.
+            onpointerdown: move |_| crate::ui::ui::close_choices(),
             onkeydown: move |e: Event<KeyboardData>| {
                 if e.key() == Key::Named(NamedKey::Escape) {
                     ARMED_OUTPUTS.write().clear();

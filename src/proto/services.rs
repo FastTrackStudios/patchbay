@@ -89,9 +89,9 @@ pub mod patchbay_service {
     };
     use crate::proto::types::{
         AliasEntry, AppStream, ApplyReport, CanvasView, ClockDefaults, ClockInfo, ColorEntry,
-        DanteDevice, DanteDeviceConfig, DanteStatus, GraphEvent, GraphSnapshot, HostsStatus,
-        IconEntry, LatencyRule, ListenAddress, MeterLevel, NamedRoute, PermissionsStatus,
-        RoutingPreset, ServiceAction, ServiceStatus, VirtualSink,
+        DanteDevice, DanteDeviceConfig, DanteStatus, EngineInfo, GraphEvent, GraphSnapshot,
+        HostsStatus, IconEntry, LatencyRule, ListenAddress, MeterLevel, NamedRoute,
+        PermissionsStatus, RoutingPreset, ServiceAction, ServiceStatus, VirtualSink,
     };
 
     #[architect::rpc]
@@ -562,6 +562,10 @@ pub mod patchbay_service {
         /// Where the RPC and the browser remote listen, and where they
         /// will listen next start.
         async fn listen_address(&self) -> Result<ListenAddress, PatchbayError>;
+
+        /// What this engine runs with: whether it is connected to
+        /// PipeWire and whether the device layer runs.
+        async fn engine_info(&self) -> Result<EngineInfo, PatchbayError>;
 
         /// Set the listen address (`127.0.0.1:4046` for this machine
         /// only, `0.0.0.0:4046` for the LAN). Saved; it takes effect

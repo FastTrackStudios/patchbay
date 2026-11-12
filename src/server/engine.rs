@@ -95,9 +95,17 @@ impl EngineHandle {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) const CLIENT_NAME: &str = "patchbay";
 
-/// Whether the engine may connect to `PipeWire`: `PATCHBAY_PIPEWIRE=off`
-/// (or `0`/`false`) keeps it away from the machine's graph entirely (no
-/// connection, no `pw-dump` poller), for tests and scratch engines.
+/// Whether the engine may connect to `PipeWire` (`PATCHBAY_PIPEWIRE=off`,
+/// `0` or `false` says no), for tests and scratch engines.
+///
+/// It gates exactly two things: the `PipeWire` connection (the
+/// `patchbay-pw` thread: no graph mirror, no links made) and the `pw-dump`
+/// state poller. Still active with it off: `pw-metadata -n settings`
+/// (read by `status`/`health` through the clock), `systemctl --user show`
+/// (the services), the Dante LAN scan, and the writers that only an RPC
+/// starts (`pactl load-module` for meters, the forced quantum's
+/// `pw-metadata`, the latency drop-in). A warning is logged when it is
+/// off, and `engine_info` (`status`, `health`) says so.
 #[must_use]
 pub(crate) fn pipewire_enabled() -> bool {
     !std::env::var("PATCHBAY_PIPEWIRE").is_ok_and(|v| {
@@ -117,7 +125,9 @@ pub(crate) fn spawn(store: Arc<RwLock<GraphStore>>, events: Sender<GraphEvent>) 
     {
         let cmd_slot: CmdSlot = Arc::new(parking_lot::Mutex::new(None));
         if !pipewire_enabled() {
-            tracing::info!("PATCHBAY_PIPEWIRE=off: the engine does not connect to PipeWire");
+            tracing::warn!(
+                "PATCHBAY_PIPEWIRE=off: this engine does not connect to PipeWire (no graph)"
+            );
             return EngineHandle { cmd_slot };
         }
         let slot = cmd_slot.clone();

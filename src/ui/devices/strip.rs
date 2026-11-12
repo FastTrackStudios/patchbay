@@ -11,6 +11,7 @@ use dioxus::prelude::*;
 use super::console::{Leaves, Strip, color_hex};
 use crate::ui::state;
 use crate::ui::ui::level::fmt_db;
+use crate::ui::ui::{Choice as Dropdown, Slider};
 
 /// A strip's fader, over the device's own dB range.
 ///
@@ -27,34 +28,30 @@ fn StripFader(path: String, value_db: f64, min_db: f64, max_db: f64, writable: b
     // clamp for the control's sake, the device keeps the real value.
     let shown = value_db.clamp(min_db, max_db);
     rsx! {
-        input {
-            r#type: "range",
+        Slider {
             class: "vfader",
-            min: "{min_db}",
-            max: "{max_db}",
-            step: "0.5",
-            value: "{shown}",
+            vertical: true,
+            min: min_db,
+            max: max_db,
+            step: 0.5,
+            value: shown,
             disabled: !writable,
             title: "{fmt_db(value_db)} — double-click for 0 dB",
-            oninput: move |e| {
-                if let Ok(db) = e.value().parse::<f64>() {
-                    super::set_param(handle.clone(), path.clone(), DeviceParamValue::Level(db));
-                }
+            on_input: move |db| {
+                super::set_param(handle.clone(), path.clone(), DeviceParamValue::Level(db));
             },
-            ondoubleclick: move |_| {
-                if writable {
-                    super::set_param(
-                        reset.clone(),
-                        reset_path.clone(),
-                        DeviceParamValue::Level(0.0_f64.clamp(min_db, max_db)),
-                    );
-                }
+            on_reset: move |()| {
+                super::set_param(
+                    reset.clone(),
+                    reset_path.clone(),
+                    DeviceParamValue::Level(0.0_f64.clamp(min_db, max_db)),
+                );
             },
         }
     }
 }
 
-/// An enum param as a `<select>` — the TF's colour and icon vocabularies.
+/// An enum param as a dropdown — the TF's colour and icon vocabularies.
 #[component]
 fn Choice(
     path: String,
@@ -68,21 +65,16 @@ fn Choice(
         return rsx! {};
     }
     rsx! {
-        select {
+        Dropdown {
             class: "{class}",
             disabled: !writable,
-            onchange: move |e| {
-                if let Ok(i) = e.value().parse::<u32>() {
+            value: super::index_of(&options, &selected),
+            options: super::indexed(&options),
+            onpick: move |v: String| {
+                if let Ok(i) = v.parse::<u32>() {
                     super::set_param(handle.clone(), path.clone(), DeviceParamValue::Enum(i));
                 }
             },
-            for (i, opt) in options.iter().enumerate() {
-                option {
-                    value: "{i}",
-                    selected: *opt == selected,
-                    "{opt}"
-                }
-            }
         }
     }
 }

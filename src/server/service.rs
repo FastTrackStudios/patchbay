@@ -1218,6 +1218,20 @@ impl PatchbayService for PatchbayBackend {
 
     // ── External devices ─────────────────────────────────────────────
 
+    async fn engine_info(&self) -> Result<crate::proto::EngineInfo, PatchbayError> {
+        let pipewire = if !cfg!(target_os = "linux") {
+            "unsupported"
+        } else if engine::pipewire_enabled() {
+            "on"
+        } else {
+            "off"
+        };
+        Ok(crate::proto::EngineInfo {
+            pipewire: pipewire.to_owned(),
+            devices: !crate::server::devices::devices_disabled_by_env(),
+        })
+    }
+
     async fn listen_address(&self) -> Result<crate::proto::ListenAddress, PatchbayError> {
         Ok(crate::server::net::listen_address(
             self.inner.presets.bind(),

@@ -7,7 +7,7 @@ use crate::ui::state::{
     self, ALIASES, CLOCK, DANTE, GRAPH, HIDE_UNCONNECTED, LAST_REPORT, MEDIA_TAB, PRESETS, SEARCH,
     SELECTED_NODE,
 };
-use crate::ui::ui::{Status, StatusDot};
+use crate::ui::ui::{Choice, ChoiceOption, Status, StatusDot};
 
 #[component]
 pub fn Toolbar() -> Element {
@@ -298,13 +298,17 @@ fn VirtualSinksPanel() -> Element {
                     value: "{new_name}",
                     oninput: move |e| new_name.set(e.value()),
                 }
-                select {
+                Choice {
                     class: "alias-input bus-ch",
-                    onchange: move |e| channels.set(e.value().parse().unwrap_or(2)),
-                    option { value: "1", selected: *channels.read() == 1, "mono" }
-                    option { value: "2", selected: *channels.read() == 2, "stereo" }
-                    option { value: "4", selected: *channels.read() == 4, "4ch" }
-                    option { value: "8", selected: *channels.read() == 8, "8ch" }
+                    label: "channels",
+                    value: channels.read().to_string(),
+                    options: vec![
+                        ChoiceOption::new("1", "mono"),
+                        ChoiceOption::new("2", "stereo"),
+                        ChoiceOption::new("4", "4ch"),
+                        ChoiceOption::new("8", "8ch"),
+                    ],
+                    onpick: move |v: String| channels.set(v.parse().unwrap_or(2)),
                 }
                 button {
                     class: if *capturable.read() { "chip on" } else { "chip" },
@@ -1113,13 +1117,13 @@ fn BulkRouting(node_name: String) -> Element {
     rsx! {
         div { class: "bulk-routing",
             span { class: "label", "bulk route (1:1 by channel) → " }
-            select {
+            Choice {
                 class: "alias-input",
-                onchange: move |e| target.set(e.value()),
-                option { value: "", selected: target.read().is_empty(), "target node…" }
-                for (name, label) in targets {
-                    option { value: "{name}", selected: *target.read() == name, "{label}" }
-                }
+                label: "target node",
+                value: target.read().clone(),
+                placeholder: "target node…",
+                options: targets.into_iter().map(|(name, label)| ChoiceOption::new(name, label)).collect::<Vec<_>>(),
+                onpick: move |v| target.set(v),
             }
             div { class: "chanmap-buttons",
                 button { class: "chip", onclick: run(true), "link 1:1" }
@@ -1282,15 +1286,14 @@ fn ChanmapSync(node_name: String) -> Element {
                     onclick: run(false), "export chanmap" }
             }
             div { class: "chanmap-buttons",
-                select {
+                Choice {
                     class: "alias-input",
-                    title: "which Dante device's channel list to import names from",
-                    onchange: move |e| dante_dev.set(e.value()),
-                    option { value: "", selected: dante_dev.read().is_empty(),
-                        "Dante device (auto)" }
-                    for name in dante_names {
-                        option { value: "{name}", selected: *dante_dev.read() == name, "{name}" }
-                    }
+                    label: "which Dante device's channel list to import names from",
+                    value: dante_dev.read().clone(),
+                    options: std::iter::once(ChoiceOption::new("", "Dante device (auto)"))
+                        .chain(dante_names.into_iter().map(ChoiceOption::plain))
+                        .collect::<Vec<_>>(),
+                    onpick: move |v| dante_dev.set(v),
                 }
             }
             div { class: "chanmap-buttons",

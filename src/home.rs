@@ -13,11 +13,71 @@ use std::sync::{Arc, OnceLock};
 
 use dioxus::prelude::*;
 
-use crate::server::{DEFAULT_ADDR, Engine, EngineOptions};
-use crate::ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
+use crate::server::{Engine, EngineOptions};
+use crate::ui::{Dialer, EngineLink, Page, PatchbayApp, PatchbayHandle, Shell};
 
-/// How this process starts its engine; [`EngineOptions::new`] on the
-/// configured address unless the app says otherwise ([`configure`]).
+/// The page this process draws in; [`native_page`] unless the app says
+/// otherwise ([`configure_page`]).
+static PAGE: OnceLock<fn() -> Page> = OnceLock::new();
+
+/// Set the page this process draws in (a browser shell's, with its
+/// JavaScript). The first call wins; call it before [`Home`] mounts.
+pub fn configure_page(page: fn() -> Page) {
+    let _ = PAGE.set(page);
+}
+
+/// Architect's window (Blitz): no JavaScript, so preferences live in a
+/// file beside the engine's config ([`crate::server::ui_prefs_path`]),
+/// the scheme is the default, and the page says it is native.
+#[must_use]
+pub fn native_page() -> Page {
+    Page {
+        native: true,
+        load: Some(Rc::new(|key: &'static str| {
+            let value = read_prefs().remove(key);
+            Box::pin(async move { value })
+        })),
+        save: Some(Rc::new(|key: &'static str, value: String| {
+            let mut prefs = read_prefs();
+            if prefs.get(key) == Some(&value) {
+                return;
+            }
+            prefs.insert(key.to_owned(), value);
+            write_prefs(&prefs);
+        })),
+        ..Page::default()
+    }
+}
+
+type Prefs = std::collections::BTreeMap<String, String>;
+
+fn read_prefs() -> Prefs {
+    std::fs::read_to_string(crate::server::ui_prefs_path())
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// Best effort, like a browser's `localStorage`: a preference that can't
+/// be saved is logged and the UI carries on.
+fn write_prefs(prefs: &Prefs) {
+    let path = crate::server::ui_prefs_path();
+    let written = serde_json::to_string_pretty(prefs)
+        .map_err(|e| e.to_string())
+        .and_then(|text| {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&path, text).map_err(|e| e.to_string())
+        });
+    if let Err(e) = written {
+        tracing::warn!(path = %path.display(), error = %e, "patchbay: could not save UI preferences");
+    }
+}
+
+/// How this process starts its engine; [`EngineOptions::machine`] (this
+/// machine's listen address) unless the app says otherwise
+/// ([`configure`]).
 static OPTIONS: OnceLock<fn() -> EngineOptions> = OnceLock::new();
 
 /// Set how this process starts its engine (the address, its web bundle,
@@ -27,10 +87,9 @@ pub fn configure(options: fn() -> EngineOptions) {
 }
 
 fn options() -> EngineOptions {
-    OPTIONS.get().map_or_else(
-        || EngineOptions::new(EngineOptions::configured_addr(DEFAULT_ADDR)),
-        |make| make(),
-    )
+    OPTIONS
+        .get()
+        .map_or_else(EngineOptions::machine, |make| make())
 }
 
 /// This machine's engine, as this process reaches it: started here, or
@@ -128,6 +187,7 @@ fn Linked(engine: EngineRef, generation: Signal<u64>) -> Element {
 fn shell(engine: &Arc<Engine>, mut generation: Signal<u64>) -> Shell {
     let lost = Arc::clone(engine);
     Shell {
+        page: PAGE.get().map_or_else(native_page, |make| make()),
         home: EngineLink {
             handle: PatchbayHandle(Arc::new(engine.client().clone())),
             stream: Rc::new(engine.stream_client().clone()),

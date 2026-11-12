@@ -105,9 +105,10 @@
   font-variant-numeric: tabular-nums; text-align: right;
 }
 .afx-corner { z-index: 4; }
-.afx-cell select { width: 100%; border: none; border-radius: 0; background: transparent; }
+.afx-cell .choice { display: flex; width: 100%; }
+.afx-cell .choice-button { width: 100%; border: none; border-radius: 0; background: transparent; }
 .afx-cell.filled { background: var(--accent-a12); }
-.afx-cell.filled select { color: var(--accent-text); }
+.afx-cell.filled .choice-button { color: var(--accent-text); }
 
 /* ── clock ───────────────────────────────────────────────────────── */
 .clock-facts { display: flex; flex-wrap: wrap; gap: var(--s4); }
@@ -172,8 +173,8 @@
 .param.disruptive { outline: 1px dashed var(--danger-2); border-radius: var(--r2); padding: 1px 3px; }
 .param-leaf { color: var(--muted); font-size: var(--fs-1); }
 .param-val { color: var(--text); font-size: var(--fs-1); min-width: 56px; font-variant-numeric: tabular-nums; }
-.param input.fader { width: 140px; }
-.param input.pan { width: 70px; }
+.param .slider.fader { width: 140px; }
+.param .slider.pan { width: 70px; }
 .param-int { width: 84px; padding: 0 var(--s2); }
 .param-text { width: 140px; padding: 0 var(--s3); }
 .dev-count { color: var(--muted); font-weight: 400; font-size: var(--fs-sm); }
@@ -200,7 +201,7 @@
   .console-scene { margin-left: 0; flex-basis: 100%; }
   .dev-strip-body { height: 200px; }
   .param-row-h { width: 100%; font-weight: 600; }
-  .param input.fader { width: 46vw; }
+  .param .slider.fader { width: 46vw; }
   .afx-scroll { max-height: none; }
 }
 @media (pointer: coarse) {

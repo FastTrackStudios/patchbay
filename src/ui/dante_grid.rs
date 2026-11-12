@@ -22,6 +22,7 @@ use crate::proto::{DanteDevice, DanteSubscription};
 use dioxus::prelude::*;
 
 use crate::ui::state::{self, DANTE_DEVICES, DANTE_ERROR, DANTE_LOADING, PatchbayHandle};
+use crate::ui::ui::{Choice, ChoiceOption};
 
 /// Devices with more channels than this start collapsed.
 const AUTO_EXPAND_MAX: usize = 40;
@@ -95,25 +96,33 @@ impl Selection {
     }
 }
 
-/// `"coarse|narrow"` as `"1|0"` — what kind of screen this is.
-const SCREEN_JS: &str = r#"
-return (matchMedia("(pointer: coarse)").matches ? "1" : "0") + "|" + (innerWidth <= 760 ? "1" : "0");
-"#;
+/// A nudge (arrow key, arrow button) moved the selection: the cell or
+/// label it lands on scrolls itself into view when it mounts.
+static REVEAL: GlobalSignal<bool> = Signal::global(|| false);
 
-/// The scroll viewport's width, for "fit".
-const WIDTH_JS: &str = r#"
-const el = document.querySelector(".dante-scroll");
-return el ? el.clientWidth : 0;
-"#;
+/// The grid's scroll viewport, once mounted: "fit" measures it.
+static SCROLL_EL: GlobalSignal<Option<Rc<MountedData>>> = Signal::global(|| None);
 
-/// After a nudge: keep the selected crosspoint on screen. The cells
-/// carry a scroll margin the size of the sticky headers.
-const REVEAL_JS: &str = r#"
-requestAnimationFrame(() => {
-  const el = document.querySelector(".dante-grid .cell.sel") || document.querySelector(".dante-grid .rx-ch.sel");
-  if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
-});
-"#;
+/// Viewport widths at or below this start zoomed out (a phone).
+const NARROW_PX: f64 = 760.0;
+
+/// Mounted as the selection's target after a nudge: scroll it into view,
+/// as little as needed on each axis.
+// UI futures run on the UI's own executor; they are never sent.
+#[allow(clippy::future_not_send)]
+async fn reveal(e: Event<MountedData>) {
+    if *REVEAL.peek() {
+        *REVEAL.write() = false;
+        let _ = e
+            .data()
+            .scroll_to_with_options(ScrollToOptions {
+                behavior: ScrollBehavior::Instant,
+                vertical: ScrollLogicalPosition::Nearest,
+                horizontal: ScrollLogicalPosition::Nearest,
+            })
+            .await;
+    }
+}
 
 /// Width of the sticky RX label column at a zoom — mirrors `--label-w`
 /// in `views.css`.
@@ -411,27 +420,6 @@ pub fn DanteGrid() -> Element {
         }
     });
 
-    // Once per session: a phone starts zoomed out, and anything touched
-    // starts in safe edit. After that both belong to the user.
-    use_future(|| async {
-        if *DEFAULTS_SET.peek() {
-            return;
-        }
-        if let Ok(screen) = document::eval(SCREEN_JS).join::<String>().await
-            // A remembered zoom may have been restored while this waited.
-            && !*DEFAULTS_SET.peek()
-        {
-            let (coarse, narrow) = (screen.starts_with('1'), screen.ends_with('1'));
-            *CELL_PX.write() = match (coarse, narrow) {
-                (_, true) => CELL_PHONE,
-                (true, false) => CELL_TABLET,
-                (false, false) => CELL_DESKTOP,
-            };
-            *SAFE_EDIT.write() = coarse;
-        }
-        *DEFAULTS_SET.write() = true;
-    });
-
     let refresh = {
         let handle = handle.clone();
         move |_: Event<MouseData>| {
@@ -540,14 +528,46 @@ pub fn DanteGrid() -> Element {
         .map(|d| collapsed_width(&d.name))
         .sum();
 
-    let fit = move |_| {
-        spawn(async move {
-            if let Ok(width) = document::eval(WIDTH_JS).join::<f64>().await
-                && width > 0.0
-            {
-                *CELL_PX.write() = fit_cell(width, drawn_cols, collapsed_px);
+    // Async, not `spawn`: measuring runs after event dispatch has let go
+    // of the document (blitz-dom panics otherwise).
+    let fit = move |_: Event<MouseData>| async move {
+        let el = SCROLL_EL.peek().clone();
+        if let Some(el) = el
+            && let Ok(rect) = el.get_client_rect().await
+            && rect.size.width > 0.0
+        {
+            *CELL_PX.write() = fit_cell(rect.size.width, drawn_cols, collapsed_px);
+        }
+    };
+
+    // Once per session, when the grid first shows: a phone starts zoomed
+    // out, and anything touched starts in safe edit. After that both
+    // belong to the user.
+    let page = crate::ui::page::use_page();
+    let on_scroll_mounted = move |e: Event<MountedData>| {
+        let page = page.clone();
+        async move {
+            let el = e.data();
+            *SCROLL_EL.write() = Some(el.clone());
+            if *DEFAULTS_SET.peek() {
+                return;
             }
-        });
+            let narrow = el
+                .get_client_rect()
+                .await
+                .is_ok_and(|r| r.size.width > 0.0 && r.size.width <= NARROW_PX);
+            let coarse = page.coarse_pointer().await;
+            // A remembered zoom may have been restored while this waited.
+            if !*DEFAULTS_SET.peek() {
+                *CELL_PX.write() = match (coarse, narrow) {
+                    (_, true) => CELL_PHONE,
+                    (true, false) => CELL_TABLET,
+                    (false, false) => CELL_DESKTOP,
+                };
+                *SAFE_EDIT.write() = coarse;
+            }
+            *DEFAULTS_SET.write() = true;
+        }
     };
 
     // Arrow keys walk the selection, Enter commits, Escape lets go.
@@ -577,7 +597,7 @@ pub fn DanteGrid() -> Element {
             };
             e.prevent_default();
             if moved {
-                document::eval(REVEAL_JS);
+                *REVEAL.write() = true;
             }
         }
     };
@@ -707,7 +727,7 @@ pub fn DanteGrid() -> Element {
                     }
                 }
             } else {
-                div { class: "dante-scroll", tabindex: "0", onkeydown: on_key,
+                div { class: "dante-scroll", tabindex: "0", onkeydown: on_key, onmounted: on_scroll_mounted,
                     table { class: "dante-grid",
                         thead {
                             // Row 1: TX device headers.
@@ -809,13 +829,22 @@ pub fn DanteGrid() -> Element {
                                             for rx_ch in &rx_dev.rx {
                                                 {
                                                     let row_sel = sel_rx_here == Some(rx_ch.number);
+                                                    let row_key = if row_sel { "sel" } else { "ch" };
                                                     let pick_rx = (rx_dev.name.clone(), rx_ch.number);
                                                     rsx! {
                                                         tr {
                                                             key: "{rx_dev.name}:{rx_ch.number}",
                                                             class: if row_sel { "sel-row" } else { "" },
                                                             th {
+                                                                // Keyed on the selection so the newly selected
+                                                                // label mounts afresh and can reveal itself.
+                                                                key: "{row_key}",
                                                                 class: if row_sel { "rx-ch sel" } else { "rx-ch" },
+                                                                onmounted: move |e| async move {
+                                                                    if row_sel && SELECTION.peek().tx.is_none() {
+                                                                        reveal(e).await;
+                                                                    }
+                                                                },
                                                                 title: "{rx_dev.name} RX {rx_ch.number} — tap to pick as the receiver",
                                                                 onclick: move |_| SELECTION.write().rx = Some(pick_rx.clone()),
                                                                 "{rx_ch.name}"
@@ -838,6 +867,7 @@ pub fn DanteGrid() -> Element {
                                                                                         (true, false) => Mark::Col,
                                                                                         _ => Mark::None,
                                                                                     };
+                                                                                    let cell_key = if mark == Mark::Sel { ":sel" } else { "" };
                                                                                     let handle = handle.clone();
                                                                                     let rxd = rx_dev.name.clone();
                                                                                     let txd = tx_dev.name.clone();
@@ -849,7 +879,13 @@ pub fn DanteGrid() -> Element {
                                                                                     let rx_has_next = rx_dev.rx.iter().any(|c| c.number == rxn + 1);
                                                                                     rsx! {
                                                                                         td {
-                                                                                            key: "{tx_dev.name}:{tx_ch.number}",
+                                                                                            // Keyed on the selection, as the RX label is.
+                                                                                            key: "{tx_dev.name}:{tx_ch.number}{cell_key}",
+                                                                                            onmounted: move |e| async move {
+                                                                                                if mark == Mark::Sel {
+                                                                                                    reveal(e).await;
+                                                                                                }
+                                                                                            },
                                                                                             class: cell_class(is_sub, healthy, mark),
                                                                                             title: "{rx_dev.name}:{rx_ch.name} ← {tx_dev.name}:{tx_ch.name}",
                                                                                             onclick: move |e: Event<MouseData>| {
@@ -976,7 +1012,7 @@ fn RouteBar(
                 onclick: move |_| {
                     let moved = if tx_axis { move_tx(&tx_cols, forward) } else { move_rx(&rx_rows, forward) };
                     if moved {
-                        document::eval(REVEAL_JS);
+                        *REVEAL.write() = true;
                     }
                 },
                 "{label}"
@@ -996,8 +1032,7 @@ fn RouteBar(
 
     let pick_rx_dev = {
         let rx_all = rx_all.clone();
-        move |e: Event<FormData>| {
-            let name = e.value();
+        move |name: String| {
             let first = rx_all
                 .iter()
                 .find(|d| d.name == name)
@@ -1008,8 +1043,7 @@ fn RouteBar(
     };
     let pick_tx_dev = {
         let tx_all = tx_all.clone();
-        move |e: Event<FormData>| {
-            let name = e.value();
+        move |name: String| {
             let first = tx_all
                 .iter()
                 .find(|d| d.name == name)
@@ -1028,43 +1062,47 @@ fn RouteBar(
             div { class: "route-ends",
                 div { class: "route-end",
                     span { class: "route-tag rx", "RX" }
-                    select { "aria-label": "receiving device", onchange: pick_rx_dev,
-                        option { value: "", selected: rx_dev_name.is_empty(), disabled: true, "device…" }
-                        for d in rx_all.iter() {
-                            option { key: "{d.name}", value: "{d.name}", selected: d.name == rx_dev_name, "{d.name}" }
-                        }
+                    Choice {
+                        label: "receiving device",
+                        up: true,
+                        value: rx_dev_name,
+                        placeholder: "device…",
+                        options: rx_all.iter().map(|d| ChoiceOption::plain(d.name.clone())).collect::<Vec<_>>(),
+                        onpick: pick_rx_dev,
                     }
-                    select {
-                        "aria-label": "receiving channel",
+                    Choice {
+                        label: "receiving channel",
+                        up: true,
                         disabled: rx_channels.is_empty(),
-                        onchange: move |e: Event<FormData>| {
-                            if let Ok(n) = e.value().parse::<u32>() {
+                        value: rx_ch_num.map(|n| n.to_string()).unwrap_or_default(),
+                        options: rx_channels.iter().map(|c| ChoiceOption::new(c.number.to_string(), c.name.clone())).collect::<Vec<_>>(),
+                        onpick: move |v: String| {
+                            if let Ok(n) = v.parse::<u32>() {
                                 SELECTION.write().rx = Some((rx_dev_for_ch.clone(), n));
                             }
                         },
-                        for c in rx_channels.iter() {
-                            option { key: "{c.number}", value: "{c.number}", selected: Some(c.number) == rx_ch_num, "{c.name}" }
-                        }
                     }
                 }
                 span { class: "route-arrow", "←" }
                 div { class: "route-end",
                     span { class: "route-tag tx", "TX" }
-                    select { "aria-label": "source device", onchange: pick_tx_dev,
-                        option { value: "", selected: tx_dev_name.is_empty(), disabled: true, "device…" }
-                        for d in tx_all.iter() {
-                            option { key: "{d.name}", value: "{d.name}", selected: d.name == tx_dev_name, "{d.name}" }
-                        }
+                    Choice {
+                        label: "source device",
+                        up: true,
+                        value: tx_dev_name,
+                        placeholder: "device…",
+                        options: tx_all.iter().map(|d| ChoiceOption::plain(d.name.clone())).collect::<Vec<_>>(),
+                        onpick: pick_tx_dev,
                     }
-                    select {
-                        "aria-label": "source channel",
+                    Choice {
+                        label: "source channel",
+                        up: true,
                         disabled: tx_channels.is_empty(),
-                        onchange: move |e: Event<FormData>| {
-                            SELECTION.write().tx = Some((tx_dev_for_ch.clone(), e.value()));
+                        value: tx_ch_name,
+                        options: tx_channels.iter().map(|c| ChoiceOption::plain(c.name.clone())).collect::<Vec<_>>(),
+                        onpick: move |v: String| {
+                            SELECTION.write().tx = Some((tx_dev_for_ch.clone(), v));
                         },
-                        for c in tx_channels.iter() {
-                            option { key: "{c.number}", value: "{c.name}", selected: c.name == tx_ch_name, "{c.name}" }
-                        }
                     }
                 }
             }

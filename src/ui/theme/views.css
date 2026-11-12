@@ -377,7 +377,8 @@
 }
 .route-ends { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3) var(--s4); flex: 1 1 420px; min-width: 0; }
 .route-end { display: flex; align-items: center; gap: var(--s3); flex: 1 1 200px; min-width: 0; }
-.route-end select { flex: 1 1 0; min-width: 0; width: 0; }
+.route-end .choice { flex: 1 1 0; min-width: 0; width: 0; }
+.route-end .choice-button { width: 100%; }
 .route-tag {
   flex: 0 0 auto; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.06em;
   padding: 2px var(--s3); border-radius: var(--r2);

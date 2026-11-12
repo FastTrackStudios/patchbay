@@ -107,7 +107,7 @@
 }
 .mix-add:hover, .mix-add.on { border-color: var(--accent); color: var(--text); background: var(--accent-a06); }
 .mix-add.output { cursor: default; }
-.mix-add.output select { width: 100%; }
+.mix-add.output .choice, .mix-add.output .choice-button { width: 100%; }
 .mix-add.output .chip { font-size: var(--fs-1); }
 .mix-add-plus { font-size: 24px; line-height: 1; font-weight: 300; }
 

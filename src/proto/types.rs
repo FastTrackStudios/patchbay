@@ -644,6 +644,16 @@ pub struct HostsStatus {
     pub discovery_note: String,
 }
 
+/// What this engine runs with (`patchbay status`, `patchbay health`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Facet)]
+pub struct EngineInfo {
+    /// The `PipeWire` connection: `on`, `off` (`PATCHBAY_PIPEWIRE=off`: no
+    /// graph), or `unsupported` (not Linux).
+    pub pipewire: String,
+    /// Whether the device layer runs (`PATCHBAY_DEVICES=off` turns it off).
+    pub devices: bool,
+}
+
 /// Where the RPC and the browser remote listen.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Facet)]
 pub struct ListenAddress {
