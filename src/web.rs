@@ -5,12 +5,11 @@
 //! opens `http://<host>:4046/` and gets the patchbay.
 
 use std::rc::Rc;
-use std::sync::Arc;
 
 use dioxus::prelude::*;
 use patchbay::proto::PatchbayServiceClient;
 use patchbay::proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay::ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
+use patchbay::ui::{Dialer, EngineLink, PatchbayApp, Shell};
 
 /// Same-origin `/vox` (the engine that served this page serves the
 /// service too); a `dx serve` dev page on a non-4046 localhost port
@@ -46,8 +45,7 @@ struct Home(EngineLink);
 
 impl PartialEq for Home {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0.handle.0, &other.0.handle.0)
-            && Rc::ptr_eq(&self.0.stream, &other.0.stream)
+        self.0.same_connection(&other.0)
     }
 }
 
@@ -71,10 +69,7 @@ async fn connect(url: String) -> Result<EngineLink, String> {
         .await
         .map_err(|e| format!("establish stream: {e:?}"))?;
     tracing::info!("patchbay-web: {url} established");
-    Ok(EngineLink {
-        handle: PatchbayHandle(Arc::new(client)),
-        stream: Rc::new(stream),
-    })
+    Ok(EngineLink::new(client, stream))
 }
 
 pub fn main() {

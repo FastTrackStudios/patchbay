@@ -30,9 +30,6 @@
     clippy::single_match_else
 )]
 
-use std::rc::Rc;
-use std::sync::Arc;
-
 use anyrender::ImageRenderer as _;
 use anyrender_vello::VelloImageRenderer;
 use blitz_dom::{Document as _, DocumentConfig};
@@ -42,7 +39,7 @@ use dioxus_native_dom::DioxusDocument;
 use patchbay::proto::PatchbayServiceClient;
 use patchbay::proto::services::patchbay_service::PatchbayServiceStreamClient;
 use patchbay::server::{Engine, EngineOptions};
-use patchbay::ui::{EngineLink, Page, PatchbayApp, PatchbayHandle, Shell, View};
+use patchbay::ui::{EngineLink, Page, PatchbayApp, Shell, View};
 
 /// The clients the views read, made before the first render.
 static CLIENTS: std::sync::OnceLock<(PatchbayServiceClient, PatchbayServiceStreamClient)> =
@@ -198,10 +195,7 @@ fn Shot() -> Element {
     use_hook(|| {
         if let Some((client, stream)) = CLIENTS.get() {
             provide_context(Shell {
-                home: EngineLink {
-                    handle: PatchbayHandle(Arc::new(client.clone())),
-                    stream: Rc::new(stream.clone()),
-                },
+                home: EngineLink::new(client.clone(), stream.clone()),
                 dial: None,
                 on_home_lost: Callback::new(|()| {}),
                 // Native, as in Architect's window, and saving nothing.
