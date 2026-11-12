@@ -11,10 +11,9 @@
 //! from "found / pinned but unreachable" ([`ConnectError::Failed`]) so
 //! `device list` can say *not found* vs *offline*.
 
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::family::{Adapter, ConnectCtx, ConnectError, ConnectFuture, DeviceFamily, Families};
 use crate::proto::{DeviceConfig, FamilyInfo};
@@ -24,13 +23,16 @@ use super::cache::DiscoveryCache;
 use crate::server::store::GraphStore;
 
 /// The families compiled into the engine, in the order of the default
-/// device list (all four, each auto-discovered). `graph` is the `PipeWire`
-/// graph mirror, system audio's source off macOS.
+/// device list (each auto-discovered). `graph` is the `PipeWire` graph
+/// mirror, system audio's source off macOS. The others are extensions
+/// that register themselves (`crate::family::register`): the Yamaha TF
+/// is `patchbay-yamaha-tf`.
 ///
 /// On a phone or a tablet, none: it has no device families of its own (no
 /// `PipeWire`, no Core Audio routing, no driver) and scans the LAN for no
 /// console or interface. Patchbay there is a controller of the engines on
-/// other machines (`patchbay-ios`, studio#466).
+/// other machines (`patchbay-ios`, studio#466). The same gate keeps out
+/// every registered family (`crate::family::assemble`).
 pub(crate) fn builtin(graph: Arc<RwLock<GraphStore>>) -> Families {
     if cfg!(target_os = "ios") {
         drop(graph);
@@ -39,27 +41,31 @@ pub(crate) fn builtin(graph: Arc<RwLock<GraphStore>>) -> Families {
     Families::new()
         .with(SystemAudio { graph })
         .with(AntelopeGalaxy32)
-        .with(YamahaTf)
         .with(Dante)
+}
+
+/// The device families that are extensions of their own, as
+/// `(kind, label, extension id)`: what to tell someone whose config names
+/// one this process doesn't have. Each family that leaves the core adds
+/// its line (studio#410).
+const EXTENSION_FAMILIES: &[(&str, &str, &str)] =
+    &[("yamaha-tf", "Yamaha TF", "patchbay-yamaha-tf")];
+
+/// Why a configured device has no family to connect it: an extension
+/// family that isn't installed in this process, or a kind nobody knows.
+pub(crate) fn no_family(kind: &str, known: &[&str]) -> String {
+    EXTENSION_FAMILIES
+        .iter()
+        .find(|(k, _, _)| *k == kind)
+        .map_or_else(
+            || format!("unknown device kind '{kind}' (known: {})", known.join(", ")),
+            |(_, label, id)| format!("the {label} extension ({id}) is not installed in this app"),
+        )
 }
 
 /// A linked family's [`FamilyInfo`].
 fn linked(kind: &str, label: &str, platforms: &[&str], discovers: bool) -> FamilyInfo {
-    let here = std::env::consts::OS;
-    let available = platforms.is_empty() || platforms.contains(&here);
-    FamilyInfo {
-        kind: kind.to_owned(),
-        label: label.to_owned(),
-        platforms: platforms.iter().map(|p| (*p).to_owned()).collect(),
-        available,
-        unavailable: if available {
-            String::new()
-        } else {
-            format!("runs on {}, not {here}", platforms.join(" and "))
-        },
-        origin: "linked".to_owned(),
-        discovers,
-    }
+    FamilyInfo::linked(kind, label, platforms, discovers)
 }
 
 /// This machine's own audio system, read only.
@@ -97,24 +103,6 @@ impl DeviceFamily for AntelopeGalaxy32 {
     }
     fn connect(&self, config: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
         antelope_galaxy32(config, ctx)
-    }
-}
-
-/// Yamaha TF consoles.
-struct YamahaTf;
-
-impl DeviceFamily for YamahaTf {
-    fn kind(&self) -> &'static str {
-        "yamaha-tf"
-    }
-    fn info(&self) -> FamilyInfo {
-        linked(self.kind(), "Yamaha TF", &[], true)
-    }
-    fn defaults(&self) -> Vec<DeviceConfig> {
-        vec![DeviceConfig::new("tf1", self.kind())]
-    }
-    fn connect(&self, config: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
-        yamaha_tf(config, ctx)
     }
 }
 
@@ -211,226 +199,6 @@ fn antelope_galaxy32(cfg: DeviceConfig, _ctx: ConnectCtx) -> ConnectFuture {
     })
 }
 
-// ── Yamaha TF ────────────────────────────────────────────────────────
-
-/// Resolve `host` / `host:port` (default port 49280).
-async fn resolve_rcp(raw: &str) -> Result<SocketAddr, ConnectError> {
-    let with_port = if raw.contains(':') {
-        raw.to_owned()
-    } else {
-        format!("{raw}:{}", crate::yamaha::RCP_PORT)
-    };
-    tokio::net::lookup_host(&with_port)
-        .await
-        .map_err(|e| ConnectError::Failed(format!("addr '{raw}': {e}")))?
-        .next()
-        .ok_or_else(|| ConnectError::Failed(format!("addr '{raw}' did not resolve")))
-}
-
-/// Don't sweep the subnets more often than this.
-///
-/// A sweep is up to `max_hosts` TCP connections per local network. Doing
-/// that on every reconnect cycle is antisocial on any network, and on a
-/// console whose RCP listener is already struggling it is what keeps it
-/// down: the TF accepts connections into its backlog and only services
-/// them one session at a time, so a repeating sweep can wedge the
-/// listener until the desk is restarted.
-const SWEEP_EVERY: Duration = Duration::from_secs(300);
-
-/// When the last full discovery sweep ran, per device name.
-static LAST_SWEEP: std::sync::LazyLock<parking_lot::Mutex<BTreeMap<String, Instant>>> =
-    std::sync::LazyLock::new(|| parking_lot::Mutex::new(BTreeMap::new()));
-
-/// What the last sweep concluded, per device — reused while the next
-/// sweep is rate-limited, so the reason stays the reason instead of
-/// becoming "we haven't looked recently".
-static LAST_SCAN_NOTE: std::sync::LazyLock<parking_lot::Mutex<BTreeMap<String, String>>> =
-    std::sync::LazyLock::new(|| parking_lot::Mutex::new(BTreeMap::new()));
-
-/// Consecutive failed connects against a cached address, per device.
-static CACHED_MISSES: std::sync::LazyLock<parking_lot::Mutex<BTreeMap<String, u32>>> =
-    std::sync::LazyLock::new(|| parking_lot::Mutex::new(BTreeMap::new()));
-
-/// Keep trying a cached address this many times before giving up on it.
-///
-/// A console that is merely switched off should cost one connection per
-/// reconnect cycle and nothing else — going back to discovery on the
-/// first failure would put the sweep back in the loop, which is what
-/// wedged a live TF's RCP listener in the first place.
-const CACHED_MISSES_BEFORE_REDISCOVER: u32 = 5;
-
-/// Record a failed connect; `true` when the cached address should go.
-fn cached_miss(name: &str) -> bool {
-    let mut misses = CACHED_MISSES.lock();
-    let n = misses.entry(name.to_owned()).or_insert(0);
-    *n = n.saturating_add(1);
-    if *n >= CACHED_MISSES_BEFORE_REDISCOVER {
-        misses.remove(name);
-        true
-    } else {
-        false
-    }
-}
-
-/// Forget the failure history for a device that just connected.
-fn cached_hit(name: &str) {
-    CACHED_MISSES.lock().remove(name);
-}
-
-/// Whether a sweep for `name` is due, recording it if so.
-fn sweep_due(name: &str) -> bool {
-    let mut last = LAST_SWEEP.lock();
-    match last.get(name) {
-        Some(t) if t.elapsed() < SWEEP_EVERY => false,
-        _ => {
-            last.insert(name.to_owned(), Instant::now());
-            true
-        }
-    }
-}
-
-/// Find the console, cheapest first:
-///
-/// 1. the cached address, returned **without probing** — the session
-///    that follows is the probe, so a console we already know costs one
-///    connection instead of two;
-/// 2. the cached MAC looked up in the neighbour table — follows the
-///    console across DHCP address changes in one probe;
-/// 3. the staged scan (Yamaha-OUI neighbours → other neighbours → full
-///    sweep), at most once every [`SWEEP_EVERY`].
-///
-/// The console's Dante card has its own address and MAC (Audinate
-/// OUI); it never speaks RCP and is skipped by the scan.
-async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAddr, ConnectError> {
-    let scan = crate::yamaha::ScanOptions::default();
-    if let Some(addr) = cache
-        .get(&cfg.name)
-        .and_then(|c| c.parse::<SocketAddr>().ok())
-    {
-        return Ok(addr);
-    }
-    if let Some(mac) = cache
-        .mac(&cfg.name)
-        .and_then(|m| crate::yamaha::parse_mac(&m))
-        && let Some(found) = crate::yamaha::find_by_mac(mac, &scan).await
-    {
-        tracing::info!(addr = %found.addr, "yamaha-tf: console moved; re-found by MAC");
-        cache.remember(&cfg.name, &found.addr.to_string());
-        return Ok(found.addr);
-    }
-    if !sweep_due(&cfg.name) {
-        let note = LAST_SCAN_NOTE.lock().get(&cfg.name).cloned();
-        return Err(ConnectError::NotFound(note.unwrap_or_else(|| {
-            format!(
-                "no TF console found; the subnets are swept at most every {}s",
-                SWEEP_EVERY.as_secs()
-            )
-        })));
-    }
-    let scanned = crate::yamaha::discover_consoles_detail(&scan).await;
-    let found = scanned.consoles;
-    if found.len() > 1 {
-        tracing::info!(
-            consoles = ?found.iter().map(|f| f.addr).collect::<Vec<_>>(),
-            "yamaha-tf: several consoles found; using the first (pin one with `addr`)"
-        );
-    }
-    let first = found.first().ok_or_else(|| {
-        let remember = |name: &str, msg: &str| {
-            LAST_SCAN_NOTE
-                .lock()
-                .insert(name.to_owned(), msg.to_owned());
-        };
-        // A host with the port open that never answers is a different
-        // problem from an empty network, and saying "nothing found"
-        // sends people hunting a fault that isn't there.
-        //
-        // Observed on a live TF1: the handshake completes and the
-        // console never ACKs the bytes we send — the socket sits with
-        // our `devinfo` still in the send queue. The stack accepted the
-        // connection; the application never read it. That is what a
-        // console whose RCP session is already taken looks like, so
-        // name that first.
-        if let Some(addr) = scanned.silent.first() {
-            let more = scanned.silent.len().saturating_sub(1);
-            let others = if more > 0 {
-                format!(" (and {more} more)")
-            } else {
-                String::new()
-            };
-            let msg = format!(
-                "{}{others} accepted a connection on TCP {} and never answered `devinfo` — \
-                 another RCP client (TF Editor, StageMix) may be holding the console's \
-                 session, or its remote-control listener needs the desk restarted",
-                addr.ip(),
-                crate::yamaha::RCP_PORT,
-            );
-            remember(&cfg.name, &msg);
-            return ConnectError::NotFound(msg);
-        }
-        let msg = format!(
-            "no TF console answered on TCP {} on {} local network(s)",
-            crate::yamaha::RCP_PORT,
-            crate::yamaha::local_networks().len()
-        );
-        remember(&cfg.name, &msg);
-        ConnectError::NotFound(msg)
-    })?;
-    tracing::info!(addr = %first.addr, product = %first.product, "yamaha-tf: console found");
-    LAST_SCAN_NOTE.lock().remove(&cfg.name);
-    cache.remember(&cfg.name, &first.addr.to_string());
-    if let Some(mac) = first.mac {
-        cache.remember_mac(&cfg.name, &crate::yamaha::format_mac(mac));
-    }
-    Ok(first.addr)
-}
-
-/// Yamaha TF over RCP. `addr` pins the console (`host` or `host:port`);
-/// without it the console is auto-discovered (see [`find_tf`]). The TF
-/// reports no serial, so the device id is
-/// `yamaha:<model>:<serial or config name>` — stable across IP changes.
-///
-/// The session never sends `scpmode` (no keepalive negotiation); link
-/// liveness comes from the read-only `devstatus runmode` ping.
-fn yamaha_tf(cfg: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
-    Box::pin(async move {
-        let raw = cfg.addr.trim();
-        let addr = if raw.is_empty() {
-            find_tf(&cfg, &ctx.cache).await?
-        } else {
-            resolve_rcp(raw).await?
-        };
-        let opts = crate::yamaha::TfOptions {
-            device_id: Some(if cfg.serial.is_empty() {
-                cfg.name.clone()
-            } else {
-                cfg.serial.clone()
-            }),
-            client: crate::yamaha::ClientOptions {
-                keepalive: None,
-                ..crate::yamaha::ClientOptions::default()
-            },
-            ..crate::yamaha::TfOptions::default()
-        };
-        let adapter = match crate::yamaha::TfAdapter::connect_with(addr, opts).await {
-            Ok(a) => a,
-            Err(e) => {
-                // The cached address is now the only thing we probe, so
-                // it is also the only thing that can be wrong. Forget it
-                // and let the next attempt discover rather than retrying
-                // an address the console has left.
-                if raw.is_empty() && cached_miss(&cfg.name) {
-                    ctx.cache.forget(&cfg.name);
-                }
-                return Err(ConnectError::Failed(format!("{addr}: {e}")));
-            }
-        };
-        cached_hit(&cfg.name);
-        let adapter: Adapter = Arc::new(adapter);
-        Ok(adapter)
-    })
-}
-
 // ── Dante ────────────────────────────────────────────────────────────
 
 /// The Dante network (mDNS + ARC) as one device, id
@@ -517,11 +285,12 @@ mod tests {
         assert!(d.iter().all(DeviceConfig::is_enabled));
     }
 
-    /// The default device list is what `KINDS`/`default_devices` gave
-    /// before the families: same names, kinds and order, so `patchbay
-    /// device list` reads the same on a config with no `devices` section.
+    /// The built-ins' default devices, in the order they had before the
+    /// families (names and kinds as `KINDS`/`default_devices` gave
+    /// them). The Yamaha TF's `tf1` is its extension's now, and comes
+    /// after these when it is registered (`patchbay-yamaha-tf`'s tests).
     #[test]
-    fn the_default_device_list_is_unchanged() {
+    fn the_builtin_default_devices_keep_their_order() {
         let d: Vec<(String, String)> = families()
             .defaults()
             .into_iter()
@@ -530,10 +299,35 @@ mod tests {
         let want = [
             ("system-audio", "system-audio"),
             ("galaxy32", "antelope-galaxy32"),
-            ("tf1", "yamaha-tf"),
             ("dante", "dante"),
         ];
         assert_eq!(d, want.map(|(n, k)| (n.to_owned(), k.to_owned())).to_vec());
+    }
+
+    #[test]
+    fn a_kind_from_an_extension_that_isnt_installed_says_so() {
+        let known = families().kinds();
+        assert_eq!(
+            no_family("yamaha-tf", &known),
+            "the Yamaha TF extension (patchbay-yamaha-tf) is not installed in this app"
+        );
+        let unknown = no_family("theremin", &known);
+        assert!(
+            unknown.starts_with("unknown device kind 'theremin' (known: system-audio, "),
+            "{unknown}"
+        );
+    }
+
+    /// The built-ins all bring views: an engine with only them warns of
+    /// nothing at start.
+    #[cfg(feature = "ui")]
+    #[test]
+    fn the_builtins_have_views() {
+        let kinds = families().kinds();
+        let views = crate::ui::family_view_kinds();
+        for k in &kinds {
+            assert!(views.contains(k), "the built-in family '{k}' has no views");
+        }
     }
 
     #[test]
@@ -545,7 +339,7 @@ mod tests {
             system.available,
             cfg!(any(target_os = "linux", target_os = "macos"))
         );
-        for net in ["antelope-galaxy32", "yamaha-tf", "dante"] {
+        for net in ["antelope-galaxy32", "dante"] {
             let f = infos.iter().find(|f| f.kind == net).unwrap();
             assert!(
                 f.platforms.is_empty() && f.available && f.discovers,

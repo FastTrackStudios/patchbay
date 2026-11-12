@@ -469,3 +469,75 @@ async fn a_family_that_panics_takes_down_only_its_own_device() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_family_whose_defaults_panic_adds_no_devices() {
+    // No config file at all: no `devices` section, so the device list is
+    // the families' defaults, which is where `defaults()` is asked.
+    let dir = std::env::temp_dir().join(format!("patchbay-defaults-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let presets = Arc::new(PresetStore::open_at(dir.join("absent.styx")));
+    assert!(presets.device_configs().is_empty());
+    let families = Families::new()
+        .with(BrokenFamily)
+        .with(FakeFamily(Desk::new()));
+    let hub = DeviceHub::start_with(
+        presets,
+        &families,
+        &ConnectCtx::new(Arc::new(DiscoveryCache::memory())),
+    );
+    let names: Vec<String> = hub.list().into_iter().map(|d| d.name).collect();
+    assert_eq!(
+        names,
+        ["desk", "ghost", "down"],
+        "the broken family added devices"
+    );
+    // It is still listed, as unavailable.
+    let broken = hub
+        .family_infos()
+        .into_iter()
+        .find(|i| i.kind == "broken")
+        .unwrap();
+    assert!(!broken.available);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A family whose connect always fails, counting its attempts.
+struct CountingFamily(Arc<std::sync::atomic::AtomicUsize>);
+
+impl DeviceFamily for CountingFamily {
+    fn kind(&self) -> &'static str {
+        "counting"
+    }
+
+    fn info(&self) -> FamilyInfo {
+        FamilyInfo::linked("counting", "Counting", &[], false)
+    }
+
+    fn connect(&self, _config: DeviceConfig, _ctx: ConnectCtx) -> ConnectFuture {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async { Err(ConnectError::Failed("refused".to_owned())) })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failing_device_is_retried_with_backoff_not_in_a_loop() {
+    let dir = std::env::temp_dir().join(format!("patchbay-backoff-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = dir.join("patchbay.styx");
+    std::fs::write(&config, "devices ({name c, kind counting})\n").unwrap();
+    let presets = Arc::new(PresetStore::open_at(config));
+    let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let families = Families::new().with(CountingFamily(Arc::clone(&attempts)));
+    let _hub = DeviceHub::start_with(
+        presets,
+        &families,
+        &ConnectCtx::new(Arc::new(DiscoveryCache::memory())),
+    );
+    // The first try at once, the next after the 2 s minimum backoff, the
+    // one after that 4 s later: two in three seconds.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let n = attempts.load(std::sync::atomic::Ordering::SeqCst);
+    assert!((2..=3).contains(&n), "{n} connect attempts in 3 s");
+    let _ = std::fs::remove_dir_all(&dir);
+}

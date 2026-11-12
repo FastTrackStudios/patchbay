@@ -3,7 +3,7 @@
 use std::fmt;
 
 use super::token::{Token, is_bare_word, quote};
-use crate::yamaha::error::{Result, TfError};
+use crate::error::{Result, TfError};
 
 /// A parameter value on the wire: an integer or a (quoted) string.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -118,7 +118,7 @@ enum Arg {
 }
 
 /// One command line. Build with the constructors, send with
-/// [`crate::yamaha::Client::request`].
+/// [`crate::Client::request`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
     verb: String,

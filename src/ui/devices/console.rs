@@ -176,17 +176,6 @@ pub struct Leaves {
     pub on_inverted: bool,
 }
 
-/// Yamaha TF: named, coloured strips with an ON key.
-pub const TF_LEAVES: Leaves = Leaves {
-    name: "name",
-    color: "color",
-    icon: "icon",
-    level: "level",
-    pan: "pan",
-    on: "on",
-    on_inverted: false,
-};
-
 /// Antelope Galaxy 32 mixer: no names or colours, and a mute.
 pub const GALAXY_LEAVES: Leaves = Leaves {
     name: "",

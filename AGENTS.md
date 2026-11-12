@@ -62,9 +62,16 @@ extension per device family, packaged as its own distribution
   becomes the distribution (#428).
 - **Device families** (`family::DeviceFamily`, `family::Families`): the
   hub connects each configured device through the family for its `kind`.
-  The four built-ins are in `server/devices/registry.rs`; another family
-  calls `family::register` before the engine starts (read once, at
-  start). `patchbay families` / `PATCHBAY_FAMILIES` lists what an engine
+  The built-ins (system audio, Galaxy32, Dante) are in
+  `server/devices/registry.rs`; a family of its own calls
+  `family::register` (or `register_with_views`, with its views) before
+  the engine starts (read once, at start). The Yamaha TF is the first:
+  `features/patchbay/yamaha-tf` (`patchbay-yamaha-tf`), registered by its
+  extension's `build` and by each `fts-patchbay` binary's `main`. A
+  family's views draw with `ui::kit`. On iOS no family runs:
+  `family::register` registers nothing and `family::assemble` (where the
+  engine's families are put together) gives none, so every family
+  extension inherits the phone's gate; their views still register. `patchbay families` / `PATCHBAY_FAMILIES` lists what an engine
   has. Adding a family is a registration, not an edit to the hub. The
   system-audio family holds no PipeWire connection of its own: it gets a
   clone of the same `Arc<RwLock<GraphStore>>` the `patchbay-pw` thread
@@ -90,7 +97,9 @@ skill before UI work.
 - **Family views by kind** (`ui::families`): the Route and Mix pages and
   the device console draw the view the selected device's family
   registered (`FamilyViews { route, mix, console }`), each mounted as a
-  component of its own (`families::mount`, never called as a function);
+  component of its own, never called as a function (`families::mount`
+  for a page, `families::mount_console` for a console, whose identity is
+  the console function, so a re-registered kind gets fresh hooks);
   a kind with none gets the generic device view. How the shell presents
   a device comes from there too: `label` (rail), `what` (context
   switcher), `icon`, `reads_device`, `route_note`. Never match on a kind

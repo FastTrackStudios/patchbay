@@ -24,8 +24,8 @@ use futures_util::stream;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::net::TcpStream;
 
-use crate::yamaha::client::RCP_PORT;
-use crate::yamaha::rcp::reply::Line;
+use crate::client::RCP_PORT;
+use crate::rcp::reply::Line;
 
 /// Scan limits.
 #[derive(Debug, Clone)]
@@ -111,7 +111,7 @@ pub fn local_networks() -> Vec<LocalNet> {
             }),
             if_addrs::IfAddr::V6(_) => None,
         })
-        .filter(|n| scannable(n))
+        .filter(scannable)
         .collect()
 }
 

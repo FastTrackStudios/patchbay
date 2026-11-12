@@ -5,18 +5,21 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Studio routing: the patchbay server (host audio graph, Core Audio, Dante, Yamaha and Antelope adapters), its wire types, and its UI"
+description = "Studio routing: the patchbay server (host audio graph, Core Audio, Dante and Antelope adapters), its wire types, and its UI"
 
 [lints]
 workspace = true
 
 [features]
 default = ["vox"]
-server = ["architect/host", "architect/local", "architect/server-axum", "dep:architect-telemetry", "dep:axum", "dep:dirs", "dep:eyre", "dep:facet-styx", "dep:futures-util", "dep:if-addrs", "dep:inferno-net", "dep:mdns-sd", "dep:parking_lot", "dep:serde_json", "dep:socket2", "dep:tokio", "dep:tracing", "dep:vox-core", "dep:vox-websocket"]
+server = ["architect/host", "architect/local", "architect/server-axum", "dep:architect-telemetry", "dep:axum", "dep:dirs", "dep:eyre", "dep:facet-styx", "dep:futures-util", "dep:inferno-net", "dep:mdns-sd", "dep:parking_lot", "dep:serde_json", "dep:socket2", "dep:tokio", "dep:tracing", "dep:vox-core", "dep:vox-websocket"]
 # The Patchbay core as an Architect extension (`ext::Patchbay`): its
 # actions and its view, over this machine's one engine.
 extension = ["dep:architect-extensions", "server", "ui"]
 tcc-spi = []
+# For a device family's own tests: `family::ConnectCtx::in_memory()`, a
+# connect context over an in-memory discovery cache, no engine needed.
+test-util = ["server"]
 ui = ["dep:dioxus", "dep:futures-timer", "dep:futures-util", "dep:music-catalog", "dep:tracing"]
 vox = []
 
@@ -31,7 +34,6 @@ eyre = { workspace = true, optional = true }
 facet = { workspace = true }
 facet-styx = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
-if-addrs = { workspace = true, optional = true }
 inferno-net = { workspace = true, optional = true }
 mdns-sd = { workspace = true, optional = true }
 music-catalog = { workspace = true, optional = true }
@@ -143,16 +145,6 @@ required-features = ["server"]
 [[example]]
 name = "ca_virtual"
 path = "examples/ca_virtual.rs"
-required-features = ["server"]
-
-[[example]]
-name = "tf_discover"
-path = "examples/tf_discover.rs"
-required-features = ["server"]
-
-[[example]]
-name = "tf_read"
-path = "examples/tf_read.rs"
 required-features = ["server"]
 
 [[example]]

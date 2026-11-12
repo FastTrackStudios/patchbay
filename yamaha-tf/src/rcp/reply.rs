@@ -2,7 +2,7 @@
 
 use super::command::{RcpValue, SceneBank};
 use super::token::{Token, tokenize};
-use crate::yamaha::error::{Result, TfError};
+use crate::error::{Result, TfError};
 
 /// One line from the console.
 #[derive(Debug, Clone, PartialEq, Eq)]

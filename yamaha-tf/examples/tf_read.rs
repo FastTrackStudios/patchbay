@@ -6,14 +6,14 @@
 //! (a session setting) and never `set`s anything. Safe against a live show.
 //!
 //! ```bash
-//! cargo run -p patchbay-yamaha --example tf_read -- 192.168.1.214:49280
+//! cargo run -p patchbay-yamaha-tf --example tf_read -- 192.168.1.214:49280
 //! ```
 
 use std::net::SocketAddr;
 use std::time::Instant;
 
 use patchbay::device::{DeviceAdapter, DeviceSnapshot, ParamKind, ParamValue};
-use patchbay::yamaha::{ClientOptions, RCP_PORT, TfAdapter, TfOptions};
+use patchbay_yamaha_tf::{ClientOptions, RCP_PORT, TfAdapter, TfOptions};
 
 fn show(snap: &DeviceSnapshot, path: &str) -> String {
     let Some(p) = snap.param(path) else {

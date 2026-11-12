@@ -4,7 +4,7 @@
 //! double-quoted; inside quotes a backslash escapes the next character
 //! (`\"` and `\\` in practice).
 
-use crate::yamaha::error::{Result, TfError};
+use crate::error::{Result, TfError};
 
 /// One token of an RCP line.
 #[derive(Debug, Clone, PartialEq, Eq)]

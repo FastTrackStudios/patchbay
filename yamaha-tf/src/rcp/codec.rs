@@ -4,7 +4,7 @@
 //! chunks can split a line anywhere or carry several lines, so bytes are
 //! buffered until a LF arrives. A trailing CR is stripped defensively.
 
-use crate::yamaha::error::{Result, TfError};
+use crate::error::{Result, TfError};
 
 /// A line longer than this without a LF means the stream is garbage.
 pub const MAX_LINE: usize = 64 * 1024;

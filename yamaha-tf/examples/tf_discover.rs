@@ -1,11 +1,11 @@
 //! Time TF console discovery on this machine's networks. Read-only: it
 //! sends only `devinfo productname` to open RCP ports.
 //!
-//! Run: `cargo run -p patchbay-yamaha --example tf_discover`.
+//! Run: `cargo run -p patchbay-yamaha-tf --example tf_discover`.
 
 use std::time::Instant;
 
-use patchbay::yamaha::{
+use patchbay_yamaha_tf::{
     ScanOptions, discover_consoles, local_networks, neighbors, plan_stages, scan_targets,
 };
 

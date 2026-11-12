@@ -171,7 +171,7 @@ fn a_family_registered_from_outside_the_crate_connects_through_the_hub() {
         .unwrap();
     let outside = families.iter().find(|f| f.kind == KIND).unwrap();
     assert_eq!(outside.label, "Outside desk");
-    assert!(families.iter().any(|f| f.kind == "yamaha-tf"));
+    assert!(families.iter().any(|f| f.kind == "dante"));
 
     // The hub connects the configured device through it.
     let desk = until("the outside desk online", || {

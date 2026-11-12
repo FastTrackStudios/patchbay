@@ -27,16 +27,16 @@
 
 use std::collections::HashMap;
 
-use crate::yamaha::error::{Result, TfError};
-use crate::yamaha::rcp::reply::PrmInfo;
-use crate::yamaha::tf::vocab::VocabKind;
+use crate::error::{Result, TfError};
+use crate::rcp::reply::PrmInfo;
+use crate::tf::vocab::VocabKind;
 
 /// `MIXER:Current/` prefix of every mapped address.
 pub const CURRENT: &str = "MIXER:Current/";
 
 /// The console's `prminfo` table captured from a TF1 V4.55 (108 rows,
 /// verbatim reply lines). Fallback when live discovery fails.
-pub const TF1_PRMINFO_JSON: &str = include_str!("../../../assets/yamaha/tf1_prminfo.json");
+pub const TF1_PRMINFO_JSON: &str = include_str!("../../assets/tf1_prminfo.json");
 
 /// Parse [`TF1_PRMINFO_JSON`].
 ///
@@ -235,7 +235,7 @@ impl Block {
 /// How a param's wire value maps to a generic value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueKind {
-    /// dB×100 integer, -32768 = -inf → [`crate::device::ParamValue::Level`].
+    /// dB×100 integer, -32768 = -inf → [`patchbay::device::ParamValue::Level`].
     Level,
     /// 0/1 → `Toggle`.
     Toggle,
@@ -293,7 +293,7 @@ pub enum Target {
 }
 
 /// One mapped parameter.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParamDef {
     /// Generic path, e.g. `in/3/send/aux/2/level`.
     pub path: String,

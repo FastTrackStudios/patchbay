@@ -9,11 +9,32 @@
 //! metering. The view says so rather than implying otherwise; Dante
 //! patching for an NY64-D card belongs to the Network view.
 
-use crate::proto::DeviceView;
 use dioxus::prelude::*;
+use patchbay::proto::DeviceView;
+use patchbay::ui::FamilyViews;
+use patchbay::ui::kit::{
+    ChannelStrip, EmptyState, Leaves, ParamFacts, Params, count_under, numbered, strips,
+};
 
-use super::console::{Params, TF_LEAVES, count_under, numbered, strips};
-use super::strip::{ChannelStrip, ParamFacts};
+/// What the TF registers: its console, above the generic device view.
+#[must_use]
+pub fn views() -> FamilyViews {
+    FamilyViews {
+        console: Some(|view| rsx! { YamahaTfConsole { view } }),
+        ..FamilyViews::new("yamaha-tf")
+    }
+}
+
+/// The TF's strips: named, coloured, with an icon and an ON key.
+pub const TF_LEAVES: Leaves = Leaves {
+    name: "name",
+    color: "color",
+    icon: "icon",
+    level: "level",
+    pan: "pan",
+    on: "on",
+    on_inverted: false,
+};
 
 /// Which bank of strips is showing.
 static BANK: GlobalSignal<usize> = Signal::global(|| 0);
@@ -82,7 +103,7 @@ pub fn YamahaTfConsole(view: DeviceView) -> Element {
 
     let Some(bank) = banks.get(selected) else {
         return rsx! {
-            crate::ui::ui::EmptyState { title: "Nothing to show yet".to_owned(),
+            EmptyState { title: "Nothing to show yet".to_owned(),
                 p { "The console hasn't reported any channels." }
             }
         };

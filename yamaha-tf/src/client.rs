@@ -36,11 +36,11 @@ use tokio::sync::{Notify, Semaphore, broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
-use crate::yamaha::error::{Result, TfError};
-use crate::yamaha::rcp::codec::LineCodec;
-use crate::yamaha::rcp::command::{Command, RcpValue};
-use crate::yamaha::rcp::reply::{Line, ParamReply};
-use crate::yamaha::rcp::token::Token;
+use crate::error::{Result, TfError};
+use crate::rcp::codec::LineCodec;
+use crate::rcp::command::{Command, RcpValue};
+use crate::rcp::reply::{Line, ParamReply};
+use crate::rcp::token::Token;
 
 /// The RCP TCP port.
 pub const RCP_PORT: u16 = 49280;
@@ -269,13 +269,12 @@ impl Shared {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         {
             let mut w = self.writer.lock().await;
-            if cmd.is_write() {
-                if let Some(due) = w
+            if cmd.is_write()
+                && let Some(due) = w
                     .last_write_cmd
                     .and_then(|t| t.checked_add(self.opts.write_gap))
-                {
-                    tokio::time::sleep_until(due).await;
-                }
+            {
+                tokio::time::sleep_until(due).await;
             }
             let Some(half) = w.half.as_mut() else {
                 return Err(TfError::Closed);

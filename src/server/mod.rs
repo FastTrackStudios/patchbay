@@ -15,7 +15,7 @@ pub mod chanmap;
 pub mod clock;
 pub mod dante;
 mod dante_net;
-mod devices;
+pub(crate) mod devices;
 mod engine;
 mod enrich;
 mod icons;
@@ -40,7 +40,6 @@ pub use boot::{
     DEFAULT_ADDR, Engine, EngineError, EngineMode, EngineOptions, IfTaken, MakePermissions, dial,
     listen_addr, runtime, spawn,
 };
-pub use devices::DiscoveryCache;
 pub use service::PatchbayBackend;
 
 pub use net::record_bound;

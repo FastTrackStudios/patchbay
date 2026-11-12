@@ -17,7 +17,6 @@ pub(crate) mod registry;
 pub(crate) mod system_audio;
 pub(crate) mod wire;
 
-pub use cache::DiscoveryCache;
 pub(crate) use hub::{DeviceHub, devices_disabled_by_env};
 
 #[cfg(test)]

@@ -42,7 +42,7 @@ impl DiscoveryCache {
     }
 
     /// In-memory only (tests / no config dir).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-util"))]
     pub(crate) fn memory() -> Self {
         Self::at(None)
     }

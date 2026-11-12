@@ -1,10 +1,10 @@
 //! Wire value ↔ generic value conversion.
 
-use crate::device::{ParamKind, ParamValue};
+use patchbay::device::{ParamKind, ParamValue};
 
-use crate::yamaha::rcp::command::RcpValue;
-use crate::yamaha::tf::table::ValueKind;
-use crate::yamaha::tf::vocab::Vocab;
+use crate::rcp::command::RcpValue;
+use crate::tf::table::ValueKind;
+use crate::tf::vocab::Vocab;
 
 /// Wire sentinel for -inf dB.
 pub const NEG_INF_RAW: i64 = -32768;

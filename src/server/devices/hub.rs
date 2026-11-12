@@ -177,11 +177,7 @@ impl DeviceHub {
                 (true, _, _) => (DeviceLinkState::Disabled, String::new()),
                 (false, None, _) => (
                     DeviceLinkState::Offline,
-                    format!(
-                        "unknown device kind '{}' (known: {})",
-                        config.kind,
-                        families.kinds().join(", ")
-                    ),
+                    super::registry::no_family(&config.kind, &families.kinds()),
                 ),
                 (false, Some(_), None) => (
                     DeviceLinkState::Offline,

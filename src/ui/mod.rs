@@ -28,6 +28,19 @@ mod theme;
 mod ui;
 
 pub use app::{PatchbayApp, Splash};
+
+/// What a family's views draw with (`patchbay-yamaha-tf`'s console):
+/// the device read indexed by path, channel strips off it, the shared
+/// strip component, and the empty state every page uses.
+pub mod kit {
+    pub use super::devices::console::{
+        Leaves, Params, Strip, color_hex, count_under, numbered, strips,
+    };
+    pub use super::devices::strip::{ChannelStrip, ParamFacts};
+    pub use super::ui::EmptyState;
+}
+#[cfg(feature = "server")]
+pub(crate) use families::kinds as family_view_kinds;
 pub use families::{FamilyViews, register as register_family_views};
 pub use hosts::{Dialer, EngineLink, Shell};
 pub use page::{Page, PageFuture};

@@ -24,8 +24,7 @@ use dioxus::prelude::*;
 pub mod console;
 mod core_audio;
 pub(crate) mod galaxy32;
-mod strip;
-pub(crate) mod yamaha_tf;
+pub(crate) mod strip;
 
 use crate::ui::state::{self, PatchbayHandle};
 use crate::ui::ui::{
@@ -680,10 +679,13 @@ fn Offline(device: Option<DeviceSummary>) -> Element {
 /// the model string: every Galaxy 32 answers to the same paths whatever
 /// it calls itself.
 #[component]
-fn Console(view: DeviceView) -> Element {
+pub(crate) fn Console(view: DeviceView) -> Element {
     crate::ui::families::views(&view.summary.kind)
         .and_then(|v| v.console)
-        .map_or_else(|| rsx! {}, |console| console(view))
+        .map_or_else(
+            || rsx! {},
+            |console| crate::ui::families::mount_console(console, view),
+        )
 }
 
 /// Everything the device reports, as it reports it.

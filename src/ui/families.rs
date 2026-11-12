@@ -106,6 +106,56 @@ pub fn mount(view: fn() -> Element, name: &'static str) -> Element {
     rsx! { {DynamicNode::Component(VComponent::new(view, (), name))} }
 }
 
+/// Draw `console` for `view` as a component of its own, the way [`mount`]
+/// draws a page: the component's identity is the console function
+/// itself, so a different console (another family's, or a registration
+/// that replaced this kind's) gets a fresh scope instead of the hooks of
+/// the one drawn before.
+pub fn mount_console(console: fn(DeviceView) -> Element, view: DeviceView) -> Element {
+    use dioxus::dioxus_vdom::{DynamicNode, VComponent};
+    rsx! {
+        {DynamicNode::Component(VComponent::new(ConsoleFn(console), ConsoleProps { view }, "FamilyConsole"))}
+    }
+}
+
+/// A console's props: the device's full read.
+#[derive(Props, Clone, PartialEq)]
+struct ConsoleProps {
+    view: DeviceView,
+}
+
+/// A console function as a component: rendered with its view, identified
+/// by its own address.
+#[derive(Clone, Copy)]
+struct ConsoleFn(fn(DeviceView) -> Element);
+
+/// Tells dioxus which `ComponentFunction` impl this is.
+struct ConsoleMarker;
+
+impl dioxus::dioxus_vdom::ComponentFunction<ConsoleProps, ConsoleMarker> for ConsoleFn {
+    // The console function's address is the component's identity: what
+    // dioxus compares to tell one console from another.
+    #[allow(clippy::as_conversions, clippy::fn_to_numeric_cast_any)]
+    fn fn_ptr(&self) -> usize {
+        self.0 as usize
+    }
+
+    fn rebuild(&self, props: ConsoleProps) -> Element {
+        (self.0)(props.view)
+    }
+}
+
+/// Every kind with views registered, in order.
+#[cfg(feature = "server")]
+pub(crate) fn kinds() -> Vec<&'static str> {
+    registry()
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .map(|v| v.kind)
+        .collect()
+}
+
 /// The views registered for `kind`, if any.
 #[must_use]
 pub fn views(kind: &str) -> Option<FamilyViews> {
@@ -120,7 +170,7 @@ pub fn views(kind: &str) -> Option<FamilyViews> {
 /// The built-in families' views, as each family extension will register
 /// its own.
 fn builtin() -> Vec<FamilyViews> {
-    use crate::ui::devices::{galaxy32, yamaha_tf};
+    use crate::ui::devices::galaxy32;
     use crate::ui::{icons, pages};
     vec![
         FamilyViews {
@@ -141,10 +191,6 @@ fn builtin() -> Vec<FamilyViews> {
             ..FamilyViews::new("dante")
         },
         FamilyViews {
-            console: Some(|view| rsx! { yamaha_tf::YamahaTfConsole { view } }),
-            ..FamilyViews::new("yamaha-tf")
-        },
-        FamilyViews {
             console: Some(|view| rsx! { galaxy32::Galaxy32Console { view } }),
             route_note: Some(galaxy32::ROUTER_LAG),
             ..FamilyViews::new("antelope-galaxy32")
@@ -155,7 +201,7 @@ fn builtin() -> Vec<FamilyViews> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proto::DeviceSummary;
+    use crate::proto::{DeviceSummary, ParamView};
 
     #[component]
     fn FakeRoute() -> Element {
@@ -226,6 +272,116 @@ mod tests {
         );
     }
 
+    // The same kind registered again with another view while one is on
+    // screen, then a redraw: drawn by calling, the new view would get the
+    // old one's hooks (a panic). Mounted, it gets a scope of its own.
+    // Console functions that use hooks themselves, as a family outside
+    // the crate may write one (not a closure that mounts a component).
+    #[allow(clippy::needless_pass_by_value)]
+    fn console_with_signal(_view: crate::proto::DeviceView) -> Element {
+        let word = use_signal(|| "old".to_owned());
+        rsx! { div { "data-console": "{word}" } }
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn console_with_hook(view: crate::proto::DeviceView) -> Element {
+        let n = use_hook(|| 9_u32);
+        rsx! { div { "data-console": "new-{n}-{view.params.len()}" } }
+    }
+
+    fn device(kind: &str, params: usize) -> crate::proto::DeviceView {
+        crate::proto::DeviceView {
+            summary: summary(kind, "desk", "Desk"),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            routes: Vec::new(),
+            params: (0..params)
+                .map(|i| ParamView {
+                    path: format!("p/{i}"),
+                    label: String::new(),
+                    kind: crate::proto::DeviceParamKind::Toggle,
+                    value: crate::proto::DeviceParamValue::Toggle(false),
+                    writable: false,
+                    disruptive: false,
+                })
+                .collect(),
+        }
+    }
+
+    #[component]
+    fn ReRegisteringConsolePage() -> Element {
+        let mut view = use_signal(|| device("swap-console", 0));
+        rsx! {
+            button {
+                onclick: move |_| {
+                    register(FamilyViews {
+                        console: Some(console_with_hook),
+                        ..FamilyViews::new("swap-console")
+                    });
+                    // A device event: the same device, one more param.
+                    view.set(device("swap-console", 1));
+                },
+                "re-register"
+            }
+            crate::ui::devices::Console { view: view() }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_console_re_registered_for_its_kind_draws_with_hooks_of_its_own() {
+        register(FamilyViews {
+            console: Some(console_with_signal),
+            ..FamilyViews::new("swap-console")
+        });
+        let doc = dioxus_test::render(ReRegisteringConsolePage).build();
+        assert!(doc.query("[data-console=\"old\"]").immediately().is_ok());
+        doc.query("button").click().await.unwrap();
+        doc.pump().await.unwrap();
+        assert!(
+            doc.query("[data-console=\"new-9-1\"]")
+                .immediately()
+                .is_ok(),
+            "the re-registered console did not draw with hooks of its own"
+        );
+    }
+
+    // The same for a page view: one kind, its route replaced, a redraw.
+    #[component]
+    fn ReRegisteringRoutePage() -> Element {
+        let mut redraws = use_signal(|| 0_u32);
+        let route = views("swap-route").and_then(|v| v.route).unwrap();
+        rsx! {
+            button {
+                onclick: move |_| {
+                    register(FamilyViews {
+                        route: Some(HookRoute),
+                        ..FamilyViews::new("swap-route")
+                    });
+                    redraws += 1;
+                },
+                "re-register"
+            }
+            span { "{redraws}" }
+            {mount(route, "FamilyRoute")}
+        }
+    }
+
+    #[tokio::test]
+    async fn a_route_re_registered_for_its_kind_draws_with_hooks_of_its_own() {
+        register(FamilyViews {
+            route: Some(SignalRoute),
+            ..FamilyViews::new("swap-route")
+        });
+        let doc = dioxus_test::render(ReRegisteringRoutePage).build();
+        assert!(doc.query("[data-view=\"first\"]").immediately().is_ok());
+        doc.query("button").click().await.unwrap();
+        doc.pump().await.unwrap();
+        assert!(
+            doc.query("[data-view=\"second-7\"]").immediately().is_ok(),
+            "the re-registered route did not draw with hooks of its own"
+        );
+    }
+
     fn summary(kind: &str, name: &str, model: &str) -> DeviceSummary {
         DeviceSummary {
             id: String::new(),
@@ -272,7 +428,7 @@ mod tests {
         assert!(!views("dante").unwrap().reads_device);
         assert!(views("system-audio").unwrap().icon.is_some());
         assert!(views("antelope-galaxy32").unwrap().route_note.is_some());
-        assert!(views("yamaha-tf").unwrap().reads_device);
+        assert!(views("antelope-galaxy32").unwrap().reads_device);
     }
 
     #[component]
@@ -305,8 +461,8 @@ mod tests {
     fn an_unregistered_kind_gets_the_generic_device_view() {
         assert!(views("no-such-kind").is_none());
         // The built-in consoles answer only for their own kinds.
-        assert!(views("yamaha-tf").and_then(|v| v.console).is_some());
-        assert!(views("yamaha-tf").and_then(|v| v.route).is_none());
+        assert!(views("antelope-galaxy32").and_then(|v| v.console).is_some());
+        assert!(views("antelope-galaxy32").and_then(|v| v.route).is_none());
         assert!(views("dante").and_then(|v| v.route).is_some());
         assert!(views("system-audio").and_then(|v| v.mix).is_some());
     }

@@ -25,25 +25,25 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use crate::device::{
-    ChannelRef, DeviceAdapter, DeviceError, DeviceEvent, DeviceId, DeviceInfo, DeviceSnapshot,
-    Param, ParamValue, Transport, WriteGuard,
-};
 use futures_util::StreamExt;
 use futures_util::future::join_all;
 use parking_lot::Mutex;
+use patchbay::device::{
+    ChannelRef, DeviceAdapter, DeviceError, DeviceEvent, DeviceId, DeviceInfo, DeviceSnapshot,
+    Param, ParamValue, Transport, WriteGuard,
+};
 use tokio::sync::{Notify, broadcast};
 use tokio::task::JoinHandle;
 
-use crate::yamaha::client::{Client, ClientEvent, ClientOptions, Notification};
-use crate::yamaha::error::{Result, TfError};
-use crate::yamaha::rcp::command::{Command, MAX_SCENE, SceneBank};
-use crate::yamaha::rcp::reply::{ParamReply, PrmInfo, SceneCurrent, SceneInfo};
-use crate::yamaha::tf::table::{
+use crate::client::{Client, ClientEvent, ClientOptions, Notification};
+use crate::error::{Result, TfError};
+use crate::rcp::command::{Command, MAX_SCENE, SceneBank};
+use crate::rcp::reply::{ParamReply, PrmInfo, SceneCurrent, SceneInfo};
+use crate::tf::table::{
     ModelLimits, ParamDef, ParamTable, SceneField, Target, ValueKind, embedded_prminfo,
 };
-use crate::yamaha::tf::values::{decode, encode, param_kind};
-use crate::yamaha::tf::vocab::Vocab;
+use crate::tf::values::{decode, encode, param_kind};
+use crate::tf::vocab::Vocab;
 
 /// Why `set_route` is unsupported.
 pub const NO_ROUTING: &str = "Yamaha TF exposes no input, output or Dante patch over RCP; \
@@ -143,15 +143,14 @@ impl Core {
     /// Store device-reported values; emit `ParamChanged` for changes.
     fn apply(&self, values: Vec<(String, ParamValue)>, emit: bool) {
         let mut changed = Vec::new();
-        {
-            let mut st = self.state.lock();
-            for (path, v) in values {
-                if st.values.get(&path) != Some(&v) {
-                    st.values.insert(path.clone(), v.clone());
-                    changed.push((path, v));
-                }
+        let mut st = self.state.lock();
+        for (path, v) in values {
+            if st.values.get(&path) != Some(&v) {
+                st.values.insert(path.clone(), v.clone());
+                changed.push((path, v));
             }
         }
+        drop(st);
         if emit {
             for (path, value) in changed {
                 self.emit(DeviceEvent::ParamChanged { path, value });
@@ -594,6 +593,8 @@ impl TfAdapter {
     }
 }
 
+// The trait's methods are async; `current` and `set_route` answer at once.
+#[allow(clippy::unused_async_trait_impl)]
 impl DeviceAdapter for TfAdapter {
     fn info(&self) -> DeviceInfo {
         self.inner.core.info()

@@ -134,9 +134,18 @@ impl PatchbayBackend {
         // The built-in families, then every family registered in this
         // process (a family extension's), which replaces a built-in of
         // its kind.
-        let mut families = crate::server::devices::registry::builtin(store.clone());
-        for family in crate::family::registered() {
-            let _ = families.register(family);
+        let families = crate::family::assemble(
+            crate::server::devices::registry::builtin(store.clone()),
+            crate::family::registered(),
+            crate::family::FAMILIES_HERE,
+        );
+        // Where the window is in this process too, its views and the
+        // engine's families should name the same kinds.
+        #[cfg(feature = "ui")]
+        for warning in
+            crate::family::views_mismatch(&families.kinds(), &crate::ui::family_view_kinds())
+        {
+            tracing::warn!(%warning, "patchbay: device family without views, or views without a family");
         }
         let devices = crate::server::devices::DeviceHub::start(presets.clone(), &families);
         let mixes = crate::server::mixes::MixHub::new(presets.clone());
