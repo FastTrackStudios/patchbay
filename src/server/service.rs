@@ -131,7 +131,14 @@ impl PatchbayBackend {
             }
         }
 
-        let devices = crate::server::devices::DeviceHub::start(presets.clone(), store.clone());
+        // The built-in families, then every family registered in this
+        // process (a family extension's), which replaces a built-in of
+        // its kind.
+        let mut families = crate::server::devices::registry::builtin(store.clone());
+        for family in crate::family::registered() {
+            let _ = families.register(family);
+        }
+        let devices = crate::server::devices::DeviceHub::start(presets.clone(), &families);
         let mixes = crate::server::mixes::MixHub::new(presets.clone());
         mixes.start();
 
@@ -1416,6 +1423,10 @@ impl PatchbayService for PatchbayBackend {
 
     async fn list_devices(&self) -> Result<Vec<DeviceSummary>, PatchbayError> {
         Ok(self.inner.devices.list())
+    }
+
+    async fn families(&self) -> Result<Vec<crate::proto::FamilyInfo>, PatchbayError> {
+        Ok(self.inner.devices.family_infos())
     }
 
     async fn device(&self, id: String) -> Result<DeviceView, PatchbayError> {

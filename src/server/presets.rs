@@ -201,7 +201,11 @@ fn remove_where<T, F: Fn(&T) -> bool>(list: &mut Vec<T>, pred: F) -> bool {
 
 impl PresetStore {
     pub fn open() -> Self {
-        let path = config_path();
+        Self::open_at(config_path())
+    }
+
+    /// [`Self::open`] on the config at `path` (a test's scratch file).
+    pub fn open_at(path: PathBuf) -> Self {
         let (data, degraded) = match load(&path) {
             Loaded::Config(data) => (data, false),
             Loaded::Unreadable => (FileFormat::default(), true),

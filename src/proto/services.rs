@@ -81,7 +81,7 @@ pub mod patchbay_service {
     use super::PatchbayError;
     use crate::proto::devices::{
         DeviceChannel, DeviceCrosspoint, DeviceEventWire, DeviceParamValue, DeviceRestoreReport,
-        DeviceSnapshotInfo, DeviceSummary, DeviceView, ParamView,
+        DeviceSnapshotInfo, DeviceSummary, DeviceView, FamilyInfo, ParamView,
     };
     use crate::proto::mixes::{
         AggregateView, AppMeter, HostOverview, HostTargets, MixConfig, MixMeters, MixView,
@@ -484,6 +484,10 @@ pub mod patchbay_service {
 
         /// Every configured device and its link state (no device I/O).
         async fn list_devices(&self) -> Result<Vec<DeviceSummary>, PatchbayError>;
+
+        /// The device families this engine can connect, in order: each
+        /// one's config kind, platforms and whether it runs here.
+        async fn families(&self) -> Result<Vec<FamilyInfo>, PatchbayError>;
 
         /// Full state read from the device now: port groups,
         /// crosspoints, params.

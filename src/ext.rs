@@ -39,6 +39,9 @@ impl Extension for Patchbay {
             .action("PATCHBAY_NOW", |_| {
                 call(|c| async move { json(c.host_overview().await) })
             })
+            .action("PATCHBAY_FAMILIES", |_| {
+                call(|c| async move { json(c.families().await) })
+            })
             .action("PATCHBAY_DEVICE_LIST", |_| {
                 call(|c| async move { json(c.list_devices().await) })
             })

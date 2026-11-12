@@ -60,6 +60,17 @@ extension per device family, packaged as its own distribution
   with the `patchbay` bundle linked in, app and folder `patchbay`, bundle
   id `app.fasttrackstudio.patchbay`. Beside `fts-patchbay` until that
   becomes the distribution (#428).
+- **Device families** (`family::DeviceFamily`, `family::Families`): the
+  hub connects each configured device through the family for its `kind`.
+  The four built-ins are in `server/devices/registry.rs`; another family
+  calls `family::register` before the engine starts (read once, at
+  start). `patchbay families` / `PATCHBAY_FAMILIES` lists what an engine
+  has. Adding a family is a registration, not an edit to the hub. The
+  system-audio family holds no PipeWire connection of its own: it gets a
+  clone of the same `Arc<RwLock<GraphStore>>` the `patchbay-pw` thread
+  fills (one connection, no duplicate events). A family's panics are
+  caught by the hub (its info, defaults, connect, and the adapter's
+  subscribe/info), never the engine's end.
 - Reports built from several calls (`report::status`,
   `report::collect_health`) live in the crate, so the CLI and the actions
   answer with the same JSON.

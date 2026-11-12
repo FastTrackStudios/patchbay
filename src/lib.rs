@@ -10,6 +10,8 @@ pub mod dante;
 pub mod device;
 #[cfg(feature = "extension")]
 pub mod ext;
+#[cfg(feature = "server")]
+pub mod family;
 #[cfg(all(feature = "server", feature = "ui"))]
 pub mod home;
 #[cfg(feature = "server")]

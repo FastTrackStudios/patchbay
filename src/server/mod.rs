@@ -40,6 +40,7 @@ pub use boot::{
     DEFAULT_ADDR, Engine, EngineError, EngineMode, EngineOptions, IfTaken, MakePermissions, dial,
     listen_addr, runtime, spawn,
 };
+pub use devices::DiscoveryCache;
 pub use service::PatchbayBackend;
 
 pub use net::record_bound;

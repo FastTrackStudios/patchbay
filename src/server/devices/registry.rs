@@ -1,10 +1,9 @@
-//! Adapter registry: config `kind` → connect function.
-//!
-//! Adding a hardware family is one entry in [`KINDS`] plus its connect
-//! function (usually a thin call into the adapter crate's own
-//! discovery/connect). Everything else — supervision, reconnect,
-//! events, RPC, CLI, UI, snapshots — is generic over
-//! [`DynDeviceAdapter`].
+//! The built-in device families ([`builtin`]): one [`DeviceFamily`] per
+//! config `kind`, each a thin call into its adapter's own
+//! discovery/connect. Everything else (supervision, reconnect, events,
+//! RPC, CLI, UI, snapshots) is the hub's, generic over
+//! [`crate::device::DynDeviceAdapter`]. Each family becomes an extension
+//! of its own in studio#410's stack.
 //!
 //! Every connect function **fails soft**: it returns a
 //! [`ConnectError`] (never panics, never blocks the others), and
@@ -13,111 +12,130 @@
 //! `device list` can say *not found* vs *offline*.
 
 use std::collections::BTreeMap;
-use std::future::Future;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::device::DynDeviceAdapter;
-use crate::proto::DeviceConfig;
+use crate::family::{Adapter, ConnectCtx, ConnectError, ConnectFuture, DeviceFamily, Families};
+use crate::proto::{DeviceConfig, FamilyInfo};
 use parking_lot::RwLock;
 
 use super::cache::DiscoveryCache;
 use crate::server::store::GraphStore;
 
-/// A connected adapter, type-erased.
-pub(crate) type Adapter = Arc<dyn DynDeviceAdapter>;
-
-/// Why a connect attempt failed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ConnectError {
-    /// Auto-discovery ran and found nothing.
-    NotFound(String),
-    /// Found (or pinned) but the connection failed.
-    Failed(String),
+/// The families compiled into the engine, in the order of the default
+/// device list (all four, each auto-discovered). `graph` is the `PipeWire`
+/// graph mirror, system audio's source off macOS.
+pub(crate) fn builtin(graph: Arc<RwLock<GraphStore>>) -> Families {
+    Families::new()
+        .with(SystemAudio { graph })
+        .with(AntelopeGalaxy32)
+        .with(YamahaTf)
+        .with(Dante)
 }
 
-impl ConnectError {
-    pub(crate) fn message(&self) -> &str {
-        match self {
-            Self::NotFound(m) | Self::Failed(m) => m,
-        }
+/// A linked family's [`FamilyInfo`].
+fn linked(kind: &str, label: &str, platforms: &[&str], discovers: bool) -> FamilyInfo {
+    let here = std::env::consts::OS;
+    let available = platforms.is_empty() || platforms.contains(&here);
+    FamilyInfo {
+        kind: kind.to_owned(),
+        label: label.to_owned(),
+        platforms: platforms.iter().map(|p| (*p).to_owned()).collect(),
+        available,
+        unavailable: if available {
+            String::new()
+        } else {
+            format!("runs on {}, not {here}", platforms.join(" and "))
+        },
+        origin: "linked".to_owned(),
+        discovers,
     }
 }
 
-/// What a connect function returns.
-pub(crate) type ConnectFuture = Pin<Box<dyn Future<Output = Result<Adapter, ConnectError>> + Send>>;
-
-/// Shared context handed to connect functions.
-#[derive(Clone)]
-pub(crate) struct ConnectCtx {
-    /// Last-found addresses of auto-discovered devices.
-    pub cache: Arc<DiscoveryCache>,
-    /// The `PipeWire` graph mirror (system audio off macOS).
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
-    pub graph: Arc<RwLock<GraphStore>>,
+/// This machine's own audio system, read only.
+struct SystemAudio {
+    graph: Arc<RwLock<GraphStore>>,
 }
 
-/// One adapter family the hub can start from config.
-pub(crate) struct AdapterKind {
-    /// Config `kind` string.
-    pub kind: &'static str,
-    /// Finds the device itself when `addr` is empty (initial state
-    /// *searching* rather than *connecting*).
-    pub discovers: bool,
-    /// Connect (discover if needed) using the config entry.
-    pub connect: fn(DeviceConfig, ConnectCtx) -> ConnectFuture,
+impl DeviceFamily for SystemAudio {
+    fn kind(&self) -> &'static str {
+        "system-audio"
+    }
+    fn info(&self) -> FamilyInfo {
+        linked(self.kind(), "System audio", &["linux", "macos"], false)
+    }
+    fn defaults(&self) -> Vec<DeviceConfig> {
+        vec![DeviceConfig::new("system-audio", self.kind())]
+    }
+    fn connect(&self, config: DeviceConfig, _ctx: ConnectCtx) -> ConnectFuture {
+        system_audio(config, Arc::clone(&self.graph))
+    }
 }
 
-/// Every supported `kind`. One line per family.
-pub(crate) const KINDS: &[AdapterKind] = &[
-    AdapterKind {
-        kind: "system-audio",
-        discovers: false,
-        connect: system_audio,
-    },
-    AdapterKind {
-        kind: "antelope-galaxy32",
-        discovers: true,
-        connect: antelope_galaxy32,
-    },
-    AdapterKind {
-        kind: "yamaha-tf",
-        discovers: true,
-        connect: yamaha_tf,
-    },
-    AdapterKind {
-        kind: "dante",
-        discovers: true,
-        connect: dante,
-    },
-];
+/// Antelope Galaxy32 interfaces.
+struct AntelopeGalaxy32;
 
-/// The entries used when the config has no `devices` section: all four
-/// families, each auto-discovered.
-pub(crate) fn default_devices() -> Vec<DeviceConfig> {
-    vec![
-        DeviceConfig::new("system-audio", "system-audio"),
-        DeviceConfig::new("galaxy32", "antelope-galaxy32"),
-        DeviceConfig::new("tf1", "yamaha-tf"),
-        DeviceConfig::new("dante", "dante"),
-    ]
+impl DeviceFamily for AntelopeGalaxy32 {
+    fn kind(&self) -> &'static str {
+        "antelope-galaxy32"
+    }
+    fn info(&self) -> FamilyInfo {
+        linked(self.kind(), "Antelope Galaxy32", &[], true)
+    }
+    fn defaults(&self) -> Vec<DeviceConfig> {
+        vec![DeviceConfig::new("galaxy32", self.kind())]
+    }
+    fn connect(&self, config: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
+        antelope_galaxy32(config, ctx)
+    }
 }
 
-pub(crate) fn find(kind: &str) -> Option<&'static AdapterKind> {
-    KINDS.iter().find(|k| k.kind == kind)
+/// Yamaha TF consoles.
+struct YamahaTf;
+
+impl DeviceFamily for YamahaTf {
+    fn kind(&self) -> &'static str {
+        "yamaha-tf"
+    }
+    fn info(&self) -> FamilyInfo {
+        linked(self.kind(), "Yamaha TF", &[], true)
+    }
+    fn defaults(&self) -> Vec<DeviceConfig> {
+        vec![DeviceConfig::new("tf1", self.kind())]
+    }
+    fn connect(&self, config: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
+        yamaha_tf(config, ctx)
+    }
+}
+
+/// The Dante network.
+struct Dante;
+
+impl DeviceFamily for Dante {
+    fn kind(&self) -> &'static str {
+        "dante"
+    }
+    fn info(&self) -> FamilyInfo {
+        linked(self.kind(), "Dante network", &[], true)
+    }
+    fn defaults(&self) -> Vec<DeviceConfig> {
+        vec![DeviceConfig::new("dante", self.kind())]
+    }
+    fn connect(&self, config: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
+        dante(config, ctx)
+    }
 }
 
 // ── System audio ─────────────────────────────────────────────────────
 
 /// The host's own audio system, read-only (Core Audio on macOS, the
 /// `PipeWire` engine's graph elsewhere).
-fn system_audio(cfg: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
+fn system_audio(cfg: DeviceConfig, graph: Arc<RwLock<GraphStore>>) -> ConnectFuture {
     Box::pin(async move {
         #[cfg(target_os = "macos")]
         let adapter = {
-            let _ = &ctx;
+            let _ = &graph;
             let name = cfg.name.clone();
             // HAL enumeration is synchronous; keep it off the runtime.
             tokio::task::spawn_blocking(move || {
@@ -128,7 +146,7 @@ fn system_audio(cfg: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
             .map_err(ConnectError::Failed)?
         };
         #[cfg(not(target_os = "macos"))]
-        let adapter = super::system_audio::SystemAudioAdapter::pipewire(&cfg.name, ctx.graph);
+        let adapter = super::system_audio::SystemAudioAdapter::pipewire(&cfg.name, graph);
         let adapter: Adapter = Arc::new(adapter);
         Ok(adapter)
     })
@@ -283,12 +301,12 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
         return Ok(addr);
     }
     if let Some(mac) = cache
-        .get_mac(&cfg.name)
+        .mac(&cfg.name)
         .and_then(|m| crate::yamaha::parse_mac(&m))
         && let Some(found) = crate::yamaha::find_by_mac(mac, &scan).await
     {
         tracing::info!(addr = %found.addr, "yamaha-tf: console moved; re-found by MAC");
-        cache.set(&cfg.name, &found.addr.to_string());
+        cache.remember(&cfg.name, &found.addr.to_string());
         return Ok(found.addr);
     }
     if !sweep_due(&cfg.name) {
@@ -351,9 +369,9 @@ async fn find_tf(cfg: &DeviceConfig, cache: &DiscoveryCache) -> Result<SocketAdd
     })?;
     tracing::info!(addr = %first.addr, product = %first.product, "yamaha-tf: console found");
     LAST_SCAN_NOTE.lock().remove(&cfg.name);
-    cache.set(&cfg.name, &first.addr.to_string());
+    cache.remember(&cfg.name, &first.addr.to_string());
     if let Some(mac) = first.mac {
-        cache.set_mac(&cfg.name, &crate::yamaha::format_mac(mac));
+        cache.remember_mac(&cfg.name, &crate::yamaha::format_mac(mac));
     }
     Ok(first.addr)
 }
@@ -393,7 +411,7 @@ fn yamaha_tf(cfg: DeviceConfig, ctx: ConnectCtx) -> ConnectFuture {
                 // and let the next attempt discover rather than retrying
                 // an address the console has left.
                 if raw.is_empty() && cached_miss(&cfg.name) {
-                    ctx.cache.forget_addr(&cfg.name);
+                    ctx.cache.forget(&cfg.name);
                 }
                 return Err(ConnectError::Failed(format!("{addr}: {e}")));
             }
@@ -475,18 +493,56 @@ fn remember_members(
 mod tests {
     use super::*;
 
+    fn families() -> Families {
+        builtin(Arc::new(RwLock::new(GraphStore::default())))
+    }
+
     #[test]
     fn defaults_cover_every_kind_once() {
-        let d = default_devices();
-        assert_eq!(d.len(), KINDS.len());
-        for k in KINDS {
-            assert_eq!(
-                d.iter().filter(|c| c.kind == k.kind).count(),
-                1,
-                "{}",
-                k.kind
-            );
+        let families = families();
+        let d = families.defaults();
+        assert_eq!(d.len(), families.kinds().len());
+        for k in families.kinds() {
+            assert_eq!(d.iter().filter(|c| c.kind == k).count(), 1, "{k}");
         }
         assert!(d.iter().all(DeviceConfig::is_enabled));
+    }
+
+    /// The default device list is what `KINDS`/`default_devices` gave
+    /// before the families: same names, kinds and order, so `patchbay
+    /// device list` reads the same on a config with no `devices` section.
+    #[test]
+    fn the_default_device_list_is_unchanged() {
+        let d: Vec<(String, String)> = families()
+            .defaults()
+            .into_iter()
+            .map(|c| (c.name, c.kind))
+            .collect();
+        let want = [
+            ("system-audio", "system-audio"),
+            ("galaxy32", "antelope-galaxy32"),
+            ("tf1", "yamaha-tf"),
+            ("dante", "dante"),
+        ];
+        assert_eq!(d, want.map(|(n, k)| (n.to_owned(), k.to_owned())).to_vec());
+    }
+
+    #[test]
+    fn families_say_where_they_run() {
+        let infos = families().infos();
+        let system = infos.iter().find(|f| f.kind == "system-audio").unwrap();
+        assert_eq!(system.platforms, ["linux", "macos"]);
+        assert_eq!(
+            system.available,
+            cfg!(any(target_os = "linux", target_os = "macos"))
+        );
+        for net in ["antelope-galaxy32", "yamaha-tf", "dante"] {
+            let f = infos.iter().find(|f| f.kind == net).unwrap();
+            assert!(
+                f.platforms.is_empty() && f.available && f.discovers,
+                "{net}"
+            );
+        }
+        assert!(infos.iter().all(|f| f.origin == "linked"));
     }
 }

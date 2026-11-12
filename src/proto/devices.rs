@@ -43,6 +43,27 @@ pub enum DeviceLinkState {
     NotFound,
 }
 
+/// One family of devices the engine can connect (`families`,
+/// `patchbay families`): a config `kind` and what it needs to run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Facet)]
+pub struct FamilyInfo {
+    /// The config `kind` it connects (`yamaha-tf`).
+    pub kind: String,
+    /// What it is (`Yamaha TF`).
+    pub label: String,
+    /// The `target_os` values it runs on; empty for every platform.
+    pub platforms: Vec<String>,
+    /// Whether it can run on this engine's machine.
+    pub available: bool,
+    /// Why not, when it can't (empty when it can).
+    pub unavailable: String,
+    /// How it is loaded: `linked` (compiled in) or `process`.
+    pub origin: String,
+    /// Whether it finds its devices itself when the config gives no
+    /// address.
+    pub discovers: bool,
+}
+
 /// One device as listed by `list_devices` — cheap, no device I/O.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Facet)]
 pub struct DeviceSummary {

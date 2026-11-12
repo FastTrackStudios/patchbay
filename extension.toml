@@ -56,6 +56,13 @@ group = "Patchbay"
 effect = "read_only"
 
 [[actions]]
+id = "PATCHBAY_FAMILIES"
+name = "Patchbay: device families"
+description = "The device families this engine can connect, in order: each one's config kind, label, the platforms it runs on, whether it can run here (and why not), whether it is linked in or a process, and whether it discovers its devices itself. The JSON of `patchbay families --json`."
+group = "Patchbay"
+effect = "read_only"
+
+[[actions]]
 id = "PATCHBAY_DEVICE_LIST"
 name = "Patchbay: devices"
 description = "Every configured device (interfaces, consoles, the Dante network, this machine's system audio): its config name and kind, id, vendor and model, and its state (searching, connecting, online, offline, not found). The JSON of `patchbay device list --json`."

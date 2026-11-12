@@ -28,7 +28,7 @@ struct StateFile {
     members: BTreeMap<String, BTreeMap<String, String>>,
 }
 
-pub(crate) struct DiscoveryCache {
+pub struct DiscoveryCache {
     path: Option<PathBuf>,
     data: Mutex<StateFile>,
 }
@@ -59,16 +59,18 @@ impl DiscoveryCache {
         }
     }
 
-    pub(crate) fn get(&self, name: &str) -> Option<String> {
+    /// The address `name` was last found at (`host:port`), if any.
+    pub fn get(&self, name: &str) -> Option<String> {
         self.data.lock().discovered.get(name).cloned()
     }
 
-    pub(crate) fn get_mac(&self, name: &str) -> Option<String> {
+    /// The MAC `name` was last seen with (`aa:bb:cc:dd:ee:ff`), if any.
+    pub fn mac(&self, name: &str) -> Option<String> {
         self.data.lock().macs.get(name).cloned()
     }
 
     /// Remember `addr` for `name` (no-op if unchanged).
-    pub(crate) fn set(&self, name: &str, addr: &str) {
+    pub fn remember(&self, name: &str, addr: &str) {
         let mut data = self.data.lock();
         if data.discovered.get(name).map(String::as_str) == Some(addr) {
             return;
@@ -78,7 +80,7 @@ impl DiscoveryCache {
     }
 
     /// Remember the MAC of `name` (no-op if unchanged).
-    pub(crate) fn set_mac(&self, name: &str, mac: &str) {
+    pub fn remember_mac(&self, name: &str, mac: &str) {
         let mut data = self.data.lock();
         if data.macs.get(name).map(String::as_str) == Some(mac) {
             return;
@@ -100,7 +102,7 @@ impl DiscoveryCache {
     /// Forget a device's cached address, so the next attempt discovers
     /// instead of retrying somewhere it isn't. The MAC is kept — it is
     /// how the console is followed across a DHCP change.
-    pub(crate) fn forget_addr(&self, name: &str) {
+    pub fn forget(&self, name: &str) {
         let mut data = self.data.lock();
         if data.discovered.remove(name).is_some() {
             Self::persist(self.path.as_ref(), &data);
@@ -148,15 +150,15 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let c = DiscoveryCache::at(Some(path.clone()));
         assert_eq!(c.get("tf1"), None);
-        c.set("tf1", "192.168.1.214:49280");
+        c.remember("tf1", "192.168.1.214:49280");
         let again = DiscoveryCache::at(Some(path.clone()));
         assert_eq!(again.get("tf1").as_deref(), Some("192.168.1.214:49280"));
         let _ = std::fs::remove_file(&path);
         let m = DiscoveryCache::memory();
-        m.set("x", "1.2.3.4:1");
+        m.remember("x", "1.2.3.4:1");
         assert_eq!(m.get("x").as_deref(), Some("1.2.3.4:1"));
-        m.set_mac("x", "00:a0:de:5c:6d:1b");
-        assert_eq!(m.get_mac("x").as_deref(), Some("00:a0:de:5c:6d:1b"));
+        m.remember_mac("x", "00:a0:de:5c:6d:1b");
+        assert_eq!(m.mac("x").as_deref(), Some("00:a0:de:5c:6d:1b"));
         // Old state files (no `macs`) still load.
         let old: StateFile =
             serde_json::from_str(r#"{"discovered":{"tf1":"1.2.3.4:49280"}}"#).expect("old format");
