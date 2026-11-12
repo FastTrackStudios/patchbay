@@ -466,9 +466,15 @@ async fn attach(url: &str) -> Result<Engine, Join> {
 /// Create the backend and its in-process clients, and serve it on
 /// `listener` when there is one.
 async fn run_here(
-    opts: EngineOptions,
+    mut opts: EngineOptions,
     listener: Option<tokio::net::TcpListener>,
 ) -> Result<Engine, EngineError> {
+    // The address actually bound: port 0 (a phone's engine) is whichever
+    // port the system gave, and that is what the engine reports and
+    // advertises, not 0.
+    if let Some(bound) = listener.as_ref().and_then(|l| l.local_addr().ok()) {
+        opts.addr = bound.to_string();
+    }
     let backend = PatchbayBackend::new();
     if let Some(make) = opts.permissions {
         backend.set_permission_provider(make(tokio::runtime::Handle::current()));

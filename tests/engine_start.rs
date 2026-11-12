@@ -166,8 +166,15 @@ fn port_zero_starts_at_once_without_a_join() {
         "port 0 took {:?} to start",
         started.elapsed()
     );
-    assert!(matches!(
-        engine.mode(),
-        EngineMode::Owned { serving: true, .. }
-    ));
+    // It reports the port it got, not 0, and serves there.
+    let EngineMode::Owned {
+        addr,
+        serving: true,
+    } = engine.mode()
+    else {
+        panic!("not an owned, serving engine: {:?}", engine.mode());
+    };
+    let bound: std::net::SocketAddr = addr.parse().unwrap();
+    assert_ne!(bound.port(), 0, "the engine reports port 0");
+    std::net::TcpStream::connect(bound).expect("nothing serves the reported address");
 }
