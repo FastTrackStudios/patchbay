@@ -7,15 +7,12 @@
 //! uses — over an in-process `architect::LocalServer` link.
 
 use std::process::ExitCode;
-use std::rc::Rc;
-use std::sync::{Arc, OnceLock};
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
 
-use architect::host::{EngineHost, WebBundle};
+use architect::host::WebBundle;
 use dioxus::prelude::*;
-use patchbay::proto::PatchbayServiceClient;
-use patchbay::proto::services::patchbay_service::PatchbayServiceStreamClient;
-use patchbay::server::PatchbayBackend;
-use patchbay::ui::{Dialer, EngineLink, PatchbayApp, PatchbayHandle, Shell};
+use patchbay::server::{EngineOptions, IfTaken};
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -63,25 +60,6 @@ fn web_bundle() -> Option<WebBundle> {
     }
 }
 
-/// In-process clients over the `LocalServer` conduit — the same shape
-/// every network remote uses.
-struct Engine {
-    client: PatchbayServiceClient,
-    stream_client: PatchbayServiceStreamClient,
-    /// Keeps the `LocalServer`'s acceptor + lanes alive.
-    _scope: Arc<architect::Scope>,
-}
-
-static ENGINE: OnceLock<Engine> = OnceLock::new();
-
-/// The bootstrapped engine. `main` refuses to reach the dioxus launch
-/// unless `bootstrap_blocking` succeeded, so this is set for the whole
-/// life of the UI; a `None` here can only mean the component tree was
-/// mounted without `main`, which the UI treats as "nothing to show".
-fn bootstrapped() -> Option<&'static Engine> {
-    ENGINE.get()
-}
-
 fn bind_addr() -> String {
     // Patchbay.app defaults to loopback (the RPC is unauthenticated).
     // `PATCHBAY_ADDR` wins, then the saved `network.bind` (set with
@@ -90,77 +68,28 @@ fn bind_addr() -> String {
     let default = macos::default_addr(DEFAULT_ADDR);
     #[cfg(not(target_os = "macos"))]
     let default = DEFAULT_ADDR;
-    std::env::var("PATCHBAY_ADDR")
-        .ok()
-        .or_else(patchbay::server::configured_bind)
-        .unwrap_or_else(|| default.to_string())
+    EngineOptions::configured_addr(default)
 }
 
-/// Bring up the backend + serving before the UI launches. The runtime
-/// is leaked so it keeps hosting the ws server, the stream pumps, and
-/// the local acceptor for the life of the process.
-fn bootstrap_blocking() -> eyre::Result<()> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    let rt = Box::leak(Box::new(rt));
-
-    rt.block_on(async {
-        let backend = PatchbayBackend::new();
-        // macOS privacy permissions belong to Patchbay.app: the app
-        // answers the `permissions` RPCs and runs the prompt flow once
-        // the window is up (see `App`).
-        #[cfg(target_os = "macos")]
-        backend.set_permission_provider(Arc::new(macos::AppPermissions::install(
-            tokio::runtime::Handle::current(),
-        )));
-
-        // In-process client link.
-        let scope = architect::Scope::new();
-        let server = architect::LocalServer::serve(backend.router(), Arc::clone(&scope));
-        let caller = server
-            .caller()
-            .await
-            .map_err(|e| eyre::eyre!("local patchbay caller: {e:?}"))?;
-        let client = PatchbayServiceClient::new(caller);
-        let stream_client = server
-            .establish::<PatchbayServiceStreamClient>()
-            .await
-            .map_err(|e| eyre::eyre!("local patchbay stream client: {e:?}"))?;
-
-        // Network serving for future remotes (browser/tablet). Spawned,
-        // not awaited — serve() never returns.
-        let router = backend.router();
-        let addr = bind_addr();
-        let web = web_bundle();
-        // Record what we're serving so `patchbay listen` can report it
-        // (and tell the user which URLs would actually answer).
-        patchbay::server::record_bound(
-            &addr,
-            if web.is_some() {
-                ""
-            } else {
-                "no browser remote in this build (install `dx` and rebuild, \
-                 or set PATCHBAY_WEB_DIST) — /health and /vox still work"
-            },
-        );
-        // Advertise to (when LAN-reachable) and look for other engines, so
-        // a UI attached here can offer to switch to them.
-        patchbay::server::start_peer_discovery(&addr);
-        tokio::spawn(async move {
-            // Ungated as before: no PermissionsGate on this engine yet (FastTrackStudios/studio#362).
-            EngineHost::ungated(router, addr).web(web).serve().await;
-        });
-
-        ENGINE
-            .set(Engine {
-                client,
-                stream_client,
-                _scope: scope,
-            })
-            .map_err(|_| eyre::eyre!("engine already initialised"))?;
-        Ok(())
-    })
+/// How this app reaches the machine's engine: it joins a Patchbay engine
+/// already serving [`bind_addr`] (an Architect app with the Patchbay
+/// extension, `patchbay serve`), or runs it here and serves it. A port
+/// held by something that is not Patchbay is logged and the engine runs
+/// unserved, as this app always did.
+fn engine_options() -> EngineOptions {
+    let mut opts = EngineOptions::new(bind_addr());
+    opts.web = web_bundle();
+    opts.if_taken = IfTaken::RunUnserved;
+    // macOS privacy permissions belong to Patchbay.app: the app answers
+    // the `permissions` RPCs and runs the prompt flow once the window is
+    // up (see `App`).
+    #[cfg(target_os = "macos")]
+    {
+        opts.permissions = Some(Box::new(|runtime| {
+            Arc::new(macos::AppPermissions::install(runtime))
+        }));
+    }
+    opts
 }
 
 pub fn main() -> ExitCode {
@@ -203,9 +132,15 @@ pub fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    if let Err(e) = bootstrap_blocking() {
-        eprintln!("patchbay engine failed to start: {e:?}");
-        return ExitCode::FAILURE;
+    // Start or join this machine's engine before the window opens, so a
+    // failure is an exit code rather than an empty window.
+    patchbay::home::configure(engine_options);
+    match patchbay::home::engine_blocking() {
+        Ok(engine) => tracing::info!(mode = ?engine.mode(), "patchbay engine ready"),
+        Err(e) => {
+            eprintln!("patchbay engine failed to start: {e}");
+            return ExitCode::FAILURE;
+        }
     }
 
     let window = dioxus::desktop::WindowBuilder::new()
@@ -221,53 +156,18 @@ pub fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Dial another machine's engine over WebSocket — the same two links a
-/// browser remote opens. Home is in-process and never goes through this.
-async fn dial(url: String) -> Result<EngineLink, String> {
-    let link = vox_websocket::WsLink::connect(&url)
-        .await
-        .map_err(|e| format!("connect {url}: {e}"))?;
-    let client: PatchbayServiceClient = vox_core::initiator_on(link)
-        .establish()
-        .await
-        .map_err(|e| format!("handshake with {url}: {e:?}"))?;
-    let stream_link = vox_websocket::WsLink::connect(&url)
-        .await
-        .map_err(|e| format!("connect (stream) {url}: {e}"))?;
-    let stream: PatchbayServiceStreamClient = vox_core::initiator_on(stream_link)
-        .establish()
-        .await
-        .map_err(|e| format!("handshake (stream) with {url}: {e:?}"))?;
-    Ok(EngineLink {
-        handle: PatchbayHandle(Arc::new(client)),
-        stream: Rc::new(stream),
-    })
-}
-
+/// The window: Patchbay over this machine's engine. When this app joined
+/// an engine another app runs, it shows that engine (its graph, devices
+/// and settings, as any remote does), and if that app quits it takes
+/// the engine over (`patchbay::home::Home`).
 #[component]
 fn App() -> Element {
-    let Some(engine) = bootstrapped() else {
-        return rsx! { div { "patchbay engine not bootstrapped" } };
-    };
-    // All a shell provides: its own engine, and a way to reach others.
-    // Bridging the event streams into the UI (and switching between
-    // engines) is `patchbay_ui`'s.
-    use_context_provider(|| Shell {
-        home: EngineLink {
-            handle: PatchbayHandle(Arc::new(engine.client.clone())),
-            stream: Rc::new(engine.stream_client.clone()),
-        },
-        dial: Some(Dialer(Rc::new(|url| Box::pin(dial(url))))),
-        // In-process: if this link ends, so has the app.
-        on_home_lost: Callback::new(|()| tracing::error!("in-process engine link ended")),
-    });
-
     // AppKit is registered now: safe to prompt for permissions (doing it
     // during launch races NSApplication's own registration).
     #[cfg(target_os = "macos")]
     use_hook(macos::AppPermissions::on_window_ready);
 
     rsx! {
-        PatchbayApp {}
+        patchbay::home::Home {}
     }
 }
