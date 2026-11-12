@@ -41,6 +41,10 @@ vox = { workspace = true }
 vox-types = { workspace = true }
 
 [dev-dependencies]
+# The tests exercise the server (planner, presets, the device hub and
+# model): on in every test build, so `cargo nextest run -p patchbay`
+# (the core test set) runs them.
+patchbay = { path = ".", features = ["server"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 vox-core = { workspace = true }
