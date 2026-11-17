@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sign target/macos/Patchbay.app with the hardened runtime (required for
-# notarization) and verify it. Used by `just macos-sign`.
+# notarization) and verify it. Used by `just patchbay-macos-sign`.
 #
 # Identity: $PATCHBAY_SIGN_ID, default the Developer ID Application cert.
 # Keychain: $PATCHBAY_KEYCHAIN (default fts-build.keychain), unlocked with
@@ -14,7 +14,7 @@ root="$(cd "$(dirname "$0")/../../../.." && pwd)"
 app="$root/target/macos/Patchbay.app"
 ent="$root/apps/patchbay/packaging/macos/Patchbay.entitlements"
 id="${PATCHBAY_SIGN_ID:-Developer ID Application: CODY JAMES WRIGHT (28C2G63DA7)}"
-[[ -d "$app" ]] || { echo "no $app — run 'just macos-app' first" >&2; exit 1; }
+[[ -d "$app" ]] || { echo "no $app — run 'just patchbay-macos-app' first" >&2; exit 1; }
 
 # Non-interactive signing: the identities live in a dedicated build
 # keychain (created by signal/apps/desktop/ios/setup-keychain.sh with a
@@ -52,5 +52,5 @@ echo "==> codesign --verify --deep --strict"
 codesign --verify --deep --strict --verbose=2 "$app"
 echo "==> signature"
 codesign -dv "$app" 2>&1 | grep -E '^(Identifier|Format|Authority|TeamIdentifier|Runtime Version|Timestamp|flags)|flags=' || true
-echo "==> Gatekeeper assessment (\"Unnotarized Developer ID\" is expected until 'just macos-notarize')"
+echo "==> Gatekeeper assessment (\"Unnotarized Developer ID\" is expected until 'just patchbay-macos-notarize')"
 spctl -a -vv -t exec "$app" 2>&1 || true

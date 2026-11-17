@@ -1,4 +1,4 @@
-# Template — `just install` substitutes the binary path and
+# Template — `just patchbay-install` substitutes the binary path and
 # copies this to ~/.local/share/applications/.
 [Desktop Entry]
 Type=Application

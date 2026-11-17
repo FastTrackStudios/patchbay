@@ -1,0 +1,37 @@
+/* Blitz (Architect's window): what it cannot do, done another way.
+   Loaded after every other sheet, and only when the page says it is
+   native (ui::Page::native), so a browser (the desktop WebView, the
+   browser remote) keeps the rules above exactly as they were.
+
+   - The app fills the pane it is mounted in, not the viewport: it is one
+     view of a window, and viewport units are what a window resize has to
+     invalidate.
+   - `overflow: auto` is dropped by Blitz: the panes that scroll say
+     `scroll`.
+   - `position: fixed` is not supported: overlays are absolute against
+     the app root, which is the positioned ancestor here.
+   - `position: sticky` is not supported either: the Dante grid's and
+     the router's header rows scroll with the grid (no override needed). */
+
+.patchbay-root { width: 100%; height: 100%; position: relative; }
+
+/* Scrolling panes. */
+.rail, .side-panel, .channel-list, .mix-list, .picker-list,
+.devices-scroll, .inspector.docked .console { overflow-y: scroll; }
+.view-body, .dante-scroll, .mix-main, .afx-scroll, .router-scroll { overflow: scroll; }
+.statusbar, .toolbar, .mix-strips, .dev-strips, .snap-report { overflow-x: scroll; }
+
+/* Overlays, against the root. */
+.context-scrim, .dante-tools-scrim { position: absolute; }
+.context-menu { position: absolute; max-width: 360px; max-height: 70%; }
+
+/* Viewport-relative heights, as fixed caps. */
+.afx-scroll { max-height: 520px; }
+.inspector.docked .console { max-height: 360px; }
+
+/* The phone layout's viewport widths (a narrow Architect pane). */
+@media (max-width: 760px) {
+  .mix-strip, .mix-add { flex-basis: 150px; width: 150px; }
+  .param .slider.fader { width: 160px; }
+  .context-menu { max-height: 70%; }
+}

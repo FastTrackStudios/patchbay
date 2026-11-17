@@ -1,0 +1,5 @@
+---
+"patchbay" = "minor"
+---
+
+The Yamaha TF moved out of the core into patchbay-yamaha-tf (patchbay::yamaha is gone). A config that names `yamaha-tf` in an app without that extension says "the Yamaha TF extension (patchbay-yamaha-tf) is not installed". With no `devices` section, `tf1` now comes after `dante` (registered families follow the built-ins): the rail's order and `patchbay device list --json`'s order change, the entries don't. For families outside the crate: family::register_with_views (one kind, both registries, a warning at start when they don't line up), ui::kit, FamilyInfo::linked, ConnectCtx::in_memory (feature test-util); family consoles are mounted as components; Families and family::registered are no longer public, and DiscoveryCache is exported from patchbay::family only. On iOS no device family registers or runs, built in or an extension (the gate is where families are assembled); their views still register, so `patchbay-ios` draws a remote engine's TF console. (studio)

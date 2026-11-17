@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Assemble target/macos/Patchbay.app from a release build (unsigned; run
-# sign.sh next). Used by `just macos-app`.
+# sign.sh next). Used by `just patchbay-macos-app`.
 #
 #   Contents/MacOS/Patchbay        the desktop app + engine (fts-patchbay)
 #   Contents/Helpers/patchbay      the agent CLI (RPC client of the app)
@@ -55,8 +55,7 @@ fi
 echo "==> cargo build --release"
 cargo build --release -p fts-patchbay --bin fts-patchbay --bin patchbay ${features[@]+"${features[@]}"}
 
-# The repo's one version ([workspace.package] in the root Cargo.toml).
-version="$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p;}' Cargo.toml | head -1)"
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' apps/patchbay/Cargo.toml | head -1)"
 build="$(date -u +%Y%m%d%H%M)"
 app="target/macos/Patchbay.app"
 rm -rf "$app"

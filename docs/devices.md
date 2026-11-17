@@ -5,18 +5,15 @@ around it — interfaces, mixers, network audio — so one app can route and
 control everything. It has two parts:
 
 ```
-crates/patchbay/src/device     generic model + DeviceAdapter trait (no vendor code)
-crates/patchbay/src/antelope   Antelope Galaxy32 via Antelope Manager Server
-crates/patchbay/src/yamaha     Yamaha TF-series over RCP (+ subnet discovery)
-crates/patchbay/src/dante      the Dante network over inferno-net (mDNS + ARC)
-crates/patchbay/src/<family>   one module per hardware family
+crates/device              patchbay-device    generic model + DeviceAdapter trait (no vendor code)
+features/patchbay/antelope  patchbay-antelope  Antelope Galaxy32 via the Manager Server: a family and an extension of its own
+features/patchbay/yamaha-tf  patchbay-yamaha-tf  Yamaha TF over RCP (+ subnet discovery): a family and an extension of its own
+crates/adapters/dante      patchbay-dante     the Dante network over inferno-net (mDNS + ARC)
+crates/adapters/<family>   patchbay-<family>  one crate per hardware family
 ```
 
-These were separate crates (`patchbay-device`, `patchbay-antelope`, …)
-until patchbay became one crate; the names below still say
-`patchbay-device` for the `device` module and `patchbay-proto` for
-`proto`. Adapters depend on `device`; `device` never depends on an
-adapter, and `proto` depends on neither: the engine converts the
+Adapters depend on `patchbay-device`. `patchbay-device` never depends on an
+adapter, and `patchbay-proto` depends on neither: the engine converts the
 model into Facet wire types (see [In the app](#in-the-app-hub-rpc-cli-ui)).
 
 ## The generic model (`patchbay-device`)
@@ -56,6 +53,13 @@ The adapter talks to Antelope's Manager Server, the vendor daemon, over JSON
 on TCP. Everything below was verified on a Galaxy32 with fw 8.24 and Manager
 Server 1.8.19. For the full protocol, see the `antelope-galaxy32-linux` repo
 (`docs/PROTOCOL.md` and `notes/2026-09-18_live-session-1.md`).
+
+Its own crate and Architect extension (`features/patchbay/antelope`,
+extension `patchbay-antelope`, studio#418), registered the way the Yamaha TF
+is: `register()` from `ext::Antelope`'s `build` and from `fts-patchbay`'s
+`main`s (views only on iOS). Its tests drive an in-process fake Manager
+Server (`tests/fake_server.rs`, `tests/protocol.rs`), the extension beside
+the core (`tests/extension.rs`) and the family alone (`tests/family.rs`).
 
 ```
 discovery.rs   UDP multicast 239.192.5.8:5008 announces → dynamic control ports
@@ -113,10 +117,19 @@ cargo run -p patchbay-antelope --example galaxy_read         # read-only
 cargo run -p patchbay-antelope --example galaxy_write_test   # guarded round-trips on cleared targets only
 ```
 
-## Yamaha TF (`patchbay-yamaha`)
+## Yamaha TF (`patchbay-yamaha-tf`)
 
 `TfAdapter` talks RCP (text lines on TCP 49280) straight to the console.
 Verified read-only on a TF1 (V4.55).
+
+The first family that is its own crate and Architect extension
+(`features/patchbay/yamaha-tf`, extension `patchbay-yamaha-tf`, studio#417):
+`register()` adds `YamahaTfFamily` to the engine and the console view to the
+window; `ext::YamahaTf` calls it from its `build`, and `fts-patchbay`'s
+binaries call it from `main`. Its tests drive an in-process fake TF1
+(`tests/fake_server.rs`) and the extension beside the core
+(`tests/extension.rs`). `cargo run -p patchbay-yamaha-tf --example tf_read --
+<addr>` reads a real console, read-only.
 
 - **Params only.** Paths are `in/{ch}/…`, `stin/…`, `fxrtn/…`, `aux/…`,
   `matrix/…`, `stereo/…`, `sub/…`, `dca/…`, `mutegroup/…` and `scene/…`, e.g.
@@ -148,7 +161,7 @@ Verified read-only on a TF1 (V4.55).
 - **Session.** The hub connects with `ClientOptions::keepalive = None`, so
   patchbay never sends `scpmode`; liveness comes from the read-only
   `devstatus runmode` ping.
-- Protocol research: `docs/yamaha-tf-rcp.md`.
+- Protocol research: `docs/patchbay/yamaha-tf-rcp.md`.
 
 ## Dante (`patchbay-dante`)
 
@@ -191,13 +204,13 @@ id `dante:network:<config name>`) — the Dante Controller matrix:
   the two views by name is future work).
 - **Shared with the grid.** `scan()` and `InfernoControl` also back the
   existing `dante_network` / `dante_subscribe` / `dante_unsubscribe` RPCs
-  (`crates/patchbay/src/dante_net.rs` only converts to the proto types).
+  (`features/patchbay/src/dante_net.rs` only converts to the proto types).
 - Everything is pure Rust (inferno-net); it builds and runs on macOS.
 
 ## System Audio (`system-audio`)
 
 The machine's own audio system appears as a **read-only** device
-(`crates/patchbay/src/server/devices/system_audio.rs`): id
+(`features/patchbay/src/devices/system_audio.rs`): id
 `host:coreaudio:<name>` on macOS (`patchbay-host-coreaudio`'s
 `CoreAudioBackend`), `host:pipewire:<name>` elsewhere (the existing
 PipeWire engine's graph mirror, polled; engine behaviour unchanged).
@@ -224,23 +237,30 @@ Humans (desktop app, browser remote) and agents (`patchbay device … --json`)
 use the same surface: `PatchbayService` in `patchbay-proto`.
 
 ```
-crates/patchbay/src/proto/devices.rs    wire types: DeviceSummary, DeviceView, ParamView,
+features/patchbay/src/                 (paths below are relative to this)
+  proto/devices.rs                      wire types: DeviceSummary, DeviceView, ParamView,
                                         DeviceParamValue/Kind, DeviceEventWire, DeviceConfig,
-                                        DeviceSettingSnapshot, DeviceRestoreReport
-crates/patchbay/src/server/devices/registry.rs config `kind` → connect fn (one entry per family), default set
-crates/patchbay/src/server/devices/cache.rs    last-found address of auto-discovered devices (<config>.state.json)
-crates/patchbay/src/server/devices/system_audio.rs  the host audio system as a read-only device
-crates/patchbay/src/server/devices/hub.rs      DeviceHub: supervision, events, calls, snapshots
-crates/patchbay/src/server/devices/wire.rs     patchbay-device ↔ proto conversion
-crates/patchbay/src/server/plan/devices.rs  pure snapshot capture + restore planner
+                                        DeviceSettingSnapshot, DeviceRestoreReport, FamilyInfo
+  family.rs                             the family contract: DeviceFamily, Families, ConnectCtx,
+                                        ConnectError, register
+  server/devices/registry.rs            the built-in families (one DeviceFamily per kind), in
+                                        default-list order
+  server/devices/cache.rs               DiscoveryCache: last-found address of auto-discovered
+                                        devices (<config>.state.json)
+  server/devices/system_audio.rs        the host audio system as a read-only device
+  server/devices/hub.rs                 DeviceHub: supervision, events, calls, snapshots
+  server/devices/wire.rs                patchbay-device ↔ proto conversion
+  server/plan/devices.rs                pure snapshot capture + restore planner
+  ui/devices/                           the device views (generic view, consoles)
 apps/patchbay/src/cli_device.rs         `patchbay device …`
-crates/patchbay/src/ui/devices/         the Devices tab
 ```
 
-- **Defaults.** With no `devices` section the hub starts four entries,
-  all auto-discovered: `system-audio` (kind `system-audio`), `galaxy32`
-  (`antelope-galaxy32`), `tf1` (`yamaha-tf`) and `dante` (`dante`)
-  (`registry::default_devices`).
+- **Defaults.** With no `devices` section the hub starts one entry per
+  family, all auto-discovered, in registration order: the built-ins
+  `system-audio` (kind `system-audio`) and `dante` (`dante`), then the
+  registered families' (`galaxy32`, `antelope-galaxy32`; `tf1`,
+  `yamaha-tf`; in every Patchbay app, in the order each app registers
+  them). Each comes from the family's `DeviceFamily::defaults`.
 - **Config.** A styx `devices` section replaces the defaults:
   `devices ({name galaxy32, kind antelope-galaxy32, serial "4202524000109"}
   {name foh, kind yamaha-tf, addr "192.168.1.214"} {name dante, kind dante,
@@ -289,12 +309,39 @@ crates/patchbay/src/ui/devices/         the Devices tab
 
 ## Adding an adapter
 
-1. Create the module `crates/patchbay/src/<family>` (behind the `server`
-   feature, like the others), then add one `AdapterKind` entry (`kind`,
-   `discovers`, and its `connect(DeviceConfig, ConnectCtx)` function
-   returning `ConnectError::NotFound` / `::Failed`) to
-   `crates/patchbay/src/server/devices/registry.rs`. The hub,
-   RPC, CLI, UI and snapshots then work without further changes.
+1. Implement `patchbay::family::DeviceFamily` for the family: its config
+   `kind`, its `info` (label, platforms, whether it discovers), its
+   `defaults` for a config with no `devices` section, and
+   `connect(DeviceConfig, ConnectCtx)` returning
+   `ConnectError::NotFound` / `::Failed`. Register it with
+   `patchbay::family::register(Arc::new(MyFamily))`, or with its views
+   in one call, `register_with_views(family, views)` (one kind, both
+   registries; the engine warns at start about a family with no views or
+   views with no family), before the engine starts (a family extension
+   does it from its `build`; the engine reads
+   the registrations once, at start, after the built-ins in
+   `server/devices/registry.rs`, and one of the same kind replaces the
+   built-in). `ConnectCtx::cache()` is the shared `DiscoveryCache`:
+   `get` the address discovery last found, `remember` a new one, `forget`
+   one that stopped answering. The hub catches a panic in `info`,
+   `defaults`, `connect` or the adapter's `subscribe`/`info`: the family
+   shows as unavailable, or the connect as failed and retried. The hub,
+   RPC, CLI, UI and snapshots then work without further changes, and
+   `patchbay families` lists it. The family crate's `register()` is one
+   line, `patchbay::register_family!(family: …, views: …)`, which does the
+   right thing for whichever of the crate's `server`/`ui` features are on.
+   A family's views draw with `patchbay::ui::kit` and write with its
+   `ParamWriter` (`use_param_writer()`: a param on the device the page
+   shows, nothing wider); its info is `FamilyInfo::linked`.
+   Tests: `ConnectCtx::in_memory()` (feature `test-util`) runs `connect`
+   without an engine (`patchbay-yamaha-tf`'s `tests/family.rs`);
+   `server/devices/family_tests.rs` drives the hub through a fake family;
+   `tests/family.rs` registers one from outside the crate. A config that
+   names a kind no family in this app connects says so ("no device family
+   for kind 'yamaha-tf' in this app: the extension that adds it is not
+   installed"); the core keeps no list of extension families, so a family
+   leaving the core edits nothing there. On a phone no family runs, and
+   the message says the device connects on the machine that runs it.
 2. Keep modules private and expose a small `pub use` surface from `lib.rs`:
    the adapter type, discovery, a typed ops handle and a raw escape hatch.
 3. Split the code into layers the same way: **protocol** (pure, unit-tested
@@ -304,8 +351,8 @@ crates/patchbay/src/ui/devices/         the Devices tab
    contract above).
 4. Capture real traffic into `tests/fixtures/` and test encoders byte-exact
    against what the vendor's own software sends. Test the adapter against an
-   in-process fake server. `crates/patchbay/tests/antelope_fake_server.rs` is
-   the template.
+   in-process fake server. `features/patchbay/antelope/tests/common/fake_manager.rs`
+   is the template.
 5. Live testing: read-only first. Write only to targets the operator has
    cleared, and always restore them: read, write, verify, restore, verify.
 

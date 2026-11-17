@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build, sign, install and RESTART Patchbay on this Mac, then wait until
-# the new one is answering. Used by `just install`.
+# the new one is answering. Used by `just patchbay-install`.
 #
 # One command because the browser remote is compiled into the app: a UI
 # change reaches a phone on the LAN only after all four steps, and doing

@@ -6,7 +6,7 @@
 # shrink it into a grey "legacy icon" plate.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-svg="$here/../../assets/icon.svg"
+svg="$here/../../app/assets/icon.svg"
 set_dir="$(mktemp -d)/AppIcon.iconset"
 mkdir -p "$set_dir"
 mk() {

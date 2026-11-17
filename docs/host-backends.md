@@ -13,7 +13,7 @@ A rig can run hardware adapters only, a host backend only, or both.
 ```
 crates/host             patchbay-host            platform-independent graph model + HostBackend trait (no FFI)
 crates/host-coreaudio   patchbay-host-coreaudio  macOS Core Audio backend (this doc, milestones 1–2)
-crates/host-pipewire    patchbay-host-pipewire   (planned) today's crates/patchbay engine behind HostBackend
+crates/host-pipewire    patchbay-host-pipewire   (planned) today's features/patchbay engine behind HostBackend
 ```
 
 ## The model (`patchbay-host`)
@@ -327,8 +327,8 @@ output or input need a **HAL AudioServerPlugIn**. It is a bundle in
 
 ## Migrating the PipeWire engine behind `HostBackend` (`patchbay-host-pipewire`)
 
-The engine in `crates/patchbay` stays the reference behaviour. The migration
-is mechanical and keeps the rules in `AGENTS.md`: one PipeWire thread,
+The engine in `features/patchbay` stays the reference behaviour. The migration
+is mechanical and keeps the rules in `features/patchbay/AGENTS.md`: one PipeWire thread,
 identity by names, lingering links, no cleanup at exit.
 
 1. **Adapter crate first.** Add `crates/host-pipewire` depending on `patchbay`. It implements `HostBackend` by translating the existing `GraphStore` mirror and `GraphEvent` stream:
@@ -338,7 +338,7 @@ identity by names, lingering links, no cleanup at exit.
    - The existing `meters.rs` backs `HostCapabilities::meters`.
 2. **Gain.** PipeWire links have no gain. `create_link` accepts `gain == 1.0` and otherwise returns `InvalidSpec` until a per-link volume exists (a `libpipewire-module-loopback` or filter-chain node per gained link).
 3. **Virtual devices** are `support.null-audio-sink` / `module-loopback` instances created on the PipeWire thread with a stable `node.name` derived from the spec name. App sources are links from stream nodes, since PipeWire already exposes per-app streams, and monitors are links to sinks. `PassThru` is native: other apps just pick the null sink.
-4. **Move the code.** Once the adapter is proven, move the engine thread, store and plan modules from `crates/patchbay` into `crates/host-pipewire`. `patchbay` keeps the service, presets, aliases, clock and Dante stack, and talks to a `Box<dyn DynHostBackend>` chosen by `cfg(target_os)`: `patchbay-host-pipewire` on Linux, `patchbay-host-coreaudio` on macOS.
+4. **Move the code.** Once the adapter is proven, move the engine thread, store and plan modules from `features/patchbay` into `crates/host-pipewire`. `patchbay` keeps the service, presets, aliases, clock and Dante stack, and talks to a `Box<dyn DynHostBackend>` chosen by `cfg(target_os)`: `patchbay-host-pipewire` on Linux, `patchbay-host-coreaudio` on macOS.
 5. `patchbay-proto` gains Facet mirrors of the `patchbay-host` types when the UI starts showing host graphs from both platforms. The host crate is serde-only for now, like `patchbay-device`.
 
 ## References

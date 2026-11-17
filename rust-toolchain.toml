@@ -1,4 +1,7 @@
+# The fleet's compiler (FastTrackStudios/studio pins the same). The nix
+# shell builds its toolchain from this file, so the components and the
+# browser remote's target are listed here.
 [toolchain]
-channel = "1.94.0"
+channel = "1.99.1"
 components = ["rustfmt", "clippy", "rust-src"]
 targets = ["wasm32-unknown-unknown"]

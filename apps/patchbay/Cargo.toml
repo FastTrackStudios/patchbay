@@ -1,15 +1,29 @@
 [package]
 name = "fts-patchbay"
-version.workspace = true
-edition.workspace = true
+version = "0.1.0"
+edition = "2024"
 license.workspace = true
-repository.workspace = true
 description = "FTS Patchbay: the PipeWire studio-routing app, its agent CLI, and its browser remote"
 default-run = "fts-patchbay"
 
 [[bin]]
 name = "fts-patchbay"
 path = "src/main.rs"
+
+[[bin]]
+# Patchbay as a distribution of Architect (`src/app.rs`, studio#414): the
+# Patchbay extension in Architect's window. Beside `fts-patchbay` until
+# that one becomes the distribution.
+name = "patchbay-app"
+path = "src/app.rs"
+required-features = ["app"]
+
+[[bin]]
+# Patchbay on an iPhone or iPad (`src/ios.rs`, ios/): a controller of the
+# Patchbay engines on other machines. `ios/build-app.sh` builds it.
+name = "patchbay-ios"
+path = "src/ios.rs"
+required-features = ["ios"]
 
 [[bin]]
 name = "patchbay-cli"
@@ -26,19 +40,36 @@ default = ["desktop"]
 # The engine and the agent CLIs: everything that runs on the host.
 native = [
     "dep:architect", "dep:architect-telemetry", "dep:clap", "dep:eyre",
-    "dep:serde", "dep:serde_json", "dep:tokio", "patchbay/server",
+    "dep:serde", "dep:serde_json", "dep:tokio", "patchbay/server", "patchbay-antelope/server",
+    "patchbay-yamaha-tf/server",
 ]
 # The desktop app: the engine plus its window.
 desktop = ["dioxus/desktop", "native"]
 # The browser remote. `dx build --platform web` turns this on and the
 # defaults off; the engine serves the result (see `embed-web`).
 web = ["dep:web-sys", "dioxus/web"]
-# Compile the staged web bundle (web-dist/, `just web-stage`)
+# The Patchbay distribution of Architect (`patchbay-app`): Architect's
+# window with the Patchbay extension linked in. Opt-in: it brings all of
+# Architect's app, which the WebView app and the CLIs do not need.
+app = ["native", "dep:architect-desktop", "architect-desktop/gui", "patchbay/extension", "patchbay-yamaha-tf/extension", "patchbay-antelope/extension"]
+# Patchbay on an iPhone or iPad (`patchbay-ios`): its view (`patchbay::home`)
+# drawn by Blitz on UIKit, over an in-process engine with no device
+# families. Build it with `--no-default-features --features ios`
+# (ios/build-app.sh does). The family extensions come in with their views
+# only (`ui`), never their server side: a phone scans the LAN for nothing.
+ios = ["dep:dioxus-native", "dep:app-shell", "dep:architect-telemetry", "patchbay/server"]
+# Compile the staged web bundle (web-dist/, `just patchbay-web-stage`)
 # into the desktop binary.
 embed-web = ["dep:include_dir", "desktop"]
 
 [dependencies]
 patchbay = { workspace = true, features = ["ui"] }
+# The Antelope family (studio#418), wired the way the Yamaha TF is below.
+patchbay-antelope = { workspace = true, features = ["ui"] }
+# The Yamaha TF family (studio#417): its console view everywhere, its
+# device family where the engine runs (`native`), its extension in the
+# distribution (`app`).
+patchbay-yamaha-tf = { workspace = true, features = ["ui"] }
 dioxus = { workspace = true, default-features = true, features = ["launch"] }
 vox.workspace = true
 vox-core.workspace = true
@@ -46,6 +77,10 @@ vox-websocket.workspace = true
 tracing.workspace = true
 
 architect = { workspace = true, features = ["vox", "local", "host", "server-axum"], optional = true }
+architect-desktop = { workspace = true, optional = true }
+# `ios`: Blitz, and the scene delegate every Studio app shares.
+dioxus-native = { workspace = true, optional = true }
+app-shell = { workspace = true, optional = true }
 # Console logs plus OTLP export of traces/logs/metrics when
 # OTEL_EXPORTER_OTLP_ENDPOINT is set — every FTS process exports (W10).
 architect-telemetry = { workspace = true, features = ["otel"], optional = true }
@@ -56,13 +91,29 @@ serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 include_dir = { workspace = true, optional = true }
 
+[dev-dependencies]
+# examples/blitz_shot.rs: the views drawn by Blitz, as Architect's window
+# draws them, into pictures.
+anyrender = { workspace = true }
+anyrender_vello = { workspace = true }
+blitz-dom = { workspace = true }
+blitz-paint = { workspace = true }
+blitz-traits = { workspace = true }
+dioxus-native = { workspace = true }
+dioxus-native-dom = { workspace = true }
+image = { workspace = true }
+
+[[example]]
+name = "blitz_shot"
+required-features = ["native"]
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window", "Location"], optional = true }
+web-sys = { workspace = true, features = ["Window", "Location"], optional = true }
 
 # Patchbay.app glue (src/desktop/macos.rs): permission prompts, log redirect.
 [target.'cfg(target_os = "macos")'.dependencies]
 patchbay = { workspace = true, features = ["server", "tcc-spi"] }
-libc = "0.2"
+libc = { workspace = true }
 
 [lints]
 workspace = true
