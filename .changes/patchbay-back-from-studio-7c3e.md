@@ -1,9 +1,6 @@
 ---
-"patchbay" = "minor"
 "patchbay-antelope" = "minor"
-"patchbay-yamaha-tf" = "minor"
-"patchbay-driver" = "none"
-"fts-patchbay" = "minor"
+"patchbay" = "patch"
 ---
 
-Added everything Patchbay gained while it lived in the Studio repo: the device-family contract, the Yamaha TF and Antelope consoles as extensions of their own, the Patchbay distribution of Architect (`patchbay-app`), the iPhone and iPad app, and `PATCHBAY_LAN=off`
+Added the Antelope Galaxy32 as an extension of its own, and `PATCHBAY_LAN=off`, which keeps an engine off the network (every engine test runs with it)
