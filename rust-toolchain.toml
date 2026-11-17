@@ -1,8 +1,7 @@
-# The workspace's compiler, for rustup (GitHub's runners, anyone outside
-# the nix shell, which has no rustup). Must match nix/modules/toolchain.nix
-# (`rust-bin.stable."1.99.1"`) and `RUST` in xtask/workflows/src/steps.rs:
-# three halves of one pin that drift silently if only one moves. Channel
-# only: each CI job installs the components and targets it needs, and
-# listing them here would make rustup fetch them for every job.
+# The fleet's compiler (FastTrackStudios/studio pins the same). The nix
+# shell builds its toolchain from this file, so the components and the
+# browser remote's target are listed here.
 [toolchain]
 channel = "1.99.1"
+components = ["rustfmt", "clippy", "rust-src"]
+targets = ["wasm32-unknown-unknown"]
