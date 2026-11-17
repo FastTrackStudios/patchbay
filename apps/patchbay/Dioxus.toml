@@ -1,0 +1,11 @@
+# dx config for the patchbay app: the desktop shell (`dx bundle`, the
+# release .deb) and the browser remote (`dx build --platform web`, which
+# turns on the `web` feature and off the defaults).
+[application]
+
+[bundle]
+identifier = "app.fasttrackstudio.patchbay"
+publisher = "FastTrackStudio"
+
+[web.app]
+title = "Patchbay"
