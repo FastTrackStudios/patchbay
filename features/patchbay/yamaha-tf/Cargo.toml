@@ -1,0 +1,59 @@
+[package]
+name = "patchbay-yamaha-tf"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Patchbay's Yamaha TF family: TF consoles over RCP, their console view, and the extension that adds them (studio#417)"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The protocol (RCP over TCP 49280), discovery and the DeviceFamily the
+# engine's hub connects consoles through.
+server = ["patchbay/server", "dep:futures-util", "dep:if-addrs", "dep:parking_lot", "dep:serde_json", "dep:tokio", "dep:tracing"]
+# The console view (`ui::YamahaTfConsole`), registered by kind. Builds for
+# the browser remote (wasm) without `server`.
+ui = ["patchbay/ui", "dep:dioxus"]
+# The Architect extension (`ext::YamahaTf`): registers the family and its
+# view from `build`.
+extension = ["server", "ui", "patchbay/extension", "dep:architect-extensions"]
+
+[dependencies]
+patchbay = { workspace = true }
+architect-extensions = { workspace = true, optional = true, features = ["guest"] }
+dioxus = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+if-addrs = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The tests drive the protocol and the adapter against an in-process fake
+# TF1 (tests/fake_server.rs), and the extension through an Architect host
+# (tests/extension.rs): on in every test build, so `cargo nextest run -p
+# patchbay-yamaha-tf` (the core test set) runs them.
+patchbay-yamaha-tf = { path = ".", features = ["extension"] }
+# tests/family.rs: `ConnectCtx::in_memory()`, the family's connect without an engine.
+patchbay = { workspace = true, features = ["test-util"] }
+architect = { workspace = true, features = ["action-list"] }
+architect-extensions = { workspace = true, features = ["host", "linked", "process"] }
+architect-settings = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+
+[[example]]
+name = "tf_discover"
+required-features = ["server"]
+
+[[example]]
+name = "tf_read"
+required-features = ["server"]

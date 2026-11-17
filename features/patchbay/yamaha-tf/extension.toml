@@ -1,0 +1,24 @@
+# The Yamaha TF family, an Architect extension (src/ext.rs, feature
+# `extension`): it adds the TF to the Patchbay core's engine (the family
+# the hub connects consoles through) and to its window (the console
+# view). Linked in only, like the core it extends: no [entry] or
+# [source] yet (FastTrackStudios/studio#410, #417).
+#
+# Its own actions would be PATCHBAY_YAMAHA_TF_*; none are needed yet, the
+# core's PATCHBAY_DEVICE_* reach a console like any device.
+id = "patchbay-yamaha-tf"
+name = "Patchbay: Yamaha TF"
+version = "0.1.0"
+kind = "process"
+api = "0.1"
+description = "Yamaha TF consoles in Patchbay: found on the network, read and written over RCP, drawn as a console of channel strips."
+authors = ["FastTrackStudios"]
+
+# The Patchbay core: its engine runs this family.
+[requires]
+"fts.patchbay" = "^0.1"
+
+[[contribute."patchbay.families"]]
+kind = "yamaha-tf"
+label = "Yamaha TF"
+platforms = []
