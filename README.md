@@ -10,8 +10,9 @@ on today" needs answering in seconds, not by reading `pw-link -l` output.
 
 | crate | what it is |
 |---|---|
-| `patchbay` (`crates/patchbay`) | the engine — PipeWire graph state, links, persistence, the Core Audio / Dante / Yamaha / Antelope adapters — plus its wire types (`vox`) and its Dioxus interface (`ui`), as cargo features |
-| `patchbay-driver` (`crates/patchbay/driver`) | the macOS AudioServerPlugIn behind the virtual devices |
+| `patchbay` (`features/patchbay`) | the engine — PipeWire graph state, links, persistence, the Core Audio / Dante / Antelope adapters — plus its wire types (`vox`) and its Dioxus interface (`ui`), as cargo features |
+| `patchbay-yamaha-tf` (`features/patchbay/yamaha-tf`) | the Yamaha TF family: RCP, discovery, the console view, and its extension (`server`, `ui`, `extension`) |
+| `patchbay-driver` (`features/patchbay/driver`) | the macOS AudioServerPlugIn behind the virtual devices |
 | `fts-patchbay` (`apps/patchbay`) | the desktop app + RPC server (`ws://:4046`), the `patchbay` agent/script CLI, and the browser remote (`--platform web`) |
 
 The engine is headless and the UI is a client, so the desktop app and the
@@ -112,7 +113,7 @@ Settings → Appearance picks a theme (Midnight by default; Auto, Studio,
 Console, Daylight, Contrast), an accent and a density. It is stored per device in
 the browser, never in the engine config — the phone on the music stand
 can be true black while the desktop stays as it was. A theme is ~30
-lines of base colours in `crates/patchbay/src/ui/theme/tokens.css`; every tint,
+lines of base colours in `features/patchbay/src/ui/theme/tokens.css`; every tint,
 glow and hairline is mixed from those.
 
 The RPC endpoint is currently unauthenticated. Keep it on loopback
@@ -433,5 +434,5 @@ releases are CalVer tags (`vYY.M.MICRO`) cut with `just release-prepare`
 ## Licence
 
 GPL-3.0-or-later (`LICENSE`). The virtual-device driver
-(`crates/patchbay/driver`) is forked from MARS mars-hal and keeps its
+(`features/patchbay/driver`) is forked from MARS mars-hal and keeps its
 MIT notice alongside (`GPL-3.0-or-later AND MIT`).

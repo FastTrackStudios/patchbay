@@ -1,0 +1,37 @@
+# Frame pointers: originally for the (now retired) moire fork's trace
+# capture, kept because samply/perf profiling of the audio path on NixOS
+# glibc needs intact frame-pointer chains to unwind. Cheap; keep it.
+#
+# NOTE ON PRECEDENCE: `target.<triple>.rustflags` REPLACES `build.rustflags`
+# — cargo does not merge them. So the linux table below must repeat the
+# frame-pointer flag. This `[build]` table is what darwin/wasm/iOS get.
+[build]
+rustflags = ["-C", "force-frame-pointers=yes"]
+
+# mold instead of the default `ld.bfd`. Linking is the serial tail of every
+# build here and these binaries are huge (multi-hundred-MB desktop/plugin
+# artifacts, and the REAPER extension .so). mold is multi-threaded and
+# typically turns a 30-60s link into a few seconds. Comes from the devshell
+# (nix/modules/toolchain.nix); GCC 15 accepts -fuse-ld=mold natively.
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+  "-C", "force-frame-pointers=yes",
+  "-C", "link-arg=-fuse-ld=mold",
+  "-C", "target-cpu=x86-64-v3",
+]
+
+# x86-64-v3 (AVX2, FMA, BMI2 — Haswell, 2013, and later) on every x86-64
+# desktop target, for the DSP: the amps, the sampler and the FX vectorise
+# to 256 bits. A machine older than that cannot run these builds. Apple
+# Silicon (aarch64) is unaffected.
+[target.x86_64-apple-darwin]
+rustflags = [
+  "-C", "force-frame-pointers=yes",
+  "-C", "target-cpu=x86-64-v3",
+]
+
+# Carried over from the dissolved session/keyflow workspaces: git deps and
+# patched git sources fetch via the git CLI so SSH / credentials work the
+# same way `git` does outside cargo.
+[net]
+git-fetch-with-cli = true

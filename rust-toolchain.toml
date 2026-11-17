@@ -1,4 +1,8 @@
+# The workspace's compiler, for rustup (GitHub's runners, anyone outside
+# the nix shell, which has no rustup). Must match nix/modules/toolchain.nix
+# (`rust-bin.stable."1.99.1"`) and `RUST` in xtask/workflows/src/steps.rs:
+# three halves of one pin that drift silently if only one moves. Channel
+# only: each CI job installs the components and targets it needs, and
+# listing them here would make rustup fetch them for every job.
 [toolchain]
-channel = "1.94.0"
-components = ["rustfmt", "clippy", "rust-src"]
-targets = ["wasm32-unknown-unknown"]
+channel = "1.99.1"

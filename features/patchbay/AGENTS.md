@@ -66,7 +66,7 @@ extension per device family, packaged as its own distribution
   and a scratch `PATCHBAY_CONFIG`; a test must never put a multicast
   join, an mDNS query or a fake announce on the LAN.
 - **The Patchbay distribution** (`apps/patchbay/src/distribution.rs`,
-  `patchbay-app`, feature `app`, `just patchbay-app`): Architect's window
+  `patchbay-app`, feature `app`, `just app`): Architect's window
   with the `patchbay` bundle linked in, app and folder `patchbay`, bundle
   id `app.fasttrackstudio.patchbay`. Beside `fts-patchbay` until that
   becomes the distribution (#428).

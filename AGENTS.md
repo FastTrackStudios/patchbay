@@ -16,7 +16,7 @@ pinned to a studio release tag (see the commented slot in the root
 ## Layout
 
 ```
-crates/patchbay         patchbay         ONE crate, cargo features:
+features/patchbay         patchbay         ONE crate, cargo features:
                                          server (the engine + adapters),
                                          vox (wire types), ui (Dioxus),
                                          tcc-spi (macOS permission prompts)
@@ -27,7 +27,7 @@ crates/patchbay         patchbay         ONE crate, cargo features:
   src/device            the adapter-agnostic hardware model + DeviceAdapter
   src/antelope, yamaha, dante   the hardware adapters
   src/ui                the Dioxus interface
-crates/patchbay/driver  patchbay-driver  the macOS AudioServerPlugIn behind
+features/patchbay/driver  patchbay-driver  the macOS AudioServerPlugIn behind
                                          the virtual devices (MARS fork,
                                          GPL-3.0-or-later AND MIT)
 apps/patchbay           fts-patchbay     the desktop app + RPC server, the
