@@ -2,21 +2,17 @@
   description = "FTS Patchbay — studio routing (PipeWire on Linux, Core Audio on macOS)";
 
   inputs = {
-    # The same nixpkgs and rust-overlay revisions as the studio monorepo,
-    # so the toolchain, the native libraries and cargo-rail are the store
-    # paths studio's CI already pushed to fasttrackstudio.cachix.org.
+    # The native libraries' nixpkgs (flake.lock: 5e11f7ac, 2026-04), as
+    # before. Not the fleet's newer one: on it, this shell's buildInputs
+    # (GTK/WebKit's closure) put more -isystem/-L/-rpath flags on every gcc
+    # call than Linux passes to collect2 (COLLECT_GCC_OPTIONS is one string,
+    # 128 KiB at most), and every link fails with "Argument list too long".
+    # The devenv shell has no such limit (its libraries are one profile).
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    # Honours rust-toolchain.toml (1.94.0 + wasm32 + clippy/rustfmt/rust-src).
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    # A second rust-overlay, used ONLY to build cargo-rail: rail 0.32 needs
-    # rustc >= 1.98.1, the workspace pin is 1.94. Nothing else reads it.
-    rust-overlay-rail = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # The toolchain and cargo-rail: devenv-fleet at the revision devenv.yaml
+    # imports, evaluated on ITS pinned nixpkgs and rust-overlay (below), so
+    # rustc is the devenv shell's store path. Move it with devenv.yaml.
+    devenv-fleet.url = "github:FastTrackStudios/devenv-fleet/c4ddec850ad97b5da74c746bff39a988f02b13a4";
   };
 
   nixConfig = {
@@ -30,8 +26,7 @@
     {
       self,
       nixpkgs,
-      rust-overlay,
-      rust-overlay-rail,
+      devenv-fleet,
     }:
     let
       # Linux runs the PipeWire engine; macOS the Core Audio one (and the
@@ -49,42 +44,31 @@
           f (
             import nixpkgs {
               inherit system;
-              overlays = [ (import rust-overlay) ];
             }
           )
         );
 
+      # The fleet toolchain (rust 1.99.1 with wasm32, rust-src, clippy,
+      # rustfmt, rust-analyzer): the expression devenv-fleet's `rust` module
+      # uses, so `nix develop` and `devenv shell` have one rustc store path.
+      # devenv-fleet's own nixpkgs and rust-overlay (pins.json), for this
+      # system: the package set the devenv shell's toolchain comes from.
+      fleetPkgsFor =
+        pkgs:
+        import devenv-fleet.inputs.nixpkgs {
+          inherit (pkgs.stdenv.hostPlatform) system;
+          overlays = [ devenv-fleet.overlays.default ];
+        };
+      toolchainFor = pkgs: devenv-fleet.lib.toolchainFor (fleetPkgsFor pkgs);
+
       # cargo-rail: change files (`cargo rail change add/check`, the
       # .changes/ the release changelog is built from) and CI change
-      # selection. nixpkgs carries 0.7.0, which predates both, so it is
-      # built from the release tag with its own compiler (the same
-      # derivation as studio's nix/modules/cargo-rail.nix).
+      # selection. devenv-fleet's derivation (built from the release tag with
+      # the fleet toolchain), so the devenv shell's cargo-rail too.
       cargoRailFor =
         pkgs:
-        let
-          railRust = (pkgs.extend rust-overlay-rail.overlays.default).rust-bin.stable."1.98.1".default;
-          rustPlatform = pkgs.makeRustPlatform {
-            cargo = railRust;
-            rustc = railRust;
-          };
-        in
-        rustPlatform.buildRustPackage rec {
-          pname = "cargo-rail";
-          version = "0.32.0";
-          src = pkgs.fetchFromGitHub {
-            owner = "loadingalias";
-            repo = "cargo-rail";
-            rev = "v${version}";
-            hash = "sha256-XdwwQVv3OIauYefmQNq6CKK/fcaEnmq6Rkilmg9bhk8=";
-          };
-          cargoHash = "sha256-kpFJ3/s1qgXqY7Nhci7/4YtMcw7E+UmB3SX8F5MHoxs=";
-          doCheck = false;
-          meta = {
-            description = "Cargo-native monorepo change selection (plan), unify, release";
-            homepage = "https://github.com/loadingalias/cargo-rail";
-            license = pkgs.lib.licenses.mit;
-            mainProgram = "cargo-rail";
-          };
+        (fleetPkgsFor pkgs).callPackage "${devenv-fleet}/pkgs/cargo-rail.nix" {
+          toolchain = toolchainFor pkgs;
         };
     in
     {
@@ -109,7 +93,7 @@
             name = "patchbay";
 
             nativeBuildInputs = [
-              (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
+              (toolchainFor pkgs)
               pkgs.pkg-config
               # cargo shells out to git for every git dependency. On macOS
               # /usr/bin/git is an xcrun shim that resolves through the nix
@@ -124,6 +108,9 @@
             ++ lib.optionals stdenv.isLinux [
               # libspa-sys runs bindgen, which needs a libclang at build time.
               pkgs.clang
+              # The linker .cargo/config.toml selects on x86_64 Linux (the
+              # fleet's rustflags); the devenv shell has it from devenv-fleet.
+              pkgs.mold
             ];
 
             buildInputs = [

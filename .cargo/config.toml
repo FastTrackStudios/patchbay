@@ -1,0 +1,52 @@
+# ── The fleet's rustflags ─────────────────────────────────────────────
+# The same, flag for flag and in the same order, in architect, studio,
+# keyflow, frame and every repo split out of studio (architect's
+# skills/architect/references/xtask-tooling.md, "Fleet toolchain").
+# kache keys every crate on rustc's store path and every rustflag, so one
+# differing flag rebuilds the whole graph here instead of sharing one build
+# of the common crates across the repos. Change it in all of them or in
+# none. Never override it from CI with `RUSTFLAGS` or
+# `CARGO_TARGET_<triple>_RUSTFLAGS`: either replaces these tables.
+
+# Frame pointers: samply/perf profiling of the audio path on NixOS glibc
+# needs intact frame-pointer chains to unwind. Cheap; keep it.
+#
+# NOTE ON PRECEDENCE: `target.<triple>.rustflags` REPLACES `build.rustflags`
+# — cargo does not merge them. So the tables below repeat the frame-pointer
+# flag. This `[build]` table is what the other targets (aarch64 darwin, iOS)
+# get.
+[build]
+rustflags = ["-C", "force-frame-pointers=yes"]
+
+# mold instead of the default `ld.bfd`: linking is the serial tail of every
+# build. Comes from the dev shell (devenv-fleet's `rust` module); GCC accepts
+# -fuse-ld=mold natively.
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+  "-C", "force-frame-pointers=yes",
+  "-C", "link-arg=-fuse-ld=mold",
+  "-C", "target-cpu=x86-64-v3",
+]
+
+# x86-64-v3 (AVX2, FMA, BMI2 — Haswell, 2013, and later) on every x86-64
+# desktop target, for the DSP. A machine older than that cannot run these
+# builds. Apple Silicon (aarch64) is unaffected.
+[target.x86_64-apple-darwin]
+rustflags = [
+  "-C", "force-frame-pointers=yes",
+  "-C", "target-cpu=x86-64-v3",
+]
+
+# getrandom 0.3 refuses wasm32-unknown-unknown unless told which entropy
+# source to use; the browser answer is `wasm_js`. Repeats the frame-pointer
+# flag (the precedence rule above).
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "force-frame-pointers=yes",
+  "--cfg", 'getrandom_backend="wasm_js"',
+]
+
+# Git dependencies fetch through the git CLI, so credentials and SSH work
+# the way they do for `git`.
+[net]
+git-fetch-with-cli = true
