@@ -195,14 +195,16 @@ fn shell(engine: &Arc<Engine>, mut generation: Signal<u64>) -> Shell {
         home: EngineLink {
             handle: PatchbayHandle(Arc::new(engine.client().clone())),
             stream: Rc::new(engine.stream_client().clone()),
+            lanes: engine.lanes().clone(),
         },
         dial: Some(Dialer(Rc::new(|url: String| {
             Box::pin(async move {
-                let (client, stream) =
+                let (client, stream, lanes) =
                     crate::server::spawn(async move { crate::server::dial(&url).await }).await??;
                 Ok(EngineLink {
                     handle: PatchbayHandle(Arc::new(client)),
                     stream: Rc::new(stream),
+                    lanes,
                 })
             })
         }))),

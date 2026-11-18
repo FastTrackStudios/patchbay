@@ -54,6 +54,9 @@ struct Inner {
     /// engine: works on hosts without one, and a device being offline
     /// never affects the graph.
     devices: crate::server::devices::DeviceHub,
+    /// The families the engine runs: each may add its own RPC section to
+    /// the router ([`crate::family::DeviceFamily::routes`]).
+    families: crate::family::Families,
     /// Host audio mixes (Loopback / OBS-style; macOS).
     mixes: crate::server::mixes::MixHub,
     /// Registered by the hosting app (`Patchbay.app`); see
@@ -159,6 +162,7 @@ impl PatchbayBackend {
                 engine,
                 events_hub,
                 devices,
+                families,
                 mixes,
                 presets,
                 dante: crate::server::dante_net::DanteEndpoints::default(),
@@ -181,8 +185,12 @@ impl PatchbayBackend {
     /// A fresh `LayerRouter` serving this backend — the RPC layer plus
     /// its `#[subscribe]` stream sibling over the same impl.
     #[must_use]
+    ///
+    /// Then each family's own section ([`crate::family::DeviceFamily::routes`]),
+    /// reached by a client as a lane on its one connection
+    /// ([`crate::lanes::Lanes::open`]).
     pub fn router(&self) -> architect::LayerRouter {
-        architect::LayerRouter::new()
+        let core = architect::LayerRouter::new()
             .with(
                 patchbay_service_service_descriptor(),
                 serve_patchbay_service(self.clone()),
@@ -190,7 +198,12 @@ impl PatchbayBackend {
             .with(
                 patchbay_service_stream_service_descriptor(),
                 stream_serve(self.clone()),
-            )
+            );
+        self.inner
+            .families
+            .all()
+            .iter()
+            .fold(core, |router, family| family.routes(router))
     }
 
     /// Resolve + send one create-link command. Returns whether a

@@ -353,59 +353,58 @@ enum LatencyCmd {
 // ─── Client plumbing ────────────────────────────────────────────────────
 
 /// Ws to the running app, or — with `--local` — a private in-process
-/// engine (~1.5s settle).
+/// engine (~1.5s settle): one connection, its lanes kept for the stream
+/// client and for any family section a verb opens ([`lanes`]).
 async fn client(url: &str, local: bool) -> eyre::Result<PatchbayServiceClient> {
-    if !local {
-        match vox_websocket::WsLink::connect(url).await {
-            Ok(link) => {
-                return vox_core::initiator_on(link)
-                    .establish()
-                    .await
-                    .map_err(|e| eyre::eyre!("handshake with {url} failed: {e:?}"));
-            }
-            Err(e) => {
-                eyre::bail!(
-                    "no Patchbay app at {url} ({e}).\n\
-                     Start the app, or pass --local to run a private in-process engine."
-                );
-            }
-        }
-    }
-    eprintln!("(--local: running a private in-process engine)");
-    let backend = patchbay::server::PatchbayBackend::new();
-    let scope = architect::Scope::new();
-    let server = architect::LocalServer::serve(backend.router(), Arc::clone(&scope));
-    let caller = server
-        .caller()
+    let lanes = if local {
+        eprintln!("(--local: running a private in-process engine)");
+        let backend = patchbay::server::PatchbayBackend::new();
+        let scope = architect::Scope::new();
+        let server = Arc::new(architect::LocalServer::serve(
+            backend.router(),
+            Arc::clone(&scope),
+        ));
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        // Leak so the acceptor + engine outlive this fn.
+        Box::leak(Box::new((scope, backend)));
+        patchbay::lanes::Lanes::Local(server)
+    } else {
+        let link = vox_websocket::WsLink::connect(url).await.map_err(|e| {
+            eyre::eyre!(
+                "no Patchbay app at {url} ({e}).\n\
+                 Start the app, or pass --local to run a private in-process engine."
+            )
+        })?;
+        vox_core::initiator_on(link)
+            .establish_connection()
+            .await
+            .map(patchbay::lanes::Lanes::Remote)
+            .map_err(|e| eyre::eyre!("handshake with {url} failed: {e:?}"))?
+    };
+    let client = lanes
+        .open::<PatchbayServiceClient>()
         .await
-        .map_err(|e| eyre::eyre!("local caller: {e:?}"))?;
-    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-    // Leak so the acceptor + engine outlive this fn; keep the server
-    // reachable for stream clients (`device watch`).
-    let leaked = Box::leak(Box::new((scope, server, backend)));
-    let _ = LOCAL_SERVER.set(&leaked.1);
-    Ok(PatchbayServiceClient::new(caller))
+        .map_err(|e| eyre::eyre!(e))?;
+    let _ = LANES.set(lanes);
+    Ok(client)
 }
 
-/// The `--local` in-process server, once `client` created it.
-static LOCAL_SERVER: std::sync::OnceLock<&'static architect::LocalServer> =
-    std::sync::OnceLock::new();
+/// The connection `client` made.
+static LANES: std::sync::OnceLock<patchbay::lanes::Lanes> = std::sync::OnceLock::new();
 
-/// A `#[subscribe]` stream client on the same target as `client`.
-async fn stream_client(url: String) -> eyre::Result<PatchbayServiceStreamClient> {
-    if let Some(server) = LOCAL_SERVER.get() {
-        return server
-            .establish::<PatchbayServiceStreamClient>()
-            .await
-            .map_err(|e| eyre::eyre!("local stream client: {e:?}"));
-    }
-    let link = vox_websocket::WsLink::connect(&url)
+/// The connection `client` made: a family's own section is a lane on it
+/// (`lanes()?.open::<DanteServiceClient>()`).
+#[allow(dead_code)] // the first family section's verbs use it (studio#420)
+fn lanes() -> eyre::Result<&'static patchbay::lanes::Lanes> {
+    LANES.get().ok_or_else(|| eyre::eyre!("no connection yet"))
+}
+
+/// A `#[subscribe]` stream client, a lane on `client`'s connection.
+async fn stream_client(_url: String) -> eyre::Result<PatchbayServiceStreamClient> {
+    lanes()?
+        .open::<PatchbayServiceStreamClient>()
         .await
-        .map_err(|e| eyre::eyre!("connect (stream) {url}: {e}"))?;
-    vox_core::initiator_on(link)
-        .establish()
-        .await
-        .map_err(|e| eyre::eyre!("stream handshake with {url} failed: {e:?}"))
+        .map_err(|e| eyre::eyre!(e))
 }
 
 /// `patchbay serve`: the engine without a window.

@@ -41,7 +41,9 @@ pub mod kit {
         Leaves, Params, Strip, color_hex, count_under, numbered, strips,
     };
     pub use super::devices::strip::{ChannelStrip, ParamFacts};
-    pub use super::devices::{ParamWriter, index_of, indexed, use_param_writer};
+    pub use super::devices::{
+        FamilyLane, ParamWriter, index_of, indexed, use_family_lane, use_param_writer,
+    };
     pub use super::ui::{Choice, ChoiceOption, EmptyState};
 }
 #[cfg(feature = "server")]

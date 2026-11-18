@@ -42,8 +42,11 @@ use patchbay::server::{Engine, EngineOptions};
 use patchbay::ui::{EngineLink, Page, PatchbayApp, Shell, View};
 
 /// The clients the views read, made before the first render.
-static CLIENTS: std::sync::OnceLock<(PatchbayServiceClient, PatchbayServiceStreamClient)> =
-    std::sync::OnceLock::new();
+static CLIENTS: std::sync::OnceLock<(
+    PatchbayServiceClient,
+    PatchbayServiceStreamClient,
+    patchbay::lanes::Lanes,
+)> = std::sync::OnceLock::new();
 
 thread_local! {
     /// The view the current document opens on.
@@ -84,11 +87,16 @@ fn main() {
                 std::env::set_var("PATCHBAY_CONFIG", scratch.join("patchbay.styx"));
                 std::env::set_var("PATCHBAY_DEVICES", "off");
                 std::env::set_var("PATCHBAY_PIPEWIRE", "off");
+                std::env::set_var("PATCHBAY_LAN", "off");
             }
             let mut opts = EngineOptions::new(format!("127.0.0.1:{}", free_port()));
             opts.discover_peers = false;
             let engine = Engine::start_or_attach_blocking(opts).expect("a scratch engine");
-            let clients = (engine.client().clone(), engine.stream_client().clone());
+            let clients = (
+                engine.client().clone(),
+                engine.stream_client().clone(),
+                engine.lanes().clone(),
+            );
             let client = clients.0.clone();
             runtime
                 .block_on(client.save_mix(shot_mix()))
@@ -193,9 +201,9 @@ fn shoot(out: &str, w: u32, h: u32) {
 #[component]
 fn Shot() -> Element {
     use_hook(|| {
-        if let Some((client, stream)) = CLIENTS.get() {
+        if let Some((client, stream, lanes)) = CLIENTS.get() {
             provide_context(Shell {
-                home: EngineLink::new(client.clone(), stream.clone()),
+                home: EngineLink::new(client.clone(), stream.clone(), lanes.clone()),
                 dial: None,
                 on_home_lost: Callback::new(|()| {}),
                 // Native, as in Architect's window, and saving nothing.

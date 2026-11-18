@@ -251,6 +251,20 @@ pub trait DeviceFamily: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// Its own RPC section on the engine's router, beside the core's
+    /// `PatchbayService`: `router.with(descriptor, server)`. A client
+    /// reaches it as a lane on its one connection to the engine
+    /// ([`crate::lanes::Lanes::open`]). The default adds nothing: a family
+    /// whose devices the generic device RPCs cover needs no section.
+    ///
+    /// Every method of a section is reachable by whoever reaches the
+    /// engine: classify each as observing or changing (see
+    /// [`crate::lanes`] on remote peers) and keep the changing ones as
+    /// guarded as the core's own writes.
+    fn routes(&self, router: architect::LayerRouter) -> architect::LayerRouter {
+        router
+    }
+
     /// Find (when `config.addr` is empty) and connect one device. Fails
     /// soft, telling "found nothing" ([`ConnectError::NotFound`]) from
     /// "found but unreachable" ([`ConnectError::Failed`]).

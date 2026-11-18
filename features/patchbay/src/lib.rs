@@ -15,6 +15,8 @@ pub mod home;
 #[cfg(feature = "server")]
 pub mod host;
 pub mod lan;
+#[cfg(any(feature = "server", feature = "ui"))]
+pub mod lanes;
 pub mod proto;
 #[cfg(feature = "server")]
 pub mod report;

@@ -20,7 +20,7 @@ tcc-spi = []
 # For a device family's own tests: `family::ConnectCtx::in_memory()`, a
 # connect context over an in-memory discovery cache, no engine needed.
 test-util = ["server"]
-ui = ["dep:dioxus", "dep:futures-timer", "dep:futures-util", "dep:music-catalog", "dep:tracing"]
+ui = ["dep:dioxus", "dep:vox-core", "dep:futures-timer", "dep:futures-util", "dep:music-catalog", "dep:tracing"]
 vox = []
 
 [dependencies]
