@@ -94,6 +94,8 @@ cargo run -p patchbay --features server --example snapshot   # read-only live-gr
 
 CI (`.github/workflows/checks.yml`) runs on `ubuntu-latest` in the nix
 dev shell (`nix develop`, the same rustc as devenv's); `Build + test` is the required check.
+It runs on ready PRs only: on a draft both jobs are skipped. To get checks,
+mark the PR ready (`gh pr ready`); it runs then and on every push after.
 
 ## Branches, PRs and releases: fleet release flow v4
 

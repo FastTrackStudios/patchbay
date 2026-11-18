@@ -15,12 +15,16 @@
 # aggregator): it never skips, and fails unless the checks job succeeded.
 # `just release-tag` and the tag guard require it green on a release.
 # `just ci` runs the same steps locally.
+#
+# A DRAFT PR runs nothing: both jobs are skipped. Marking the PR ready
+# (`ready_for_review`) starts the run; every push after that runs again.
 
 name: checks
 
 on:
   pull_request:
     branches: [main, "release/**"]
+    types: [opened, synchronize, reopened, ready_for_review]
   # Hotfix lines only: `release/pending` is a PR head, decided by its PR's
   # run (the release guard), not a full push build of its own.
   push:
@@ -44,6 +48,7 @@ env:
 jobs:
   checks:
     name: Checks
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","thebattleship"]') }}
     timeout-minutes: 90
     steps:
@@ -136,13 +141,14 @@ jobs:
         run: ${NIX_DEV} cargo test -p patchbay --features server --test engine_sandbox --locked
 
   # The REQUIRED check. A required check that is skipped counts as passing,
-  # so this never skips: it fails unless the checks job succeeded.
+  # so this skips only on a draft PR (which cannot merge, and whose checks
+  # job is skipped too): otherwise it fails unless the checks job succeeded.
   build-and-test:
     name: Build + test
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [checks]
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     steps:
       - name: The checks job succeeded
         env:
