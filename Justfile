@@ -1,7 +1,8 @@
 # patchbay — recipes
 # Run commands: just <recipe-name>
 #
-# These assume the dev shell (`nix develop`, or direnv via .envrc). Outside
+# These assume the dev shell (`devenv shell`, or direnv via .envrc; `nix
+# develop` has the same toolchain). Outside
 # it the Linux build needs pipewire/gtk/webkit headers, and the
 # pactl-backed features quietly do nothing.
 

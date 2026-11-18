@@ -424,7 +424,13 @@ around it, and builds on its own. Its external dependencies:
 
 ## Development and releases
 
-`nix develop` (or direnv) gives the pinned toolchain on Linux and macOS.
+Builds go through the fleet's devenv shell: `devenv shell` (or direnv:
+`direnv allow`, `.envrc` loads it), or `devenv shell -- <command>`. It gives
+Rust 1.99.1 at the same nix store path as every FastTrackStudios repo (so
+kache shares builds across them), mold, cargo-rail and, on Linux, PipeWire and
+the desktop libraries. `devenv shell -- fleet-doctor` prints the rustc path,
+the compiler wrapper and the linker, and fails off the fleet pin.
+`nix develop` (what CI runs) has the same toolchain, from devenv-fleet.
 `just check`, `just test`, `just fmt`; `just ci` runs what CI runs.
 Every PR into `main` carries a change file (`cargo rail change add …`), and
 releases are CalVer tags (`vYY.M.MICRO`) cut with `just release-prepare`

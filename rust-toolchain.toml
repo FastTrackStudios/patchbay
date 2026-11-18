@@ -1,6 +1,7 @@
-# The fleet's compiler (FastTrackStudios/studio pins the same). The nix
-# shell builds its toolchain from this file, so the components and the
-# browser remote's target are listed here.
+# The fleet's compiler, for rustup (anyone outside the devenv shell). The
+# devenv shell and the flake take the same 1.99.1 from devenv-fleet (with
+# these components and the browser remote's wasm target), a nix store path
+# every fleet repo shares: move it there, with the fleet, never here alone.
 [toolchain]
 channel = "1.99.1"
 components = ["rustfmt", "clippy", "rust-src"]

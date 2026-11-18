@@ -65,9 +65,20 @@ docs/                   devices.md, host-backends.md, yamaha-tf-rcp.md
 
 ## Build and test
 
-Dev shell: `nix develop` (or direnv `use flake`) on Linux and macOS — the
-pinned Rust 1.94 (rust-toolchain.toml) with wasm, cargo-rail, just; on
-Linux also PipeWire, wireplumber, pactl and the webkit/gtk desktop libs.
+Dev shell: the fleet's devenv shell, `devenv shell -- <command>` or direnv
+(`.envrc`: `eval "$(devenv direnvrc)"`, then `use devenv`), on Linux and
+macOS. devenv-fleet's `rust` module (devenv.yaml) is the toolchain: Rust
+1.99.1 with wasm, mold, cargo-rail, just, at the fleet's rustc store path, so
+kache shares builds with every fleet repo; devenv.nix adds PipeWire,
+wireplumber, pactl and the webkit/gtk desktop libs on Linux. Check it with
+`devenv shell -- fleet-doctor` (rustc path, wrapper, linker; fails off the
+pin). Move the pins only with devenv-fleet's `scripts/fleet-pins --write .`,
+never by hand; never set or unset `RUSTC_WRAPPER` or `CARGO_HOME`.
+flake.nix's `nix develop` shell (CI and the release) takes the same
+toolchain and cargo-rail from devenv-fleet (move its `devenv-fleet` input
+with devenv.yaml); keep its package list in step with devenv.nix. Its
+libraries stay on its own nixpkgs on purpose (flake.nix says why), so
+`fleet-pins .` reports flake.lock's nixpkgs as off the pins: expected.
 
 ```bash
 just check        # cargo check --workspace --all-targets
@@ -82,7 +93,7 @@ cargo run -p patchbay --features server --example snapshot   # read-only live-gr
 ```
 
 CI (`.github/workflows/checks.yml`) runs on `ubuntu-latest` in the nix
-dev shell; `Build + test` is the required check.
+dev shell (`nix develop`, the same rustc as devenv's); `Build + test` is the required check.
 
 ## Branches, PRs and releases: fleet release flow v4
 

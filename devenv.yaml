@@ -1,0 +1,23 @@
+# The dev environment (devenv 2.4): `devenv shell`, or direnv through .envrc.
+# nixpkgs and rust-overlay are devenv-fleet's pins.json revisions, so this
+# shell's rustc is the same store path as every fleet repo's and CI's.
+# Move them only with devenv-fleet: its `scripts/fleet-pins --write .`
+# rewrites this file and the lock (and checks flake.lock, which follows the
+# same devenv-fleet revision).
+require_version: ">=2.4.0"
+inputs:
+  nixpkgs:
+    url: github:NixOS/nixpkgs/8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe
+  rust-overlay:
+    url: github:oxalica/rust-overlay/5b9f1198b59bcb31c5c3250b332e7d77590e6306
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+    overlays:
+      - default
+  devenv-fleet:
+    url: github:FastTrackStudios/devenv-fleet/c4ddec850ad97b5da74c746bff39a988f02b13a4
+    flake: false
+imports:
+  - devenv-fleet/rust
+  - devenv-fleet/darwin
