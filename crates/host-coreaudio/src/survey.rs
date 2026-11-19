@@ -52,6 +52,7 @@ pub enum DefaultRole {
 }
 
 impl DefaultRole {
+    #[cfg(target_os = "macos")]
     const fn of(output: bool, input: bool) -> Self {
         match (output, input) {
             (true, true) => Self::Both,

@@ -27,6 +27,7 @@ pub const KIND_LOOPBACK: &str = "loopback";
 
 pub mod coreaudio_types;
 pub mod plugin;
+mod sys;
 
 /// Tests touch process-global driver state; they take this lock.
 #[cfg(test)]

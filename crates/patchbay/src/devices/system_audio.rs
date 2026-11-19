@@ -56,6 +56,13 @@ type Defaults = Box<dyn Fn(bool) -> Option<String> + Send + Sync>;
 
 enum Source {
     /// A `HostBackend` (Core Audio) plus its default-device lookup.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            dead_code,
+            reason = "only Core Audio is a HostBackend until host-pipewire lands"
+        )
+    )]
     Host {
         backend: Arc<dyn DynHostBackend>,
         defaults: Defaults,
@@ -159,6 +166,13 @@ impl SystemAudioAdapter {
     }
 }
 
+#[cfg_attr(
+    not(target_os = "macos"),
+    expect(
+        dead_code,
+        reason = "only Core Audio is a HostBackend until host-pipewire lands"
+    )
+)]
 async fn forward_host_events(
     mut rx: broadcast::Receiver<patchbay_host::HostEvent>,
     tx: broadcast::Sender<DeviceEvent>,

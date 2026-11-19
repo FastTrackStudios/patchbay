@@ -19,6 +19,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 
 use crate::coreaudio_types::*;
+use crate::sys::{cf_release, cfdata_bytes, cfdata_create, cfstring_create, host_ticks};
 use crate::{
     DRIVER_STATE, RUNTIME_STATS, STORAGE_KEY_APPLIED_STATE, applied_as_desired, applied_state_json,
     configuration_summary_json, default_desired_state, perform_device_configuration_change,
@@ -1276,9 +1277,7 @@ unsafe extern "C" fn plugin_start_io(
         // Arm the device clock: the zero timestamp must advance in real
         // time from a host-clock anchor (the device IS the clock source
         // for its IO graph).
-        let mut timebase = MachTimebaseInfo::default();
-        // SAFETY: mach_timebase_info with a valid out pointer is always safe.
-        let _ = unsafe { mach_timebase_info(&mut timebase) };
+        let timebase = crate::sys::timebase();
         let period_ns = ZERO_TS_PERIOD_FRAMES.saturating_mul(1_000_000_000) / sample_rate;
         let ticks_per_period = if timebase.numer == 0 {
             period_ns
@@ -1289,9 +1288,7 @@ unsafe extern "C" fn plugin_start_io(
             .store(ZERO_TS_PERIOD_FRAMES, Ordering::Relaxed);
         rt.host_ticks_per_period
             .store(ticks_per_period.max(1), Ordering::Relaxed);
-        // SAFETY: mach_absolute_time is always safe to call on macOS.
-        rt.anchor_host_time
-            .store(unsafe { mach_absolute_time() }, Ordering::Relaxed);
+        rt.anchor_host_time.store(host_ticks(), Ordering::Relaxed);
         rt.zero_ts_seed.fetch_add(1, Ordering::Release);
     }
     let mut reg = PLUGIN.object_registry.lock();
@@ -1344,8 +1341,7 @@ unsafe extern "C" fn plugin_get_zero_time_stamp(
     // The device is the clock source for its IO graph: report the most
     // recent period boundary as a (sample_time, host_time) pair derived from
     // the host clock. All loads are atomics — this path stays RT-safe.
-    // SAFETY: mach_absolute_time is always safe to call on macOS.
-    let now = unsafe { mach_absolute_time() };
+    let now = host_ticks();
     let (sample_time, host_time) = if anchor == 0 || ticks_per_period == 0 {
         (0.0, now)
     } else {
@@ -2252,15 +2248,10 @@ unsafe fn set_desired_state_from_raw(data: *const c_void, data_size: UInt32) -> 
     }
 
     // SAFETY: `cf_data` is a valid CFDataRef provided by the host via SetPropertyData.
-    let byte_ptr = unsafe { CFDataGetBytePtr(cf_data) };
-    let byte_len = unsafe { CFDataGetLength(cf_data) };
-    if byte_ptr.is_null() || byte_len <= 0 {
+    let Some(bytes) = (unsafe { cfdata_bytes(cf_data) }) else {
         return K_AUDIO_HARDWARE_ILLEGAL_OPERATION_ERROR;
-    }
-
-    // SAFETY: CFDataGetBytePtr returns a pointer to `byte_len` contiguous bytes.
-    let bytes = unsafe { core::slice::from_raw_parts(byte_ptr, byte_len as usize) };
-    let json_str = match core::str::from_utf8(bytes) {
+    };
+    let json_str = match core::str::from_utf8(&bytes) {
         Ok(s) => s,
         Err(_) => return K_AUDIO_HARDWARE_ILLEGAL_OPERATION_ERROR,
     };
@@ -2327,8 +2318,8 @@ fn persist_applied_state() {
     // release after the call (the host copies what it keeps).
     unsafe {
         let _ = ((*host).write_to_storage)(host, key, data);
-        CFRelease(data);
-        CFRelease(key);
+        cf_release(data);
+        cf_release(key);
     }
 }
 
@@ -2341,23 +2332,15 @@ fn load_persisted_state() -> Option<String> {
     // +1 property list (or stays null).
     let status = unsafe { ((*host).copy_from_storage)(host, key, &mut out) };
     // SAFETY: we own `key`.
-    unsafe { CFRelease(key) };
+    unsafe { cf_release(key) };
     if status != K_AUDIO_HARDWARE_NO_ERROR || out.is_null() {
         return None;
     }
-    // SAFETY: we stored a CFData; `out` is +1 and released below.
+    // SAFETY: we stored a CFData; `out` is +1 and released here.
     let json = unsafe {
-        let ptr = CFDataGetBytePtr(out);
-        let len = CFDataGetLength(out);
-        let text = if ptr.is_null() || len <= 0 {
-            None
-        } else {
-            std::str::from_utf8(core::slice::from_raw_parts(ptr, len as usize))
-                .ok()
-                .map(str::to_owned)
-        };
-        CFRelease(out);
-        text
+        let bytes = cfdata_bytes(out);
+        cf_release(out);
+        bytes.and_then(|b| String::from_utf8(b).ok())
     };
     json.filter(|j| serde_json::from_str::<crate::DesiredState>(j).is_ok())
 }
@@ -2539,60 +2522,6 @@ unsafe fn write_json_as_cfdata(
         *out_data_size = needed as UInt32;
     }
     K_AUDIO_HARDWARE_NO_ERROR
-}
-
-// ===========================================================================
-// CoreFoundation helpers (linked via build.rs)
-// ===========================================================================
-
-#[link(name = "CoreFoundation", kind = "framework")]
-unsafe extern "C" {
-    fn CFStringCreateWithBytes(
-        alloc: *const c_void,
-        bytes: *const u8,
-        num_bytes: isize,
-        encoding: u32,
-        is_external_representation: u8,
-    ) -> *const c_void;
-
-    fn CFDataCreate(alloc: *const c_void, bytes: *const u8, length: isize) -> *const c_void;
-
-    fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
-
-    fn CFDataGetLength(data: *const c_void) -> isize;
-
-    fn CFRelease(cf: *const c_void);
-
-    fn mach_absolute_time() -> u64;
-
-    fn mach_timebase_info(info: *mut MachTimebaseInfo) -> i32;
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
-struct MachTimebaseInfo {
-    numer: u32,
-    denom: u32,
-}
-
-const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
-
-fn cfstring_create(s: &str) -> *const c_void {
-    // SAFETY: FFI call to CoreFoundation with valid UTF-8 bytes.
-    unsafe {
-        CFStringCreateWithBytes(
-            core::ptr::null(),
-            s.as_ptr(),
-            s.len() as isize,
-            K_CF_STRING_ENCODING_UTF8,
-            0,
-        )
-    }
-}
-
-fn cfdata_create(bytes: &[u8]) -> *const c_void {
-    // SAFETY: FFI call to CoreFoundation with valid byte slice.
-    unsafe { CFDataCreate(core::ptr::null(), bytes.as_ptr(), bytes.len() as isize) }
 }
 
 // ===========================================================================

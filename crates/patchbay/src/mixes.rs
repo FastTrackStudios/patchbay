@@ -226,14 +226,21 @@ mod platform {
 }
 
 #[cfg(not(target_os = "macos"))]
+// `Running`/`Meters` are empty enums: `start` never returns one off
+// macOS, so every method body is the empty match.
+#[expect(
+    clippy::uninhabited_references,
+    reason = "the references can never exist; `match *x {}` is how the type system says so"
+)]
 mod platform {
+    use patchbay_host::HostError;
     use patchbay_host_coreaudio::survey::Survey;
     use patchbay_proto::MixConfig;
 
     /// Never constructed off macOS.
     pub(super) enum Running {}
 
-    pub(super) fn status(
+    pub(super) const fn status(
         r: &Running,
     ) -> (
         Vec<patchbay_proto::MixSourceStatus>,
@@ -243,16 +250,16 @@ mod platform {
     }
 
     impl Running {
-        pub(super) fn set_source(&self, _: usize, _: f32, _: bool) -> Result<(), String> {
+        pub(super) const fn set_source(&self, _: usize, _: f32, _: bool) -> Result<(), HostError> {
             match *self {}
         }
-        pub(super) fn set_monitor(&self, _: usize, _: f32, _: bool) -> Result<(), String> {
+        pub(super) const fn set_monitor(&self, _: usize, _: f32, _: bool) -> Result<(), HostError> {
             match *self {}
         }
-        pub(super) fn take_source_peaks(&self) -> Vec<Vec<f32>> {
+        pub(super) const fn take_source_peaks(&self) -> Vec<Vec<f32>> {
             match *self {}
         }
-        pub(super) fn take_monitor_peaks(&self) -> Vec<Vec<f32>> {
+        pub(super) const fn take_monitor_peaks(&self) -> Vec<Vec<f32>> {
             match *self {}
         }
     }
@@ -263,7 +270,7 @@ mod platform {
         Err("mixes need macOS (on Linux the PipeWire graph is the router)".to_owned())
     }
 
-    pub(super) fn signature(_: &MixConfig, _: &Survey) -> String {
+    pub(super) const fn signature(_: &MixConfig, _: &Survey) -> String {
         String::new()
     }
 
@@ -280,7 +287,7 @@ mod platform {
         Err("app metering needs macOS".to_owned())
     }
 
-    pub(super) fn meter_peaks(m: &Meters) -> Vec<patchbay_proto::AppMeter> {
+    pub(super) const fn meter_peaks(m: &Meters) -> Vec<patchbay_proto::AppMeter> {
         match *m {}
     }
 }
@@ -930,7 +937,7 @@ mod virtual_devices {
         Err(unsupported())
     }
 
-    pub(super) fn aggregates() -> Vec<patchbay_proto::AggregateView> {
+    pub(super) const fn aggregates() -> Vec<patchbay_proto::AggregateView> {
         Vec::new()
     }
 
